@@ -59,6 +59,15 @@ SEEDS = {
         ],
         'update_script': SCRIPT_PATH / 'mold-update.sh',
     },
+    'node': {
+        'depends': ['configs'],
+        'include': [
+            '.cache/node-versions.json',
+            '.npm',
+            'opt/node',
+        ],
+        'update_script': SCRIPT_PATH / 'node-update.sh',
+    },
     'python': {
         'include': [
             '.pylama.ini',
@@ -266,8 +275,8 @@ def new_environment(name, seeds=DEFAULT_SEEDS):
     if work_dir.exists() or (HOME_DIRS / name).exists():
         print(f"error: environment {name!s} exists (did you mean '{SCRIPT_NAME} reset'?)")
         sys.exit(1)
-    work_dir.mkdir(parents=True)
     update_seeds()
+    work_dir.mkdir(parents=True)
     run(name, seeds=seeds, init=(SCRIPT_PATH / 'dev-init.sh'))
 
 def random_names():
@@ -288,8 +297,8 @@ def create_enter_tmp_environment(seeds=DEFAULT_SEEDS):
     for name in random_names():
         name = f'tmp-{name}'
         if not (WORK_DIRS / name).exists() and not (HOME_DIRS / name).exists():
-            (WORK_DIRS / name).mkdir(parents=True)
             update_seeds()
+            (WORK_DIRS / name).mkdir(parents=True)
             run(name, seeds=seeds, init=(SCRIPT_PATH / 'dev-init.sh'))
             run(name)
             return
@@ -381,7 +390,7 @@ def run(name, seeds=[], init=False, exec=False):
             '--seccomp', str(seccomp.fileno()),
             '--chdir', HOME / name,
             '--',
-            *(['/dev/shm/init.sh'] if init else
+            *([os.environ['SHELL'], '-c', '/dev/shm/init.sh'] if init else
               [os.environ['SHELL'], '-c', shlex.join(exec)] if exec else
               [os.environ['SHELL']])
         ],
