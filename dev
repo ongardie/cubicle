@@ -12,13 +12,15 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.request
 
 HOSTNAME = socket.gethostname()
 HOME = Path.home()
+CACHE_DIR = Path(os.environ.get('XDG_CACHE_HOME', HOME / '.cache'))
 SCRIPT_NAME = os.path.basename(sys.argv[0])
 SCRIPT_PATH = Path(os.path.dirname(os.path.realpath(__file__)))
 WORK_DIRS = (SCRIPT_PATH / 'work')
-HOME_DIRS = HOME / '.cache' / 'boxes' / 'home'
+HOME_DIRS = CACHE_DIR / 'boxes' / 'home'
 
 SEEDS = {
     'configs': {
@@ -280,6 +282,27 @@ def new_environment(name, seeds=DEFAULT_SEEDS):
     run(name, seeds=seeds, init=(SCRIPT_PATH / 'dev-init.sh'))
 
 def random_names():
+    # 1. Prefer the EFF short word list. See https://www.eff.org/dice for more
+    # info.
+    words = None
+    try:
+        words = open(CACHE_DIR / 'eff_short_wordlist_1.txt').readlines()
+    except FileNotFoundError:
+        url = 'https://www.eff.org/files/2016/09/08/eff_short_wordlist_1.txt'
+        try:
+            words = urllib.request.urlopen(url).read().decode('utf-8')
+        except (urllib.request.HTTPError, urllib.request.URLError) as e:
+            print(f'Warning: failed to download EFF short wordlist from {url}: {e}')
+        else:
+            open(CACHE_DIR / 'eff_short_wordlist_1.txt', 'w').write(words)
+            words = words.split('\n')
+    if words is not None:
+        for _ in range(200):
+            word = random.choice(words).split()[1]
+            if len(word) <= 10 and word.islower() and word.isalpha():
+                yield word
+
+    # 2. /usr/share/dict/words
     try:
         words = open('/usr/share/dict/words').readlines()
     except FileNotFoundError:
@@ -289,8 +312,12 @@ def random_names():
             word = random.choice(words).strip()
             if len(word) <= 6 and word.islower() and word.isalpha():
                 yield word
+
+    # 3. Random 6 letters
     for _ in range(20):
         yield ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=6))
+
+    # 4. Random 32 letters
     yield ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=32))
 
 def create_enter_tmp_environment(seeds=DEFAULT_SEEDS):
@@ -386,7 +413,7 @@ def run(name, seeds=[], init=False, exec=False):
             '--tmpfs', '/tmp',
             *ro_bind_try('/usr'),
             *ro_bind_try('/var/lib/apt/lists/'),
-            *ro_bind_try('/var/lib/dpkg/status'),
+            *ro_bind_try('/var/lib/dpkg/'),
             '--seccomp', str(seccomp.fileno()),
             '--chdir', HOME / name,
             '--',
