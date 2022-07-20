@@ -6,6 +6,7 @@ import json
 import os
 import random
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -140,6 +141,12 @@ def enter_environment(name):
         print(f"error: environment {name!s} does not exist")
         sys.exit(1)
     run(name)
+
+def exec_environment(name, command, args):
+    if not (WORK_DIRS / name).exists():
+        print(f"error: environment {name!s} does not exist")
+        sys.exit(1)
+    run(name, exec=([command] + args))
 
 def du(path):
     result = subprocess.run(
@@ -320,8 +327,8 @@ def ro_bind_try(a, b=None):
     else:
         return ['--ro-bind-try', a, b]
 
-def run(name, seeds=[], init=False):
-    #print(f'run({name}, seeds={seeds}, init={init}')
+def run(name, seeds=[], init=False, exec=False):
+    #print(f'run({name}, seeds={seeds}, init={init}, exec={exec}')
     host_home = HOME_DIRS / name
     host_work = WORK_DIRS / name
 
@@ -374,7 +381,9 @@ def run(name, seeds=[], init=False):
             '--seccomp', str(seccomp.fileno()),
             '--chdir', HOME / name,
             '--',
-            '/dev/shm/init.sh' if init else os.environ['SHELL']
+            *(['/dev/shm/init.sh'] if init else
+              [os.environ['SHELL'], '-c', shlex.join(exec)] if exec else
+              [os.environ['SHELL']])
         ],
         env={
             'DISPLAY': os.environ['DISPLAY'],
@@ -416,33 +425,37 @@ def seed_list(seeds):
     return seeds
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Manage sandboxed environments')
+    parser = argparse.ArgumentParser(description='Manage sandboxed environments', allow_abbrev=False)
     subparsers = parser.add_subparsers(title='commands', dest='command', metavar=None)
 
-    parser_enter = subparsers.add_parser('enter', help='Run a shell in an existing environment')
-    parser_enter.add_argument('name')
+    parser_enter = subparsers.add_parser('enter', help='Run a shell in an existing environment', allow_abbrev=False)
+    parser_enter.add_argument('name', help='Environment name')
 
-    parser_list = subparsers.add_parser('list', help='Show existing environments')
+    parser_exec = subparsers.add_parser('exec', help='Run a command in an existing environment', allow_abbrev=False)
+    parser_exec.add_argument('name', help='Environment name')
+    parser_exec.add_argument('exec', metavar='command', help='Command to run')
+    parser_exec.add_argument('args', nargs='*', help='Arguments to command (use "--" before command to disambiguate)')
+
+    parser_list = subparsers.add_parser('list', help='Show existing environments', allow_abbrev=False)
     parser_list.add_argument('--format', choices=['default', 'json', 'names'], help='Set output format')
 
-    parser_new = subparsers.add_parser('new', help='Create a new environment')
+    parser_new = subparsers.add_parser('new', help='Create a new environment', allow_abbrev=False)
     parser_new.add_argument('--enter', action='store_true', help='Run a shell in new environment')
-    parser_new.add_argument('--seeds', type=seed_list, default='default')
-    parser_new.add_argument('name')
+    parser_new.add_argument('--seeds', type=seed_list, default='default', help='Set(s) of files to inject into home directory, comma-separated')
+    parser_new.add_argument('name', help='Environment name')
 
-    parser_purge = subparsers.add_parser('purge', help='Delete an environment and its work directory')
-    parser_purge.add_argument('name', nargs='+')
+    parser_purge = subparsers.add_parser('purge', help='Delete an environment and its work directory', allow_abbrev=False)
+    parser_purge.add_argument('name', nargs='+', help='Environment name(s)')
 
-    parser_reset = subparsers.add_parser('reset', help='Recreate an environment (keeping its work directory)')
+    parser_reset = subparsers.add_parser('reset', help='Recreate an environment (keeping its work directory)', allow_abbrev=False)
     parser_reset.add_argument('--clean', action='store_true', help='Remove home directory and do not recreate it')
-    parser_reset.add_argument('--seeds', type=seed_list, default='default')
-    parser_reset.add_argument('name', nargs='+')
+    parser_reset.add_argument('--seeds', type=seed_list, default='default', help='Sets of files to inject into home directory, comma-separated')
+    parser_reset.add_argument('name', nargs='+', help='Environment name(s)')
 
-    parser_tmp = subparsers.add_parser('tmp', help='Create and enter a new temporary environment')
+    parser_tmp = subparsers.add_parser('tmp', help='Create and enter a new temporary environment', allow_abbrev=False)
     parser_tmp.add_argument('--seeds', type=seed_list, default='default')
 
     # TODO: rename
-    # TODO: exec
 
     args = parser.parse_args()
     if args.command is None:
@@ -454,6 +467,8 @@ if __name__ == '__main__':
     args = parse_args()
     if args.command == 'enter':
         enter_environment(name=args.name)
+    elif args.command == 'exec':
+        exec_environment(name=args.name, command=args.exec, args=args.args)
     elif args.command == 'list':
         list_environments(format=args.format)
     elif args.command == 'new':

@@ -7,6 +7,10 @@ if [ -f /dev/shm/seed.tar ]; then
     rm /dev/shm/seed.tar
 fi
 
+if [ -f ~/.profile ]; then
+    . ~/.profile
+fi
+
 if [ ! -f ~/.config/VSCodium/User/settings.json ] && [ -f ~/configs/vscodium-settings.json ]; then
     mkdir -p ~/.config/VSCodium/User
     (
