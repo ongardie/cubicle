@@ -1,0 +1,79 @@
+#compdef dev
+
+_dev() {
+    local line
+
+    _arguments -C \
+        "-h[Show help information]" \
+        "--help[Show help information]" \
+        "1: :((
+            enter\:'Run a shell in an existing environment'
+            list\:'Show existing environments'
+            new\:'Create a new environment'
+            purge\:'Delete an environment and its work directory'
+            reset\:'Recreate an environment (keeping its work directory)'
+            tmp\:'Create and enter a new temporary environment'
+        ))" \
+        "*::arg:->args"
+
+    case $line[1] in
+        enter) _dev_enter ;;
+        list) _dev_list ;;
+        new) _dev_new ;;
+        purge) _dev_purge ;;
+        reset) _dev_reset ;;
+        tmp) _dev_tmp ;;
+    esac
+}
+
+_dev_enter() {
+    _arguments \
+        "-h[Show help information]" \
+        "--help[Show help information]" \
+        "1: name[environment name]:_dev_envs"
+}
+
+_dev_list() {
+    _arguments \
+        "--format[Set output format]:format:(default json names)" \
+        "-h[Show help information]" \
+        "--help[Show help information]"
+}
+
+_dev_new() {
+    _arguments \
+        "--enter[Run a shell in new environment]" \
+        "-h[Show help information]" \
+        "--help[Show help information]" \
+        "--seeds[Comma-separated names of archives to mix in]:seeds:()" \
+        "*: name[environment name]:( )"
+}
+
+_dev_purge() {
+    _arguments \
+        "-h[Show help information]" \
+        "--help[Show help information]" \
+        "*: name[environment name]:_dev_envs"
+}
+
+_dev_reset() {
+    _arguments \
+        "--clean[Remove home directory and do not recreate it]" \
+        "-h[Show help information]" \
+        "--help[Show help information]" \
+        "--seeds[Comma-separated names of archives to mix in]:seeds:( )" \
+        "*: name[environment name]:_dev_envs"
+}
+
+_dev_tmp() {
+    _arguments \
+        "-h[Show help information]" \
+        "--help[Show help information]" \
+        "--seeds[Comma-separated names of archives to mix in]:seeds:()"
+}
+
+_dev_envs() {
+    _values -w 'environments' $(dev list --format=names)
+}
+
+_dev
