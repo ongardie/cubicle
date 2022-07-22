@@ -190,23 +190,23 @@ def try_iterdir(path):
 
 def rel_time(duration):
     duration /= 60
-    if duration < 60:
+    if duration < 59.5:
         return f"{duration:.0f} minutes"
     duration /= 60
-    if duration < 24:
+    if duration < 23.5:
         return f"{duration:.0f} hours"
     duration /= 24
     return f"{duration:.0f} days"
 
 
 def si_bytes(size):
-    if size < 1000:
+    if size < 1_000:
         return f"{size} B"
-    if size < 999950:
+    if size < 999_950:
         return f"{size/1e3:.1f} kB"
-    if size < 999950 * 1e3:
+    if size < 999_950 * 1e3:
         return f"{size/1e6:.1f} MB"
-    if size < 999950 * 1e6:
+    if size < 999_950 * 1e6:
         return f"{size/1e9:.1f} GB"
     return f"{size/1e12:.1f} TB"
 
