@@ -251,7 +251,7 @@ def list_environments(format="default"):
     else:
         nw = max([10] + [len(name) for name in envs])
         print(
-            "{:<{nw}} | {:^21} | {:^21}".format(
+            "{:<{nw}} | {:^24} | {:^24}".format(
                 "",
                 "home directory",
                 "work directory",
@@ -259,7 +259,7 @@ def list_environments(format="default"):
             )
         )
         print(
-            "{:<{nw}} | {:>10} {:>10} | {:>10} {:>10}".format(
+            "{:<{nw}} | {:>10} {:>13} | {:>10} {:>13}".format(
                 "name",
                 "size",
                 "modified",
@@ -268,7 +268,7 @@ def list_environments(format="default"):
                 nw=nw,
             )
         )
-        print("{0:-<{nw}} + {0:-<10} {0:-<10} + {0:-<10} {0:-<10}".format("", nw=nw))
+        print("{0:-<{nw}} + {0:-<10} {0:-<13} + {0:-<10} {0:-<13}".format("", nw=nw))
         for name in sorted(envs):
             env = envs[name]
             if "home_dir_size" in env:
@@ -284,7 +284,7 @@ def list_environments(format="default"):
             else:
                 work_dir_size = "N/A"
             print(
-                "{:<{nw}} | {:>10} {:>10} | {:>10} {:>10}".format(
+                "{:<{nw}} | {:>10} {:>13} | {:>10} {:>13}".format(
                     name,
                     home_dir_size,
                     rel_time(now - env["home_dir_mtime"])
