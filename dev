@@ -42,6 +42,7 @@ SEEDS = {
     },
     'firefox': {
         'include': [
+            '.dev-init/firefox.sh',
             '.mozilla/firefox',
             'bin/firefox',
             'opt/firefox',
@@ -89,6 +90,7 @@ SEEDS = {
     },
     'vscodium': {
         'include': [
+            '.dev-init/vscodium.sh',
             '.vscode-oss',
             'bin/codium',
             'opt/vscodium',
@@ -401,6 +403,7 @@ def run(name, seeds=[], init=False, exec=False):
             *([] if seed is None else ['--file', str(seed.stdout.fileno()), '/dev/shm/seed.tar']),
             *ro_bind_try('/etc'),
             '--bind', host_home, HOME,
+            '--dir', HOME / '.dev-init',
             '--dir', HOME / 'bin',
             '--dir', HOME / 'opt',
             '--dir', HOME / 'tmp',

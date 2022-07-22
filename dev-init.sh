@@ -11,17 +11,11 @@ if [ -f ~/.profile ]; then
     . ~/.profile
 fi
 
-if [ ! -f ~/.config/VSCodium/User/settings.json ] && [ -f ~/configs/vscodium-settings.json ]; then
-    mkdir -p ~/.config/VSCodium/User
-    (
-        head -n -1 ~/configs/vscodium-settings.json
-        echo '  "security.workspace.trust.enabled": false,'
-        echo '}'
-    ) > ~/.config/VSCodium/User/settings.json
-fi
-
-# This writes to `~/.config/mimeapps.list`.
-xdg-mime default firefox-esr.desktop x-scheme-handler/https x-scheme-handler/http
+for f in ~/.dev-init/*; do
+    if [ -x "$f" ]; then
+      $f
+    fi
+done
 
 if [ -x ~/$SANDBOX/update.sh ]; then
     echo "Running ~/$SANDBOX/update.sh"
