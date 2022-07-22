@@ -8,6 +8,7 @@ _dev() {
         "--help[Show help information]" \
         "1: :((
             enter\:'Run a shell in an existing environment'
+            exec\:'Run a command in an existing environment'
             list\:'Show existing environments'
             new\:'Create a new environment'
             purge\:'Delete an environment and its work directory'
@@ -18,6 +19,7 @@ _dev() {
 
     case $line[1] in
         enter) _dev_enter ;;
+        exec) _dev_exec ;;
         list) _dev_list ;;
         new) _dev_new ;;
         purge) _dev_purge ;;
@@ -31,6 +33,15 @@ _dev_enter() {
         "-h[Show help information]" \
         "--help[Show help information]" \
         "1: name[environment name]:_dev_envs"
+}
+
+_dev_exec() {
+    _arguments \
+        "-h[Show help information]" \
+        "--help[Show help information]" \
+        "1: name[environment name]:_dev_envs" \
+        "2: command:( )" \
+        "*: arg:( )"
 }
 
 _dev_list() {
