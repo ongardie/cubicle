@@ -2,7 +2,7 @@
 
 import unittest
 
-from dev import flatten, rel_time, si_bytes
+from cubicle import flatten, rel_time, si_bytes
 
 
 class TestDev(unittest.TestCase):

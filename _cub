@@ -1,6 +1,6 @@
-#compdef dev
+#compdef cub
 
-_dev() {
+_cub() {
     local line
 
     _arguments -C \
@@ -18,40 +18,40 @@ _dev() {
         "*::arg:->args"
 
     case $line[1] in
-        enter) _dev_enter ;;
-        exec) _dev_exec ;;
-        list) _dev_list ;;
-        new) _dev_new ;;
-        purge) _dev_purge ;;
-        reset) _dev_reset ;;
-        tmp) _dev_tmp ;;
+        enter) _cub_enter ;;
+        exec) _cub_exec ;;
+        list) _cub_list ;;
+        new) _cub_new ;;
+        purge) _cub_purge ;;
+        reset) _cub_reset ;;
+        tmp) _cub_tmp ;;
     esac
 }
 
-_dev_enter() {
+_cub_enter() {
     _arguments \
         "-h[Show help information]" \
         "--help[Show help information]" \
-        "1: name[environment name]:_dev_envs"
+        "1: name[environment name]:_cub_envs"
 }
 
-_dev_exec() {
+_cub_exec() {
     _arguments \
         "-h[Show help information]" \
         "--help[Show help information]" \
-        "1: name[environment name]:_dev_envs" \
+        "1: name[environment name]:_cub_envs" \
         "2: command:( )" \
         "*: arg:( )"
 }
 
-_dev_list() {
+_cub_list() {
     _arguments \
         "--format[Set output format]:format:(default json names)" \
         "-h[Show help information]" \
         "--help[Show help information]"
 }
 
-_dev_new() {
+_cub_new() {
     _arguments \
         "--enter[Run a shell in new environment]" \
         "-h[Show help information]" \
@@ -60,31 +60,31 @@ _dev_new() {
         "*: name[environment name]:( )"
 }
 
-_dev_purge() {
+_cub_purge() {
     _arguments \
         "-h[Show help information]" \
         "--help[Show help information]" \
-        "*: name[environment name]:_dev_envs"
+        "*: name[environment name]:_cub_envs"
 }
 
-_dev_reset() {
+_cub_reset() {
     _arguments \
         "--clean[Remove home directory and do not recreate it]" \
         "-h[Show help information]" \
         "--help[Show help information]" \
         "--seeds[Comma-separated names of archives to mix in]:seeds:( )" \
-        "*: name[environment name]:_dev_envs"
+        "*: name[environment name]:_cub_envs"
 }
 
-_dev_tmp() {
+_cub_tmp() {
     _arguments \
         "-h[Show help information]" \
         "--help[Show help information]" \
         "--seeds[Comma-separated names of archives to mix in]:seeds:()"
 }
 
-_dev_envs() {
-    _values -w 'environments' $(dev list --format=names)
+_cub_envs() {
+    _values -w 'environments' $(cub list --format=names)
 }
 
-_dev
+_cub
