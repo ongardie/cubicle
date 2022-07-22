@@ -2,7 +2,7 @@
 
 import unittest
 
-from dev import rel_time, si_bytes
+from dev import flatten, rel_time, si_bytes
 
 
 class TestDev(unittest.TestCase):
@@ -34,6 +34,18 @@ class TestDev(unittest.TestCase):
         self.assertEqual(si_bytes(999_949_999_999), "999.9 GB")
         self.assertEqual(si_bytes(999_950_000_000), "1.0 TB")
         self.assertEqual(si_bytes(999_949_999_999_999), "999.9 TB")
+
+    def test_flatten(self):
+        self.assertEqual(flatten(1, 2, 3), [1, 2, 3])
+        self.assertEqual(flatten(1, ("a", "b", "c"), 3), [1, "a", "b", "c", 3])
+        self.assertEqual(flatten(1, ["a", "b", "c"], 3), [1, "a", "b", "c", 3])
+        self.assertEqual(flatten(1, [("a", ["b"]), "c"], 3), [1, "a", "b", "c", 3])
+        self.assertEqual(flatten([1, 2, 3]), [1, 2, 3])
+        self.assertEqual(flatten([1, ("a", "b", "c"), 3]), [1, "a", "b", "c", 3])
+        self.assertEqual(flatten([1, ["a", "b", "c"], 3]), [1, "a", "b", "c", 3])
+        self.assertEqual(flatten([1, [("a", ["b"]), "c"], 3]), [1, "a", "b", "c", 3])
+        self.assertEqual(flatten(1), [1])
+        self.assertEqual(flatten(), [])
 
 
 if __name__ == "__main__":

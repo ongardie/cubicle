@@ -393,11 +393,22 @@ def reset_environment(name, seeds=DEFAULT_SEEDS, clean=False):
         run(name, seeds=seeds, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
+def flatten(*l):
+    def gen(l):
+        for x in l:
+            if isinstance(x, (list, tuple)):
+                yield from gen(x)
+            else:
+                yield x
+
+    return list(gen(l))
+
+
 def ro_bind_try(a, b=None):
     if b is None:
-        return ["--ro-bind-try", a, a]
+        return ("--ro-bind-try", a, a)
     else:
-        return ["--ro-bind-try", a, b]
+        return ("--ro-bind-try", a, b)
 
 
 def run(name, seeds=[], init=False, exec=False):
@@ -424,71 +435,49 @@ def run(name, seeds=[], init=False, exec=False):
 
     seccomp = open(SCRIPT_PATH / "podman.bpf")
     bwrap = subprocess.Popen(
-        [
+        flatten(
             "bwrap",
             "--die-with-parent",
             "--unshare-cgroup",
             "--unshare-ipc",
             "--unshare-pid",
             "--unshare-uts",
-            "--hostname",
-            f"{name}.{HOSTNAME}",
-            "--symlink",
-            "/usr/bin",
-            "/bin",
-            "--dev",
-            "/dev",
-            *(ro_bind_try(init, "/dev/shm/init.sh") if init else []),
-            *(
+            ("--hostname", f"{name}.{HOSTNAME}"),
+            ("--symlink", "/usr/bin", "/bin"),
+            ("--dev", "/dev"),
+            (ro_bind_try(init, "/dev/shm/init.sh") if init else []),
+            (
                 []
                 if seed is None
                 else ["--file", str(seed.stdout.fileno()), "/dev/shm/seed.tar"]
             ),
-            *ro_bind_try("/etc"),
-            "--bind",
-            host_home,
-            HOME,
-            "--dir",
-            HOME / ".dev-init",
-            "--dir",
-            HOME / "bin",
-            "--dir",
-            HOME / "opt",
-            "--dir",
-            HOME / "tmp",
-            "--bind",
-            host_work,
-            HOME / name,
-            "--symlink",
-            "/usr/lib",
-            "/lib",
-            "--symlink",
-            "/usr/lib64",
-            "/lib64",
-            *ro_bind_try("/opt"),
-            "--proc",
-            "/proc",
-            "--symlink",
-            "/usr/sbin",
-            "/sbin",
-            "--tmpfs",
-            "/tmp",
-            *ro_bind_try("/usr"),
-            *ro_bind_try("/var/lib/apt/lists/"),
-            *ro_bind_try("/var/lib/dpkg/"),
-            "--seccomp",
-            str(seccomp.fileno()),
-            "--chdir",
-            HOME / name,
+            ro_bind_try("/etc"),
+            ("--bind", host_home, HOME),
+            ("--dir", HOME / ".dev-init"),
+            ("--dir", HOME / "bin"),
+            ("--dir", HOME / "opt"),
+            ("--dir", HOME / "tmp"),
+            ("--bind", host_work, HOME / name),
+            ("--symlink", "/usr/lib", "/lib"),
+            ("--symlink", "/usr/lib64", "/lib64"),
+            ro_bind_try("/opt"),
+            ("--proc", "/proc"),
+            ("--symlink", "/usr/sbin", "/sbin"),
+            ("--tmpfs", "/tmp"),
+            ro_bind_try("/usr"),
+            ro_bind_try("/var/lib/apt/lists/"),
+            ro_bind_try("/var/lib/dpkg/"),
+            ("--seccomp", str(seccomp.fileno())),
+            ("--chdir", HOME / name),
             "--",
-            *(
+            (
                 [os.environ["SHELL"], "-c", "/dev/shm/init.sh"]
                 if init
                 else [os.environ["SHELL"], "-c", shlex.join(exec)]
                 if exec
-                else [os.environ["SHELL"]]
+                else os.environ["SHELL"]
             ),
-        ],
+        ),
         env={
             "DISPLAY": os.environ["DISPLAY"],
             "HOME": os.environ["HOME"],
