@@ -16,11 +16,12 @@ import urllib.request
 
 HOSTNAME = socket.gethostname()
 HOME = Path.home()
-CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache"))
+XDG_CACHE_HOME = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache"))
+XDG_DATA_HOME = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local" / "share"))
 SCRIPT_NAME = os.path.basename(sys.argv[0])
 SCRIPT_PATH = Path(os.path.dirname(os.path.realpath(__file__)))
-WORK_DIRS = SCRIPT_PATH / "work"
-HOME_DIRS = CACHE_DIR / "boxes" / "home"
+HOME_DIRS = XDG_CACHE_HOME / "cubicle" / "home"
+WORK_DIRS = XDG_DATA_HOME / "cubicle" / "work"
 
 SEEDS = {
     "configs": {
@@ -314,8 +315,9 @@ def random_names():
     # 1. Prefer the EFF short word list. See https://www.eff.org/dice for more
     # info.
     words = None
+    EFF_WORDLIST_PATH = XDG_CACHE_HOME / "cubicle" / "eff_short_wordlist_1.txt"
     try:
-        words = open(CACHE_DIR / "eff_short_wordlist_1.txt").readlines()
+        words = open(EFF_WORDLIST_PATH).readlines()
     except FileNotFoundError:
         url = "https://www.eff.org/files/2016/09/08/eff_short_wordlist_1.txt"
         try:
@@ -323,7 +325,8 @@ def random_names():
         except (urllib.request.HTTPError, urllib.request.URLError) as e:
             print(f"Warning: failed to download EFF short wordlist from {url}: {e}")
         else:
-            open(CACHE_DIR / "eff_short_wordlist_1.txt", "w").write(words)
+            EFF_WORDLIST_PATH.parent.mkdir(exist_ok=True, parents=True)
+            open(EFF_WORDLIST_PATH, "w").write(words)
             words = words.split("\n")
     if words is not None:
         for _ in range(200):
