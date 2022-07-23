@@ -9,8 +9,10 @@ _cub() {
         "1: :((
             enter\:'Run a shell in an existing environment'
             exec\:'Run a command in an existing environment'
+            help\:'Show help information'
             list\:'Show existing environments'
             new\:'Create a new environment'
+            packages\:'Show available packages'
             purge\:'Delete an environment and its work directory'
             reset\:'Recreate an environment (keeping its work directory)'
             tmp\:'Create and enter a new temporary environment'
@@ -20,8 +22,10 @@ _cub() {
     case $line[1] in
         enter) _cub_enter ;;
         exec) _cub_exec ;;
+        help) _cub_help ;;
         list) _cub_list ;;
         new) _cub_new ;;
+        packages) _cub_packages ;;
         purge) _cub_purge ;;
         reset) _cub_reset ;;
         tmp) _cub_tmp ;;
@@ -44,6 +48,10 @@ _cub_exec() {
         "*: arg:( )"
 }
 
+_cub_help() {
+    _arguments
+}
+
 _cub_list() {
     _arguments \
         "--format[Set output format]:format:(default json names)" \
@@ -56,8 +64,15 @@ _cub_new() {
         "--enter[Run a shell in new environment]" \
         "-h[Show help information]" \
         "--help[Show help information]" \
-        "--seeds[Comma-separated names of archives to mix in]:seeds:()" \
+        "--packages[Comma-separated names of packages to inject into home directory]:packages:_cub_pkgs" \
         "*: name[environment name]:( )"
+}
+
+_cub_packages() {
+    _arguments \
+        "--format[Set output format]:format:(default json names)" \
+        "-h[Show help information]" \
+        "--help[Show help information]"
 }
 
 _cub_purge() {
@@ -72,7 +87,7 @@ _cub_reset() {
         "--clean[Remove home directory and do not recreate it]" \
         "-h[Show help information]" \
         "--help[Show help information]" \
-        "--seeds[Comma-separated names of archives to mix in]:seeds:( )" \
+        "--packages[Comma-separated names of packages to inject into home directory]:packages:_cub_pkgs" \
         "*: name[environment name]:_cub_envs"
 }
 
@@ -80,11 +95,15 @@ _cub_tmp() {
     _arguments \
         "-h[Show help information]" \
         "--help[Show help information]" \
-        "--seeds[Comma-separated names of archives to mix in]:seeds:()"
+        "--packages[Comma-separated names of packages to inject into home directory]:packages:_cub_pkgs"
 }
 
 _cub_envs() {
     _values -w 'environments' $(cub list --format=names)
+}
+
+_cub_pkgs() {
+    _values -s , -w 'packages' $(cub packages --format=names)
 }
 
 _cub

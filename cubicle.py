@@ -22,82 +22,58 @@ SCRIPT_NAME = os.path.basename(sys.argv[0])
 SCRIPT_PATH = Path(os.path.dirname(os.path.realpath(__file__)))
 HOME_DIRS = XDG_CACHE_HOME / "cubicle" / "home"
 WORK_DIRS = XDG_DATA_HOME / "cubicle" / "work"
+CODE_PACKAGE_DIR = SCRIPT_PATH / "packages"
+USER_PACKAGE_DIR = XDG_DATA_HOME / "cubicle" / "packages"
 
-SEEDS = {
-    "configs": {
-        "directory": HOME,
-        "include": [
-            ".bashrc",
-            ".gdbinit",
-            ".gitconfig",
-            ".gitignore",
-            ".ipython",
-            ".npmrc",
-            ".profile",
-            ".sqliterc",
-            ".vimrc",
-            ".zshenv",
-            ".zshrc",
-            "configs",
-        ],
-    },
-    "firefox": {
-        "include": [
-            ".dev-init/firefox.sh",
-            ".mozilla/firefox",
-            "bin/firefox",
-            "opt/firefox",
-        ],
-        "update_script": SCRIPT_PATH / "firefox-update.sh",
-    },
-    "go": {
-        "include": ["go"],
-        "update_script": SCRIPT_PATH / "go-update.sh",
-    },
-    "mold": {
-        "include": [
-            ".cargo/config.toml",
-            "bin/mold",
-        ],
-        "update_script": SCRIPT_PATH / "mold-update.sh",
-    },
-    "node": {
-        "depends": ["configs"],
-        "include": [
-            ".cache/node-versions.json",
-            ".npm",
-            "opt/node",
-        ],
-        "update_script": SCRIPT_PATH / "node-update.sh",
-    },
-    "python": {
-        "include": [
-            ".pylama.ini",
-            "opt/python",
-        ],
-        "update_script": SCRIPT_PATH / "python-update.sh",
-    },
-    "rust": {
-        "depends": ["mold"],
-        "include": [
-            ".cargo",
-            ".local/share/bash-completion/completions",
-            ".rustup",
-            ".zfunc",
-        ],
-        "update_script": SCRIPT_PATH / "rust-update.sh",
-    },
-    "vscodium": {
-        "include": [
-            ".dev-init/vscodium.sh",
-            ".vscode-oss",
-            "bin/codium",
-            "opt/vscodium",
-        ],
-        "update_script": SCRIPT_PATH / "vscodium-update.sh",
-    },
-}
-DEFAULT_SEEDS = SEEDS.keys()
+
+PACKAGES = {}
+for search_dir in [USER_PACKAGE_DIR, CODE_PACKAGE_DIR]:
+    search_dir.mkdir(exist_ok=True, parents=True)
+    for package_dir in search_dir.iterdir():
+        if package_dir.name not in PACKAGES:
+            package = {
+                "dir": package_dir,
+                "user_package": search_dir == USER_PACKAGE_DIR,
+            }
+            try:
+                depends = set(
+                    path.strip() for path in open(package_dir / "depends.txt")
+                )
+            except FileNotFoundError:
+                depends = set()
+            depends.add("auto")
+            package["depends"] = sorted(depends)
+            if (package_dir / "update.sh").exists():
+                package["update"] = package_dir / "update.sh"
+            try:
+                package["provides"] = [
+                    path.strip() for path in open(package_dir / "provides.txt")
+                ]
+            except FileNotFoundError:
+                pass
+            PACKAGES[package_dir.name] = package
+
+
+def transitive_depends(packages):
+    visited = set()
+
+    def visit(p):
+        if p not in visited:
+            visited.add(p)
+            for q in PACKAGES[p]["depends"]:
+                visit(q)
+
+    for p in packages:
+        visit(p)
+    return visited
+
+
+for package in transitive_depends(["auto"]):
+    d = PACKAGES[package]["depends"]
+    try:
+        d.remove("auto")
+    except ValueError:
+        pass
 
 
 def rmtree(path):
@@ -110,31 +86,37 @@ def rmtree(path):
         shutil.rmtree(path)
 
 
-def update_seeds():
+def update_packages(packages):
     now = time.time()
+    todo = set(transitive_depends(packages))
     done = set()
-    todo = SEEDS.keys()
     while len(todo) > 0:
         later = []
         for key in todo:
-            seed = SEEDS[key]
-            if done.issuperset(seed.get("depends", [])):
-                update_seed(key, now)
+            package = PACKAGES[key]
+            if done.issuperset(package["depends"]):
+                update_stale_package(key, now)
                 done.add(key)
             else:
                 later.append(key)
         if len(later) == len(todo):
-            raise RuntimeError(f"Seed dependencies are unsatisfiable for: {list(todo)}")
+            print(later)
+            raise RuntimeError(
+                f"Package dependencies are unsatisfiable for: {list(todo)}"
+            )
         todo = later
 
 
-def update_seed(key, now):
-    seed = SEEDS[key]
-    name = f"seed-{key}"
+def update_stale_package(key, now):
+    package = PACKAGES[key]
+    name = f"package-{key}"
+    mtime = du(package["dir"])[2]
+
     try:
-        update_script = seed["update_script"]
+        update_script = package["update"]
     except KeyError:
         return
+
     work_dir = WORK_DIRS / name
     if not work_dir.exists():
         work_dir.mkdir(parents=True)
@@ -142,11 +124,27 @@ def update_seed(key, now):
         updated = (HOME_DIRS / name / ".UPDATED").stat().st_mtime
     except FileNotFoundError:
         updated = 0
-    if update_script.stat().st_mtime < updated and now - updated < 60 * 60 * 12:
+    if mtime < updated and now - updated < 60 * 60 * 12:
         return
-    print(f"Updating {key} seed")
-    run(name, seeds=seed.get("depends", []), init=(SCRIPT_PATH / "dev-init.sh"))
-    run(name, init=update_script)
+    update_package(key)
+
+
+def update_package(key):
+    package = PACKAGES[key]
+    name = f"package-{key}"
+    print(f"Updating {key} package")
+    run(
+        name,
+        packages=package["depends"],
+        extra_seeds=[
+            "--directory",
+            "/",
+            package["dir"],
+            "--transform",
+            f"s${package['dir'].relative_to('/')}${name}$",
+        ],
+        init=(SCRIPT_PATH / "dev-init.sh"),
+    )
 
 
 def enter_environment(name):
@@ -213,15 +211,14 @@ def si_bytes(size):
 
 
 def list_environments(format="default"):
-    envs = {}
-    now = time.time()
-
     if format == "names":
         # fast path for shell completions
         for name in sorted([dir.name for dir in try_iterdir(WORK_DIRS)]):
             print(name)
         return
 
+    now = time.time()
+    envs = {}
     for dir in try_iterdir(WORK_DIRS):
         env = envs.setdefault(dir.name, {})
         env["work_dir"] = str(dir)
@@ -299,16 +296,62 @@ def list_environments(format="default"):
             )
 
 
-def new_environment(name, seeds=DEFAULT_SEEDS):
+def list_packages(format="default"):
+    if format == "names":
+        # fast path for shell completions
+        for name in sorted([package for package in PACKAGES]):
+            print(name)
+        return
+
+    now = time.time()
+    packages = {}
+    for name, package in PACKAGES.items():
+        mtime = du(package["dir"])[2]
+        packages[name] = {
+            "dir": str(package["dir"]),
+            "depends": sorted(package["depends"]),
+            "user_package": package["user_package"],
+            "mtime": mtime,
+        }
+
+    if format == "json":
+        print(json.dumps(packages, sort_keys=True, indent=4))
+    else:
+        nw = max([10] + [len(name) for name in packages])
+        print(
+            "{:<{nw}}  {:<8}  {:>13}  {:<20}".format(
+                "name",
+                "origin",
+                "modified",
+                "dependencies",
+                nw=nw,
+            )
+        )
+        print("{0:-<{nw}}  {0:-<8}  {0:-<13}  {0:-<20}".format("", nw=nw))
+        for name in sorted(packages):
+            package = packages[name]
+            print(
+                "{:<{nw}}  {:<8}  {:>13}  {:<20}".format(
+                    name,
+                    "user" if package["user_package"] else "system",
+                    rel_time(now - mtime),
+                    ",".join(package["depends"]),
+                    nw=nw,
+                )
+            )
+
+
+def new_environment(name, packages=["default"]):
     work_dir = WORK_DIRS / name
     if work_dir.exists() or (HOME_DIRS / name).exists():
         print(
             f"error: environment {name!s} exists (did you mean '{SCRIPT_NAME} reset'?)"
         )
         sys.exit(1)
-    update_seeds()
+    update_packages(packages)
     work_dir.mkdir(parents=True)
-    run(name, seeds=seeds, init=(SCRIPT_PATH / "dev-init.sh"))
+    open(work_dir / "packages.txt", 'w').write("\n".join(sorted(packages)) + "\n")
+    run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
 def random_names():
@@ -353,13 +396,15 @@ def random_names():
     yield "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=32))
 
 
-def create_enter_tmp_environment(seeds=DEFAULT_SEEDS):
+def create_enter_tmp_environment(packages=["default"]):
     for name in random_names():
         name = f"tmp-{name}"
-        if not (WORK_DIRS / name).exists() and not (HOME_DIRS / name).exists():
-            update_seeds()
-            (WORK_DIRS / name).mkdir(parents=True)
-            run(name, seeds=seeds, init=(SCRIPT_PATH / "dev-init.sh"))
+        work_dir = WORK_DIRS / name
+        if not work_dir.exists() and not (HOME_DIRS / name).exists():
+            update_packages(packages)
+            work_dir.mkdir(parents=True)
+            open(work_dir / "packages.txt").write("\n".join(sorted(packages)) + "\n")
+            run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
             run(name)
             return
     raise RuntimeError("failed to generate random environment name")
@@ -377,13 +422,9 @@ def purge_environment(name):
         rmtree(host_home)
 
 
-def reset_environment(name, seeds=DEFAULT_SEEDS, clean=False):
-    if name.startswith("seed-"):
-        print(
-            f"Resetting a seed environment is unlikely to work as expected. Consider '{SCRIPT_NAME} purge' instead. Aborting"
-        )
-        sys.exit(1)
-    if not (WORK_DIRS / name).exists():
+def reset_environment(name, packages=None, clean=False):
+    work_dir = WORK_DIRS / name
+    if not work_dir.exists():
         print(
             f"error: environment {name!s} does not exist (did you mean '{SCRIPT_NAME} new'?)"
         )
@@ -391,9 +432,29 @@ def reset_environment(name, seeds=DEFAULT_SEEDS, clean=False):
     host_home = HOME_DIRS / name
     if host_home.exists():
         rmtree(host_home)
-    if not args.clean:
-        update_seeds()
-        run(name, seeds=seeds, init=(SCRIPT_PATH / "dev-init.sh"))
+    if args.clean:
+        return
+
+    if packages is None:
+        try:
+            packages = {
+                p.strip() for p in open(work_dir / "packages.txt") if p.strip() != ""
+            }
+        except FileNotFoundError:
+            packages = set()
+    m = re.match("^package-(.*)$", name)
+    if m is None:
+        update_packages(packages)
+        open(work_dir / "packages.txt", 'w').write("\n".join(sorted(packages)) + "\n")
+        run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
+    else:
+        key = m.group(1)
+        package = PACKAGES[key]
+        packages = set(package["depends"]).union(packages)
+        update_packages(packages)
+        update_package(key)
+        open(work_dir / "packages.txt", 'w').write("\n".join(sorted(packages)) + "\n")
+        run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
 def flatten(*l):
@@ -414,8 +475,17 @@ def ro_bind_try(a, b=None):
         return ("--ro-bind-try", a, b)
 
 
-def run(name, seeds=[], init=False, exec=False):
-    # print(f'run({name}, seeds={seeds}, init={init}, exec={exec}')
+def packages_to_seeds(packages):
+    args = []
+    for package in sorted(transitive_depends(packages)):
+        spec = PACKAGES[package]
+        if "provides" in spec:
+            args.append((HOME_DIRS / f"package-{package}", spec["provides"]))
+    return args
+
+
+def run(name, packages=[], extra_seeds=[], init=False, exec=False):
+    # print(f'run({name}, packages={packages}, extra_seed={extra_seed}, init={init}, exec={exec}')
     host_home = HOME_DIRS / name
     host_work = WORK_DIRS / name
 
@@ -425,15 +495,14 @@ def run(name, seeds=[], init=False, exec=False):
         pass
 
     seed = None
-    if len(seeds) > 0:
-        args = ["tar", "-c"]
-        for seed in seeds:
-            spec = SEEDS[seed]
-            if "directory" in spec:
-                args.extend(["--directory", spec["directory"]])
-            else:
-                args.extend(["--directory", HOME_DIRS / f"seed-{seed}"])
-            args.extend(spec["include"])
+    seed_dirs = packages_to_seeds(packages)
+    if seed_dirs or extra_seeds:
+        args = flatten(
+            "tar",
+            "-c",
+            [("--directory", dir, files) for (dir, files) in seed_dirs],
+            extra_seeds,
+        )
         seed = subprocess.Popen(args, stdout=subprocess.PIPE)
 
     seccomp = open(SCRIPT_PATH / "podman.bpf")
@@ -506,22 +575,19 @@ def run(name, seeds=[], init=False, exec=False):
         seed.wait()
 
 
-def seed_list(seeds):
-    if seeds in ["", "none"]:
-        return []
-    if seeds == "default":
-        return DEFAULT_SEEDS
-    if seeds == "all":
-        return SEEDS.keys()
-    seeds = seeds.split(",")
-    for seed in seeds:
-        if seed not in SEEDS:
-            options = ", ".join([repr(s) for s in SEEDS])
+def package_list(packages):
+    if packages == ["none"]:
+        return set()
+    packages = {p.strip() for p in packages.split(",") if p.strip() != ""}.union(
+        {"auto"}
+    )
+    for package in packages:
+        if package not in PACKAGES:
+            options = ", ".join([repr(s) for s in PACKAGES])
             raise argparse.ArgumentTypeError(
-                f"invalid seed {seed!r} (use 'none', 'default', or 'all', "
-                f"or comma-separated list from {options})"
+                f"invalid package {package!r} (use 'none' or comma-separated list from {options})"
             )
-    return seeds
+    return packages
 
 
 def parse_args():
@@ -546,6 +612,10 @@ def parse_args():
         help='Arguments to command (use "--" before command to disambiguate)',
     )
 
+    parser_help = subparsers.add_parser(
+        "help", help="Show help information", allow_abbrev=False
+    )
+
     parser_list = subparsers.add_parser(
         "list", help="Show existing environments", allow_abbrev=False
     )
@@ -560,12 +630,19 @@ def parse_args():
         "--enter", action="store_true", help="Run a shell in new environment"
     )
     parser_new.add_argument(
-        "--seeds",
-        type=seed_list,
+        "--packages",
+        type=package_list,
         default="default",
-        help="Set(s) of files to inject into home directory, comma-separated",
+        help="Comma-separated names of packages to inject into home directory",
     )
     parser_new.add_argument("name", help="Environment name")
+
+    parser_packages = subparsers.add_parser(
+        "packages", help="Show available packages", allow_abbrev=False
+    )
+    parser_packages.add_argument(
+        "--format", choices=["default", "json", "names"], help="Set output format"
+    )
 
     parser_purge = subparsers.add_parser(
         "purge", help="Delete an environment and its work directory", allow_abbrev=False
@@ -583,17 +660,21 @@ def parse_args():
         help="Remove home directory and do not recreate it",
     )
     parser_reset.add_argument(
-        "--seeds",
-        type=seed_list,
-        default="default",
-        help="Sets of files to inject into home directory, comma-separated",
+        "--packages",
+        type=package_list,
+        help="Comma-separated names of packages to inject into home directory",
     )
     parser_reset.add_argument("name", nargs="+", help="Environment name(s)")
 
     parser_tmp = subparsers.add_parser(
         "tmp", help="Create and enter a new temporary environment", allow_abbrev=False
     )
-    parser_tmp.add_argument("--seeds", type=seed_list, default="default")
+    parser_tmp.add_argument(
+        "--packages",
+        type=package_list,
+        default="default",
+        help="Comma-separated names of packages to inject into home directory",
+    )
 
     # TODO: rename
 
@@ -601,6 +682,9 @@ def parse_args():
     if args.command is None:
         parser.print_help(sys.stderr)
         sys.exit(1)
+    if args.command == "help":
+        parser.print_help(sys.stderr)
+        sys.exit(0)
     return args
 
 
@@ -613,16 +697,18 @@ if __name__ == "__main__":
     elif args.command == "list":
         list_environments(format=args.format)
     elif args.command == "new":
-        new_environment(name=args.name, seeds=args.seeds)
+        new_environment(name=args.name, packages=args.packages)
         if args.enter:
             enter_environment(name=args.name)
+    elif args.command == "packages":
+        list_packages(format=args.format)
     elif args.command == "purge":
         for name in args.name:
             purge_environment(name=name)
     elif args.command == "reset":
         for name in args.name:
-            reset_environment(name=name, seeds=args.seeds, clean=args.clean)
+            reset_environment(name=name, packages=args.packages, clean=args.clean)
     elif args.command == "tmp":
-        create_enter_tmp_environment(seeds=args.seeds)
+        create_enter_tmp_environment(packages=args.packages)
     else:
         raise RuntimeError(f"unknown command: {args}")

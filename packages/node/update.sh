@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+# Note: this depends on ongardie's magical `node` that installs node versions
+# for you. See <https://github.com/ongardie/configs/tree/main/bin>.
+
 (
     mkdir -p ~/tmp/lts
     cd ~/tmp/lts
