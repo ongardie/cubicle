@@ -536,7 +536,7 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
     }
     for var in ["DISPLAY", "HOME", "SHELL", "TERM"]:
         if var in os.environ:
-            env[var] = os.environ["DISPLAY"]
+            env[var] = os.environ[var]
 
     seccomp = open(SCRIPT_PATH / "seccomp.bpf")
     bwrap = subprocess.Popen(
