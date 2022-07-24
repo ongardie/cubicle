@@ -1,3 +1,7 @@
 .cache/node-versions.json
 .npm
+bin/install-node
+bin/node
+bin/npm
+bin/npx
 opt/node
