@@ -119,6 +119,13 @@ def update_packages(packages):
         todo = later
 
 
+def last_updated(package):
+    try:
+        return (HOME_DIRS / f"package-{package}" / ".UPDATED").stat().st_mtime
+    except FileNotFoundError:
+        return 0
+
+
 def update_stale_package(key, now):
     package = PACKAGES[key]
     name = f"package-{key}"
@@ -132,11 +139,14 @@ def update_stale_package(key, now):
     work_dir = WORK_DIRS / name
     if not work_dir.exists():
         work_dir.mkdir(parents=True)
-    try:
-        updated = (HOME_DIRS / name / ".UPDATED").stat().st_mtime
-    except FileNotFoundError:
-        updated = 0
-    if mtime < updated and now - updated < 60 * 60 * 12:
+    updated = last_updated(key)
+    if (
+        mtime < updated
+        and now - updated < 60 * 60 * 12
+        and all(
+            [last_updated(p) < updated for p in transitive_depends(package["depends"])]
+        )
+    ):
         return
     update_package(key)
 

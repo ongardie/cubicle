@@ -271,8 +271,8 @@ These files and any other files in the package directory are injected into the
 work directory of the package builder environment.
 
 Packages are built automatically when they are first used, and they are updated
-when they are used if 12 hours have elapsed or their package definitions have
-changed.
+when they are used if 12 hours have elapsed, their package definitions have
+changed, or one of their dependencies has been updated more recently.
 
 Cubicle looks for package definitions in the following locations:
 
