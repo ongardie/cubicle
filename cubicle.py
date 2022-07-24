@@ -519,6 +519,15 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
         )
         seed = subprocess.Popen(args, stdout=subprocess.PIPE)
 
+    env = {
+        "PATH": f"{HOME}/bin:/bin:/sbin",
+        "SANDBOX": name,
+        "TMPDIR": HOME / "tmp",
+    }
+    for var in ["DISPLAY", "HOME", "SHELL", "TERM"]:
+        if var in os.environ:
+            env[var] = os.environ["DISPLAY"]
+
     seccomp = open(SCRIPT_PATH / "seccomp.bpf")
     bwrap = subprocess.Popen(
         flatten(
@@ -564,15 +573,7 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
                 else os.environ["SHELL"]
             ),
         ),
-        env={
-            "DISPLAY": os.environ["DISPLAY"],
-            "HOME": os.environ["HOME"],
-            "PATH": f"{HOME}/bin:/bin:/sbin",
-            "SANDBOX": name,
-            "SHELL": os.environ["SHELL"],
-            "TERM": os.environ["TERM"],
-            "TMPDIR": HOME / "tmp",
-        },
+        env=env,
         pass_fds=[
             *([] if seed is None else [seed.stdout.fileno()]),
             seccomp.fileno(),
