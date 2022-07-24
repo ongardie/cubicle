@@ -5,12 +5,13 @@ set -e
 # be installed on the system already:
 # https://devguide.python.org/setup/#linux
 
-echo "Checking latest version of Python"
+have=$(python3 --version)
+echo "Have ${have:-no python3 version}"
+echo "Checking latest version of Python on GitHub"
 TAGS=$TMPDIR/python-tags
 curl -sS 'https://api.github.com/repos/python/cpython/tags' > $TAGS
 version=$(cat $TAGS | jq -r '.[] | .name' | grep -E '^v[0-9]+.[0-9]+.[0-9]+$' | sort --version-sort | tail -n 1 | cut -b2-)
-export PATH=~/opt/python/priority-bin:$PATH
-if [ v"$(python --version)" = v"Python $version" ] && [ $(which python) -nt /usr/lib/x86_64-linux-gnu/libssl.a ]; then
+if [ v"$have" = v"Python $version" ] && [ $(which python3) -nt /usr/lib/x86_64-linux-gnu/libssl.a ]; then
     echo "Have latest Python already ($version)"
 else
     echo "Downloading and installing Python $version"
@@ -27,24 +28,27 @@ else
     make -j
     make install
     ln -fs $version ~/opt/python/latest
+    ln -fs python3 ~/opt/python/latest/bin/python
 fi
 
-rm -rf ~/opt/python/priority-bin
-mkdir ~/opt/python/priority-bin
-ln -fs ../latest/bin/python3 ~/opt/python/priority-bin/python
+mkdir -p ~/opt/python/latest/sbin
 for f in \
     ipython \
     ipython3 \
     pip \
     pip3 \
     pydoc3 \
+    python \
     python3 \
     python3-config \
 ; do
-    ln -fs ../latest/bin/$f ~/opt/python/priority-bin/
+    ln -fs ../bin/$f ~/opt/python/latest/sbin/
 done
 
-python3 --version
+if [ v"$(python3 --version)" != v"Python $version" ]; then
+  echo "ERROR: Have $(python3 --version), which is still not right"
+  exit 1
+fi
 
 echo 'Upgrading pip and packages'
 pip3 install --upgrade pip

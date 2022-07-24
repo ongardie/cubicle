@@ -1,2 +1,3 @@
+.cache/pip
 .pylama.ini
 opt/python
