@@ -575,12 +575,14 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
             ("--seccomp", str(seccomp.fileno())),
             ("--chdir", HOME / name),
             "--",
+            os.environ["SHELL"],
+            "-l",
             (
-                [os.environ["SHELL"], "-c", "/dev/shm/init.sh"]
+                ["-c", "/dev/shm/init.sh"]
                 if init
-                else [os.environ["SHELL"], "-c", shlex.join(exec)]
+                else ["-c", shlex.join(exec)]
                 if exec
-                else os.environ["SHELL"]
+                else []
             ),
         ),
         env=env,
