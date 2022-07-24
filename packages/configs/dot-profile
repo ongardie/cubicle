@@ -1,0 +1,13 @@
+export PATH=\
+$HOME/bin:\
+$HOME/.cargo/bin:\
+$HOME/go/bin:\
+$HOME/opt/python/latest/bin:\
+/usr/local/bin:\
+/usr/bin:\
+/bin:\
+/usr/local/sbin:\
+/usr/sbin:\
+/sbin:\
+/usr/local/games:\
+/usr/games
