@@ -26,14 +26,12 @@ CODE_PACKAGE_DIR = SCRIPT_PATH / "packages"
 USER_PACKAGE_DIR = XDG_DATA_HOME / "cubicle" / "packages"
 
 
-PACKAGES = {}
-for search_dir in [USER_PACKAGE_DIR, CODE_PACKAGE_DIR]:
-    search_dir.mkdir(exist_ok=True, parents=True)
-    for package_dir in search_dir.iterdir():
+def add_packages(dir, origin):
+    for package_dir in dir.iterdir():
         if package_dir.name not in PACKAGES:
             package = {
                 "dir": package_dir,
-                "user_package": search_dir == USER_PACKAGE_DIR,
+                "origin": origin,
             }
             try:
                 depends = set(
@@ -51,6 +49,13 @@ for search_dir in [USER_PACKAGE_DIR, CODE_PACKAGE_DIR]:
                 ]
             except FileNotFoundError:
                 pass
+            else:
+                for path in package["provides"]:
+                    assert (
+                        not path.startswith("/")
+                        and not path.startswith("~/")
+                        and ".." not in path.split("/")
+                    ), f"package {package_dir.name}: provides.txt must have relative paths from ~"
             PACKAGES[package_dir.name] = package
 
 
@@ -67,6 +72,13 @@ def transitive_depends(packages):
         visit(p)
     return visited
 
+
+PACKAGES = {}
+USER_PACKAGE_DIR.mkdir(exist_ok=True, parents=True)
+for dir in sorted(USER_PACKAGE_DIR.iterdir()):
+    add_packages(dir, dir.name)
+CODE_PACKAGE_DIR.mkdir(exist_ok=True, parents=True)
+add_packages(CODE_PACKAGE_DIR, "built-in")
 
 for package in transitive_depends(["auto"]):
     d = PACKAGES[package]["depends"]
@@ -310,7 +322,7 @@ def list_packages(format="default"):
         packages[name] = {
             "dir": str(package["dir"]),
             "depends": sorted(package["depends"]),
-            "user_package": package["user_package"],
+            "origin": package["origin"],
             "mtime": mtime,
         }
 
@@ -333,7 +345,7 @@ def list_packages(format="default"):
             print(
                 "{:<{nw}}  {:<8}  {:>13}  {:<20}".format(
                     name,
-                    "user" if package["user_package"] else "system",
+                    package["origin"],
                     rel_time(now - mtime),
                     ",".join(package["depends"]),
                     nw=nw,
@@ -350,7 +362,7 @@ def new_environment(name, packages=["default"]):
         sys.exit(1)
     update_packages(packages)
     work_dir.mkdir(parents=True)
-    open(work_dir / "packages.txt", 'w').write("\n".join(sorted(packages)) + "\n")
+    open(work_dir / "packages.txt", "w").write("\n".join(sorted(packages)) + "\n")
     run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
@@ -445,7 +457,7 @@ def reset_environment(name, packages=None, clean=False):
     m = re.match("^package-(.*)$", name)
     if m is None:
         update_packages(packages)
-        open(work_dir / "packages.txt", 'w').write("\n".join(sorted(packages)) + "\n")
+        open(work_dir / "packages.txt", "w").write("\n".join(sorted(packages)) + "\n")
         run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
     else:
         key = m.group(1)
@@ -453,7 +465,7 @@ def reset_environment(name, packages=None, clean=False):
         packages = set(package["depends"]).union(packages)
         update_packages(packages)
         update_package(key)
-        open(work_dir / "packages.txt", 'w').write("\n".join(sorted(packages)) + "\n")
+        open(work_dir / "packages.txt", "w").write("\n".join(sorted(packages)) + "\n")
         run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
@@ -505,7 +517,7 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
         )
         seed = subprocess.Popen(args, stdout=subprocess.PIPE)
 
-    seccomp = open(SCRIPT_PATH / "podman.bpf")
+    seccomp = open(SCRIPT_PATH / "seccomp.bpf")
     bwrap = subprocess.Popen(
         flatten(
             "bwrap",
