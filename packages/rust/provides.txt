@@ -1,0 +1,4 @@
+.cargo
+.local/share/bash-completion/completions
+.rustup
+.zfunc

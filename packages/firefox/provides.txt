@@ -1,0 +1,4 @@
+.dev-init/firefox.sh
+.mozilla/firefox
+bin/firefox
+opt/firefox
