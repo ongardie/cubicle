@@ -415,7 +415,9 @@ def create_enter_tmp_environment(packages=["default"]):
         if not work_dir.exists() and not (HOME_DIRS / name).exists():
             update_packages(packages)
             work_dir.mkdir(parents=True)
-            open(work_dir / "packages.txt").write("\n".join(sorted(packages)) + "\n")
+            open(work_dir / "packages.txt", "w").write(
+                "\n".join(sorted(packages)) + "\n"
+            )
             run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
             run(name)
             return
