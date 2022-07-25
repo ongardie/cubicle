@@ -13,6 +13,32 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+from typing import (
+    Any,
+    Iterable,
+    Literal,
+    Optional,
+    Sequence,
+    TypedDict,
+    TypeVar,
+    Union,
+)
+
+T = TypeVar("T")
+
+PackageName = str
+
+PackageSpec = TypedDict(
+    "PackageSpec",
+    {
+        "depends": set[PackageName],
+        "dir": Path,
+        "origin": str,
+        "provides": list[str],
+        "update": Optional[Path],
+    },
+)
+
 
 HOSTNAME = socket.gethostname()
 HOME = Path.home()
@@ -26,13 +52,9 @@ CODE_PACKAGE_DIR = SCRIPT_PATH / "packages"
 USER_PACKAGE_DIR = XDG_DATA_HOME / "cubicle" / "packages"
 
 
-def add_packages(dir, origin):
+def add_packages(dir: Path, origin: str) -> None:
     for package_dir in dir.iterdir():
         if package_dir.name not in PACKAGES:
-            package = {
-                "dir": package_dir,
-                "origin": origin,
-            }
             try:
                 depends = set(
                     path.strip() for path in open(package_dir / "depends.txt")
@@ -40,29 +62,34 @@ def add_packages(dir, origin):
             except FileNotFoundError:
                 depends = set()
             depends.add("auto")
-            package["depends"] = sorted(depends)
             if (package_dir / "update.sh").exists():
-                package["update"] = package_dir / "update.sh"
-            try:
-                package["provides"] = [
-                    path.strip() for path in open(package_dir / "provides.txt")
-                ]
-            except FileNotFoundError:
-                pass
+                update = package_dir / "update.sh"
             else:
-                for path in package["provides"]:
+                update = None
+            try:
+                provides = [path.strip() for path in open(package_dir / "provides.txt")]
+            except FileNotFoundError:
+                provides = []
+            else:
+                for path in provides:
                     assert (
                         not path.startswith("/")
                         and not path.startswith("~/")
                         and ".." not in path.split("/")
                     ), f"package {package_dir.name}: provides.txt must have relative paths from ~"
-            PACKAGES[package_dir.name] = package
+            PACKAGES[package_dir.name] = {
+                "depends": depends,
+                "dir": package_dir,
+                "origin": origin,
+                "provides": provides,
+                "update": update,
+            }
 
 
-def transitive_depends(packages):
+def transitive_depends(packages: Iterable[PackageName]) -> set[PackageName]:
     visited = set()
 
-    def visit(p):
+    def visit(p: PackageName) -> None:
         if p not in visited:
             visited.add(p)
             for q in PACKAGES[p]["depends"]:
@@ -73,7 +100,7 @@ def transitive_depends(packages):
     return visited
 
 
-PACKAGES = {}
+PACKAGES: dict[str, PackageSpec] = {}
 USER_PACKAGE_DIR.mkdir(exist_ok=True, parents=True)
 for dir in sorted(USER_PACKAGE_DIR.iterdir()):
     add_packages(dir, dir.name)
@@ -88,7 +115,7 @@ for package in transitive_depends(["auto"]):
         pass
 
 
-def rmtree(path):
+def rmtree(path: Path) -> None:
     try:
         shutil.rmtree(path)
     except PermissionError:
@@ -98,10 +125,10 @@ def rmtree(path):
         shutil.rmtree(path)
 
 
-def update_packages(packages):
+def update_packages(packages: Iterable[PackageName]) -> None:
     now = time.time()
-    todo = set(transitive_depends(packages))
-    done = set()
+    todo = sorted(transitive_depends(packages))
+    done: set[PackageName] = set()
     while len(todo) > 0:
         later = []
         for key in todo:
@@ -114,24 +141,24 @@ def update_packages(packages):
         if len(later) == len(todo):
             print(later)
             raise RuntimeError(
-                f"Package dependencies are unsatisfiable for: {list(todo)}"
+                f"Package dependencies are unsatisfiable for: {sorted(todo)}"
             )
         todo = later
 
 
-def last_updated(package):
+def last_updated(package: PackageName) -> float:
     try:
         return (HOME_DIRS / f"package-{package}" / ".UPDATED").stat().st_mtime
     except FileNotFoundError:
         return 0
 
 
-def update_stale_package(key, now):
+def update_stale_package(key: PackageName, now: float) -> None:
     package = PACKAGES[key]
     name = f"package-{key}"
     mtime = du(package["dir"])[2]
 
-    if "update" not in package:
+    if package["update"] is None:
         return
 
     work_dir = WORK_DIRS / name
@@ -149,7 +176,7 @@ def update_stale_package(key, now):
     update_package(key)
 
 
-def update_package(key):
+def update_package(key: PackageName) -> None:
     package = PACKAGES[key]
     name = f"package-{key}"
     print(f"Updating {key} package")
@@ -167,21 +194,21 @@ def update_package(key):
     )
 
 
-def enter_environment(name):
+def enter_environment(name: str) -> None:
     if not (WORK_DIRS / name).exists():
         print(f"error: environment {name!s} does not exist")
         sys.exit(1)
     run(name)
 
 
-def exec_environment(name, command, args):
+def exec_environment(name: str, command: str, args: list[str]) -> None:
     if not (WORK_DIRS / name).exists():
         print(f"error: environment {name!s} does not exist")
         sys.exit(1)
     run(name, exec=([command] + args))
 
 
-def du(path):
+def du(path: Path) -> tuple[bool, int, int]:
     result = subprocess.run(
         ["du", "-cs", "--block-size=1", "--time", "--time-style=+%s", path],
         capture_output=True,
@@ -200,14 +227,14 @@ def du(path):
     return (result.stderr != "", size, mtime)
 
 
-def try_iterdir(path):
+def try_iterdir(path: Path) -> Iterable[Path]:
     try:
         yield from path.iterdir()
     except FileNotFoundError:
         pass
 
 
-def rel_time(duration):
+def rel_time(duration: float) -> str:
     duration /= 60
     if duration < 59.5:
         return f"{duration:.0f} minutes"
@@ -218,7 +245,7 @@ def rel_time(duration):
     return f"{duration:.0f} days"
 
 
-def si_bytes(size):
+def si_bytes(size: int) -> str:
     if size < 1_000:
         return f"{size} B"
     if size < 999_950:
@@ -230,7 +257,7 @@ def si_bytes(size):
     return f"{size/1e12:.1f} TB"
 
 
-def list_environments(format="default"):
+def list_environments(format: str = "default") -> None:
     if format == "names":
         # fast path for shell completions
         for name in sorted([dir.name for dir in try_iterdir(WORK_DIRS)]):
@@ -238,7 +265,7 @@ def list_environments(format="default"):
         return
 
     now = time.time()
-    envs = {}
+    envs: dict[str, Any] = {}
     for dir in try_iterdir(WORK_DIRS):
         env = envs.setdefault(dir.name, {})
         env["work_dir"] = str(dir)
@@ -316,7 +343,7 @@ def list_environments(format="default"):
             )
 
 
-def list_packages(format="default"):
+def list_packages(format: str = "default") -> None:
     if format == "names":
         # fast path for shell completions
         for name in sorted([package for package in PACKAGES]):
@@ -324,7 +351,7 @@ def list_packages(format="default"):
         return
 
     now = time.time()
-    packages = {}
+    packages: dict[PackageName, Any] = {}
     for name, package in PACKAGES.items():
         mtime = du(package["dir"])[2]
         packages[name] = {
@@ -361,7 +388,7 @@ def list_packages(format="default"):
             )
 
 
-def new_environment(name, packages=["default"]):
+def new_environment(name: str, packages: list[PackageName] = ["default"]) -> None:
     work_dir = WORK_DIRS / name
     if work_dir.exists() or (HOME_DIRS / name).exists():
         print(
@@ -374,7 +401,7 @@ def new_environment(name, packages=["default"]):
     run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
-def random_names():
+def random_names() -> Iterable[str]:
     # 1. Prefer the EFF short word list. See https://www.eff.org/dice for more
     # info.
     words = None
@@ -384,13 +411,13 @@ def random_names():
     except FileNotFoundError:
         url = "https://www.eff.org/files/2016/09/08/eff_short_wordlist_1.txt"
         try:
-            words = urllib.request.urlopen(url).read().decode("utf-8")
-        except (urllib.request.HTTPError, urllib.request.URLError) as e:
+            contents = urllib.request.urlopen(url).read().decode("utf-8")
+        except (urllib.request.HTTPError, urllib.request.URLError) as e:  # type: ignore
             print(f"Warning: failed to download EFF short wordlist from {url}: {e}")
         else:
             EFF_WORDLIST_PATH.parent.mkdir(exist_ok=True, parents=True)
-            open(EFF_WORDLIST_PATH, "w").write(words)
-            words = words.split("\n")
+            open(EFF_WORDLIST_PATH, "w").write(contents)
+            words = contents.split("\n")
     if words is not None:
         for _ in range(200):
             word = random.choice(words).split()[1]
@@ -416,7 +443,7 @@ def random_names():
     yield "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=32))
 
 
-def create_enter_tmp_environment(packages=["default"]):
+def create_enter_tmp_environment(packages: list[PackageName] = ["default"]) -> None:
     for name in random_names():
         name = f"tmp-{name}"
         work_dir = WORK_DIRS / name
@@ -432,7 +459,7 @@ def create_enter_tmp_environment(packages=["default"]):
     raise RuntimeError("failed to generate random environment name")
 
 
-def purge_environment(name):
+def purge_environment(name: str) -> None:
     host_work = WORK_DIRS / name
     host_home = HOME_DIRS / name
     if not host_work.exists() and not host_home.exists():
@@ -444,7 +471,11 @@ def purge_environment(name):
         rmtree(host_home)
 
 
-def reset_environment(name, packages=None, clean=False):
+def reset_environment(
+    name: str,
+    packages: Optional[Iterable[PackageName]] = None,
+    clean: bool = False,
+) -> None:
     work_dir = WORK_DIRS / name
     if not work_dir.exists():
         print(
@@ -479,8 +510,10 @@ def reset_environment(name, packages=None, clean=False):
         run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
-def flatten(*l):
-    def gen(l):
+def flatten(
+    *l: Sequence[Union[T, Sequence[Union[T, Sequence[T]]]]],
+) -> Sequence[T]:
+    def gen(l: Any) -> Iterable[T]:
         for x in l:
             if isinstance(x, (list, tuple)):
                 yield from gen(x)
@@ -490,13 +523,15 @@ def flatten(*l):
     return list(gen(l))
 
 
-def ro_bind_try(a, b=None):
+def ro_bind_try(
+    a: Union[str, Path], b: Optional[Union[str, Path]] = None
+) -> tuple[str, Union[str, Path], Union[str, Path]]:
     if b is None:
         return ("--ro-bind-try", a, a)
     return ("--ro-bind-try", a, b)
 
 
-def packages_to_seeds(packages):
+def packages_to_seeds(packages: Iterable[PackageName]) -> list[tuple[Path, list[str]]]:
     args = []
     for package in sorted(transitive_depends(packages)):
         spec = PACKAGES[package]
@@ -505,7 +540,18 @@ def packages_to_seeds(packages):
     return args
 
 
-def run(name, packages=[], extra_seeds=[], init=False, exec=False):
+def assert_some(x: Optional[T]) -> T:
+    assert x is not None
+    return x
+
+
+def run(
+    name: str,
+    packages: Iterable[PackageName] = [],
+    extra_seeds: list[Union[str, Path]] = [],
+    init: Union[Literal[False], Path] = False,
+    exec: Union[Literal[False], list[str]] = False,
+) -> None:
     # print(f'run({name}, packages={packages}, extra_seed={extra_seed}, init={init}, exec={exec}')
     host_home = HOME_DIRS / name
     host_work = WORK_DIRS / name
@@ -515,18 +561,18 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
     except FileExistsError:
         pass
 
-    seed = None
+    seed: Optional[subprocess.Popen[bytes]] = None
     seed_dirs = packages_to_seeds(packages)
     if seed_dirs or extra_seeds:
-        args = flatten(
+        args: Sequence[str | Path] = flatten(
             "tar",
             "-c",
-            [("--directory", dir, files) for (dir, files) in seed_dirs],
+            [("--directory", dir, *files) for (dir, files) in seed_dirs],
             extra_seeds,
         )
         seed = subprocess.Popen(args, stdout=subprocess.PIPE)
 
-    env = {
+    env: dict[str, str | Path] = {
         "PATH": f"{HOME}/bin:/bin:/sbin",
         "SANDBOX": name,
         "TMPDIR": HOME / "tmp",
@@ -551,7 +597,11 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
             (
                 []
                 if seed is None
-                else ["--file", str(seed.stdout.fileno()), "/dev/shm/seed.tar"]
+                else [
+                    "--file",
+                    str(assert_some(seed.stdout).fileno()),
+                    "/dev/shm/seed.tar",
+                ]
             ),
             ro_bind_try("/etc"),
             ("--bind", host_home, HOME),
@@ -584,13 +634,13 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
         ),
         env=env,
         pass_fds=[
-            *([] if seed is None else [seed.stdout.fileno()]),
+            *([] if seed is None else [assert_some(seed.stdout).fileno()]),
             seccomp.fileno(),
         ],
     )
 
     if seed is not None:
-        seed.stdout.close()  # so tar receives SIGPIPE
+        assert_some(seed.stdout).close()  # so tar receives SIGPIPE
 
     if bwrap.wait() != 0:
         raise subprocess.CalledProcessError(bwrap.returncode, "bwrap")
@@ -599,22 +649,22 @@ def run(name, packages=[], extra_seeds=[], init=False, exec=False):
         seed.wait()
 
 
-def package_list(packages):
-    if packages == ["none"]:
+def package_list(packages: str) -> set[PackageName]:
+    if packages == "none":
         return set()
-    packages = {p.strip() for p in packages.split(",") if p.strip() != ""}.union(
+    package_set = {p.strip() for p in packages.split(",") if p.strip() != ""}.union(
         {"auto"}
     )
-    for package in packages:
+    for package in package_set:
         if package not in PACKAGES:
             options = ", ".join([repr(s) for s in PACKAGES])
             raise argparse.ArgumentTypeError(
                 f"invalid package {package!r} (use 'none' or comma-separated list from {options})"
             )
-    return packages
+    return package_set
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Manage sandboxed environments", allow_abbrev=False
     )

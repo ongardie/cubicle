@@ -1,7 +1,11 @@
 {
   "editor.formatOnSave": true,
   "python.formatting.provider": "black",
-  "python.linting.pylamaEnabled": true,
+  "python.linting.pylamaEnabled": false,
   "python.linting.enabled": true,
-  "python.linting.lintOnSave": false
+  "python.linting.lintOnSave": true,
+  "python.linting.mypyEnabled": true,
+  "python.linting.ignorePatterns": [
+    "test_*.py"
+  ]
 }
