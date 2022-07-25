@@ -221,7 +221,7 @@ Each Cubicle environment consists of three logical filesystem layers:
 2. A home directory. Inside the environment, this is at the same path as the
    host's `$HOME`, but it's not shared with the host. It lives in
    `${XDG_CACHE_HOME:-~/.cache}/cubicle/home/` on the host. The home directory
-   should be treated as replacable at any time. Cubicle populates the home
+   should be treated as replaceable at any time. Cubicle populates the home
    directory with files from packages when you create the environment (with
    `cub new`) or reset it (with `cub reset`). Currently, the home directory is
    populated with physical copies of package files, so the home directories can
@@ -270,6 +270,9 @@ after its directory. It must contain one or more of these files:
 These files and any other files in the package directory are injected into the
 work directory of the package builder environment.
 
+If the package provides any executable files within `~/.dev-init/`, these will
+be run upon creating and resetting target environments.
+
 Packages are built automatically when they are first used, and they are updated
 when they are used if 12 hours have elapsed, their package definitions have
 changed, or one of their dependencies has been updated more recently.
@@ -296,7 +299,7 @@ This is useful for configuration files, for example.
 - [Bubblewrap](https://github.com/containers/bubblewrap) is a low-level tool
   from the Flatpak developers to run lightweight containers. Cubicle is
   currently a wrapper for Bubblewrap. Julia Evans wrote a recent
-  [blog post exploring Bubble wrap](https://jvns.ca/blog/2022/06/28/some-notes-on-bubblewrap/).
+  [blog post exploring Bubblewrap](https://jvns.ca/blog/2022/06/28/some-notes-on-bubblewrap/).
 - [Docker](<https://en.wikipedia.org/wiki/Docker_(software)>) is a popular
   container manager.
 - [Firejail](https://github.com/netblue30/firejail) defines and enforces
