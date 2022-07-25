@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from pathlib import Path
 import argparse
 import json
 import os
@@ -13,6 +12,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 HOSTNAME = socket.gethostname()
 HOME = Path.home()
@@ -131,9 +131,7 @@ def update_stale_package(key, now):
     name = f"package-{key}"
     mtime = du(package["dir"])[2]
 
-    try:
-        update_script = package["update"]
-    except KeyError:
+    if "update" not in package:
         return
 
     work_dir = WORK_DIRS / name
@@ -144,7 +142,7 @@ def update_stale_package(key, now):
         mtime < updated
         and now - updated < 60 * 60 * 12
         and all(
-            [last_updated(p) < updated for p in transitive_depends(package["depends"])]
+            last_updated(p) < updated for p in transitive_depends(package["depends"])
         )
     ):
         return
@@ -456,7 +454,7 @@ def reset_environment(name, packages=None, clean=False):
     host_home = HOME_DIRS / name
     if host_home.exists():
         rmtree(host_home)
-    if args.clean:
+    if clean:
         return
 
     if packages is None:
@@ -495,8 +493,7 @@ def flatten(*l):
 def ro_bind_try(a, b=None):
     if b is None:
         return ("--ro-bind-try", a, a)
-    else:
-        return ("--ro-bind-try", a, b)
+    return ("--ro-bind-try", a, b)
 
 
 def packages_to_seeds(packages):
