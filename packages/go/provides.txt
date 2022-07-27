@@ -1,2 +1,3 @@
-.cache/go-build
+bin/go
 go
+opt/go

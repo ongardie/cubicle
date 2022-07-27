@@ -11,3 +11,5 @@ $HOME/opt/python/latest/bin:\
 /sbin:\
 /usr/local/games:\
 /usr/games
+
+export GOROOT=$HOME/opt/go
