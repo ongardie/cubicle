@@ -563,14 +563,15 @@ def run(
 
     seed: Optional[subprocess.Popen[bytes]] = None
     seed_dirs = packages_to_seeds(packages)
-    if seed_dirs or extra_seeds:
-        args: Sequence[str | Path] = flatten(
-            "tar",
-            "-c",
-            [("--directory", dir, *files) for (dir, files) in seed_dirs],
-            extra_seeds,
+    tar_args: Sequence[str | Path] = flatten(
+        [("--directory", dir, *files) for (dir, files) in seed_dirs if files],
+        extra_seeds,
+    )
+    if tar_args:
+        seed = subprocess.Popen(
+            ["tar", "-c", *tar_args],
+            stdout=subprocess.PIPE,
         )
-        seed = subprocess.Popen(args, stdout=subprocess.PIPE)
 
     env: dict[str, str | Path] = {
         "PATH": f"{HOME}/bin:/bin:/sbin",
