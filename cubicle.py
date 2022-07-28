@@ -34,7 +34,6 @@ PackageSpec = TypedDict(
         "depends": set[PackageName],
         "dir": Path,
         "origin": str,
-        "provides": list[str],
         "update": Optional[Path],
     },
 )
@@ -66,22 +65,10 @@ def add_packages(dir: Path, origin: str) -> None:
                 update = package_dir / "update.sh"
             else:
                 update = None
-            try:
-                provides = [path.strip() for path in open(package_dir / "provides.txt")]
-            except FileNotFoundError:
-                provides = []
-            else:
-                for path in provides:
-                    assert (
-                        not path.startswith("/")
-                        and not path.startswith("~/")
-                        and ".." not in path.split("/")
-                    ), f"package {package_dir.name}: provides.txt must have relative paths from ~"
             PACKAGES[package_dir.name] = {
                 "depends": depends,
                 "dir": package_dir,
                 "origin": origin,
-                "provides": provides,
                 "update": update,
             }
 
@@ -146,9 +133,9 @@ def update_packages(packages: Iterable[PackageName]) -> None:
         todo = later
 
 
-def last_updated(package: PackageName) -> float:
+def last_built(package: PackageName) -> float:
     try:
-        return (HOME_DIRS / f"package-{package}" / ".UPDATED").stat().st_mtime
+        return (HOME_DIRS / f"package-{package}" / "provides.tar").stat().st_mtime
     except FileNotFoundError:
         return 0
 
@@ -164,13 +151,11 @@ def update_stale_package(key: PackageName, now: float) -> None:
     work_dir = WORK_DIRS / name
     if not work_dir.exists():
         work_dir.mkdir(parents=True)
-    updated = last_updated(key)
+    built = last_built(key)
     if (
-        mtime < updated
-        and now - updated < 60 * 60 * 12
-        and all(
-            last_updated(p) < updated for p in transitive_depends(package["depends"])
-        )
+        mtime < built
+        and now - built < 60 * 60 * 12
+        and all(last_built(p) < built for p in transitive_depends(package["depends"]))
     ):
         return
     update_package(key)
@@ -180,16 +165,24 @@ def update_package(key: PackageName) -> None:
     package = PACKAGES[key]
     name = f"package-{key}"
     print(f"Updating {key} package")
+    subprocess.Popen
+    tar_path = XDG_CACHE_HOME / "cubicle" / f"{name}.tar"
+    seed = subprocess.run(
+        flatten(
+            "tar",
+            "-c",
+            ("--directory", package["dir"]),
+            ".",
+            ("--transform", f"s/^\./{name}/"),
+            ("-f", tar_path),
+        ),
+        stdout=subprocess.PIPE,
+        check=True,
+    )
     run(
         name,
         packages=package["depends"],
-        extra_seeds=[
-            "--directory",
-            "/",
-            package["dir"],
-            "--transform",
-            f"s${package['dir'].relative_to('/')}${name}$",
-        ],
+        extra_seeds=[tar_path],
         init=(SCRIPT_PATH / "dev-init.sh"),
     )
 
@@ -234,7 +227,12 @@ def try_iterdir(path: Path) -> Iterable[Path]:
         pass
 
 
-def rel_time(duration: float) -> str:
+def rel_time(then: float, now: Optional[float] = None) -> str:
+    if then == 0:
+        return "N/A"
+    if now is None:
+        now = time.time()
+    duration = now - then
     duration /= 60
     if duration < 59.5:
         return f"{duration:.0f} minutes"
@@ -331,11 +329,11 @@ def list_environments(format: str = "default") -> None:
                 "{:<{nw}} | {:>10} {:>13} | {:>10} {:>13}".format(
                     name,
                     home_dir_size,
-                    rel_time(now - env["home_dir_mtime"])
+                    rel_time(env["home_dir_mtime"], now)
                     if "home_dir_mtime" in env
                     else "N/A",
                     work_dir_size,
-                    rel_time(now - env["work_dir_mtime"])
+                    rel_time(env["work_dir_mtime"], now)
                     if "work_dir_mtime" in env
                     else "N/A",
                     nw=nw,
@@ -352,13 +350,15 @@ def list_packages(format: str = "default") -> None:
 
     now = time.time()
     packages: dict[PackageName, Any] = {}
-    for name, package in PACKAGES.items():
-        mtime = du(package["dir"])[2]
+    for name, p in PACKAGES.items():
+        error, size, built = du(HOME_DIRS / f"package-{name}" / "provides.tar")
         packages[name] = {
-            "dir": str(package["dir"]),
-            "depends": sorted(package["depends"]),
-            "origin": package["origin"],
-            "mtime": mtime,
+            "dir": str(p["dir"]),
+            "depends": sorted(p["depends"]),
+            "origin": p["origin"],
+            "edited": du(p["dir"])[2],
+            "built": built,
+            "size": None if error else size,
         }
 
     if format == "json":
@@ -366,22 +366,30 @@ def list_packages(format: str = "default") -> None:
     else:
         nw = max([10] + [len(name) for name in packages])
         print(
-            "{:<{nw}}  {:<8}  {:>13}  {:<20}".format(
+            "{:<{nw}}  {:<8}  {:>10}  {:>13}  {:>13}  {:<20}".format(
                 "name",
                 "origin",
-                "modified",
+                "size",
+                "built",
+                "edited",
                 "dependencies",
                 nw=nw,
             )
         )
-        print("{0:-<{nw}}  {0:-<8}  {0:-<13}  {0:-<20}".format("", nw=nw))
+        print(
+            "{0:-<{nw}}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}  {0:-<20}".format(
+                "", nw=nw
+            )
+        )
         for name in sorted(packages):
             package = packages[name]
             print(
-                "{:<{nw}}  {:<8}  {:>13}  {:<20}".format(
+                "{:<{nw}}  {:<8}  {:>10}  {:>13}  {:>13}  {:<20}".format(
                     name,
                     package["origin"],
-                    rel_time(now - mtime),
+                    "N/A" if package["size"] is None else si_bytes(package["size"]),
+                    rel_time(package["built"], now),
+                    rel_time(package["edited"], now),
                     ",".join(package["depends"]),
                     nw=nw,
                 )
@@ -531,12 +539,12 @@ def ro_bind_try(
     return ("--ro-bind-try", a, b)
 
 
-def packages_to_seeds(packages: Iterable[PackageName]) -> list[tuple[Path, list[str]]]:
+def packages_to_seeds(packages: Iterable[PackageName]) -> list[Path]:
     args = []
     for package in sorted(transitive_depends(packages)):
-        spec = PACKAGES[package]
-        if "provides" in spec:
-            args.append((HOME_DIRS / f"package-{package}", spec["provides"]))
+        provides = HOME_DIRS / f"package-{package}" / "provides.tar"
+        if provides.is_file():
+            args.append(provides)
     return args
 
 
@@ -548,7 +556,7 @@ def assert_some(x: Optional[T]) -> T:
 def run(
     name: str,
     packages: Iterable[PackageName] = [],
-    extra_seeds: list[Union[str, Path]] = [],
+    extra_seeds: list[Path] = [],
     init: Union[Literal[False], Path] = False,
     exec: Union[Literal[False], list[str]] = False,
 ) -> None:
@@ -562,14 +570,11 @@ def run(
         pass
 
     seed: Optional[subprocess.Popen[bytes]] = None
-    seed_dirs = packages_to_seeds(packages)
-    tar_args: Sequence[str | Path] = flatten(
-        [("--directory", dir, *files) for (dir, files) in seed_dirs if files],
-        extra_seeds,
-    )
-    if tar_args:
+    seeds = packages_to_seeds(packages) + extra_seeds
+    if seeds:
+        print("Packing seed tarball")
         seed = subprocess.Popen(
-            ["tar", "-c", *tar_args],
+            ["pv", "-i", "0.1", *seeds],
             stdout=subprocess.PIPE,
         )
 

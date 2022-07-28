@@ -19,4 +19,4 @@ cp -a install-node node npm npx ~/bin/
     npm update --location=global
 )
 
-touch ~/.UPDATED
+tar -c -C ~ --verbatim-files-from --files-from ~/$SANDBOX/provides.txt -f ~/provides.tar

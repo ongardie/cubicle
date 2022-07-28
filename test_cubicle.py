@@ -7,18 +7,25 @@ from cubicle import flatten, rel_time, si_bytes
 
 class TestDev(unittest.TestCase):
     def test_rel_time(self):
-        self.assertEqual(rel_time(0), "0 minutes")
-        self.assertEqual(rel_time(30), "0 minutes")
-        self.assertEqual(rel_time(31), "1 minutes")
-        self.assertEqual(rel_time(89), "1 minutes")
-        self.assertEqual(rel_time(90), "2 minutes")
-        self.assertEqual(rel_time(150), "2 minutes")
-        self.assertEqual(rel_time(151), "3 minutes")
-        self.assertEqual(rel_time(59 * 60 + 29), "59 minutes")
-        self.assertEqual(rel_time(59 * 60 + 30), "1 hours")
-        self.assertEqual(rel_time(23 * 60 * 60 + 29 * 60 + 59), "23 hours")
-        self.assertEqual(rel_time(23 * 60 * 60 + 30 * 60), "1 days")
-        self.assertEqual(rel_time(365 * 24 * 60 * 60), "365 days")
+        def d(duration):
+            return rel_time(1, 1 + duration)
+
+        self.assertEqual(rel_time(0), "N/A")
+        self.assertEqual(rel_time(0, 100), "N/A")
+        self.assertEqual(rel_time(60, 120), "1 minutes")
+
+        self.assertEqual(d(0), "0 minutes")
+        self.assertEqual(d(30), "0 minutes")
+        self.assertEqual(d(31), "1 minutes")
+        self.assertEqual(d(89), "1 minutes")
+        self.assertEqual(d(90), "2 minutes")
+        self.assertEqual(d(150), "2 minutes")
+        self.assertEqual(d(151), "3 minutes")
+        self.assertEqual(d(59 * 60 + 29), "59 minutes")
+        self.assertEqual(d(59 * 60 + 30), "1 hours")
+        self.assertEqual(d(23 * 60 * 60 + 29 * 60 + 59), "23 hours")
+        self.assertEqual(d(23 * 60 * 60 + 30 * 60), "1 days")
+        self.assertEqual(d(365 * 24 * 60 * 60), "365 days")
 
     def test_si_bytes(self):
         self.assertEqual(si_bytes(0), "0 B")

@@ -34,4 +34,4 @@ rustup completions zsh > $ZSH_COMP/_rustup
 rustup completions bash cargo > $BASH_COMP/cargo
 rustup completions zsh cargo > $ZSH_COMP/_cargo
 
-touch ~/.UPDATED
+tar -c -C ~ --verbatim-files-from --files-from ~/$SANDBOX/provides.txt -f ~/provides.tar

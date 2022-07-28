@@ -255,14 +255,13 @@ after its directory. It must contain one or more of these files:
 
 - `update.sh`: An executable that is run in a package builder environment to
   produce the package files. The script may download software, unpack it,
-  compile it, set up configuration files, etc. Note that this script runs when
-  the package builder environment is first created and also when the package
-  builder environment is updated. The package builder environments are kept
-  around as a form of caching.
-- `provides.txt`: A newline-separated list of files and directories that are
-  the product of the package builder. These must be specified relative to the
-  home directory. Cubicle will copy these from the package builder's
-  environment (after `update.sh` runs) into the target environments.
+  compile it, set up configuration files, etc. It should create an archive at
+  `~/provides.tar` that Cubicle will later unpack in the target environments'
+  home directories. Note that `update.sh` runs when the package builder
+  environment is first created and also when the package builder environment is
+  updated. The package builder environments are kept around as a form of
+  caching.
+
 - `depends.txt`: A newline-separated list of package names on which this
   package depends. Both the package builder environment and the new
   environments that depend on this package will be seeded with these packages.

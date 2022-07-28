@@ -39,4 +39,4 @@ go install github.com/go-delve/delve/cmd/dlv@latest
 go install golang.org/x/tools/gopls@latest
 go install honnef.co/go/tools/cmd/staticcheck@latest
 
-touch ~/.UPDATED
+tar -c -C ~ --verbatim-files-from --files-from ~/$SANDBOX/provides.txt -f ~/provides.tar

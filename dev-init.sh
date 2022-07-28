@@ -3,7 +3,7 @@ set -e
 
 if [ -f /dev/shm/seed.tar ]; then
     echo "Unpacking seed tarball..."
-    pv -i 0.1 /dev/shm/seed.tar | tar -C ~ -x
+    pv -i 0.1 /dev/shm/seed.tar | tar --ignore-zero --directory ~ -x
     rm /dev/shm/seed.tar
 fi
 
