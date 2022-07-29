@@ -47,6 +47,7 @@ SCRIPT_NAME = os.path.basename(sys.argv[0])
 SCRIPT_PATH = Path(os.path.dirname(os.path.realpath(__file__)))
 HOME_DIRS = XDG_CACHE_HOME / "cubicle" / "home"
 WORK_DIRS = XDG_DATA_HOME / "cubicle" / "work"
+PACKAGE_CACHE = XDG_CACHE_HOME / "cubicle" / "packages"
 CODE_PACKAGE_DIR = SCRIPT_PATH / "packages"
 USER_PACKAGE_DIR = XDG_DATA_HOME / "cubicle" / "packages"
 
@@ -135,7 +136,7 @@ def update_packages(packages: Iterable[PackageName]) -> None:
 
 def last_built(package: PackageName) -> float:
     try:
-        return (HOME_DIRS / f"package-{package}" / "provides.tar").stat().st_mtime
+        return (PACKAGE_CACHE / f"{package}.tar").stat().st_mtime
     except FileNotFoundError:
         return 0
 
@@ -179,11 +180,24 @@ def update_package(key: PackageName) -> None:
         stdout=subprocess.PIPE,
         check=True,
     )
-    run(
-        name,
-        packages=package["depends"],
-        extra_seeds=[tar_path],
-        init=(SCRIPT_PATH / "dev-init.sh"),
+    try:
+        run(
+            name,
+            packages=package["depends"],
+            extra_seeds=[tar_path],
+            init=(SCRIPT_PATH / "dev-init.sh"),
+        )
+    except subprocess.CalledProcessError as e:
+        if not (PACKAGE_CACHE / f"{key}.tar").is_file():
+            raise e
+        print(f"WARNING: Failed to update package {key} (exit status {e.returncode}). Keeping stale version.")
+        return
+    finally:
+        tar_path.unlink()
+    PACKAGE_CACHE.mkdir(exist_ok=True, parents=True)
+    shutil.copyfile(
+        HOME_DIRS / name / "provides.tar",
+        PACKAGE_CACHE / f"{key}.tar",
     )
 
 
@@ -351,7 +365,7 @@ def list_packages(format: str = "default") -> None:
     now = time.time()
     packages: dict[PackageName, Any] = {}
     for name, p in PACKAGES.items():
-        error, size, built = du(HOME_DIRS / f"package-{name}" / "provides.tar")
+        error, size, built = du(PACKAGE_CACHE / f"{name}.tar")
         packages[name] = {
             "dir": str(p["dir"]),
             "depends": sorted(p["depends"]),
@@ -542,7 +556,7 @@ def ro_bind_try(
 def packages_to_seeds(packages: Iterable[PackageName]) -> list[Path]:
     args = []
     for package in sorted(transitive_depends(packages)):
-        provides = HOME_DIRS / f"package-{package}" / "provides.tar"
+        provides = PACKAGE_CACHE / f"{package}.tar"
         if provides.is_file():
             args.append(provides)
     return args
