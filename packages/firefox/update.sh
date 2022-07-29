@@ -4,7 +4,7 @@ set -e
 echo "Checking latest Firefox version"
 url=$(curl 'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US' -w '%{redirect_url}\n' -s --output /dev/null)
 version=$(basename "$url" | sed -E 's/^firefox-(.*).tar.bz2$/\1/')
-if [ v"$(firefox --version)" = v"Mozilla Firefox $version" ]; then
+if [ "$(firefox --version)" = "Mozilla Firefox $version" ]; then
     echo "Firefox $version already installed"
 else
     echo "Downloading Firefox $version"

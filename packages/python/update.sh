@@ -11,7 +11,7 @@ echo "Checking latest version of Python on GitHub"
 TAGS=$TMPDIR/python-tags
 curl -sS 'https://api.github.com/repos/python/cpython/tags' > $TAGS
 version=$(cat $TAGS | jq -r '.[] | .name' | grep -E '^v[0-9]+.[0-9]+.[0-9]+$' | sort --version-sort | tail -n 1 | cut -b2-)
-if [ v"$have" = v"Python $version" ] && [ $(which python3) -nt /usr/lib/x86_64-linux-gnu/libssl.a ]; then
+if [ "$have" = "Python $version" ] && [ "$(which python3)" -nt /usr/lib/x86_64-linux-gnu/libssl.a ]; then
     echo "Have latest Python already ($version)"
 else
     echo "Downloading and installing Python $version"
@@ -45,7 +45,7 @@ for f in \
     ln -fs ../bin/$f ~/opt/python/latest/sbin/
 done
 
-if [ v"$(python3 --version)" != v"Python $version" ]; then
+if [ "$(python3 --version)" != "Python $version" ]; then
   echo "ERROR: Have $(python3 --version), which is still not right"
   exit 1
 fi

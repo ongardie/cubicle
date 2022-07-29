@@ -10,9 +10,10 @@ curl -s 'https://go.dev/dl/?mode=json' > "$RELEASES"
 version=$(jq -r 'map(select(.stable) | .version)[0]' < "$RELEASES")
 
 installed=$(go env GOVERSION || true)
-echo "Have $installed"
+installed_root=$(go env GOROOT || true)
+echo "Have $installed installed at $installed_root"
 
-if [ x"$installed" != x"$version" ]; then
+if [ "$installed" != "$version" ] || [ "$installed_root" != "$HOME/opt/go" ]; then
     if [ ! -f "$version.linux-amd64.tar.gz" ]; then
         echo "Downloading $version"
         curl -LO "https://go.dev/dl/$version.linux-amd64.tar.gz"
@@ -27,8 +28,10 @@ fi
 mkdir -p ~/bin
 ln -fs ~/opt/go/bin/go ~/bin/
 
-if [ x"$(go env GOVERSION)" != x"$version" ]; then
-    echo "ERROR: Have $(go env GOVERSION), which is still not right"
+installed=$(go env GOVERSION || true)
+installed_root=$(go env GOROOT || true)
+if [ "$installed" != "$version" ] || [ "$installed_root" != "$HOME/opt/go" ]; then
+    echo "ERROR: Have $installed installed at $installed_root, which is still not right"
     exit 1
 fi
 
