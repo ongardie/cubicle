@@ -399,5 +399,10 @@ This is useful for configuration files, for example.
   running large, long-lived Linux containers, like VMs but with less overhead.
 - [LXD](https://linuxcontainers.org/lxd/introduction/) is a command-line tool
   to manage LXC containers (and VMs).
+- [Nix](<https://en.wikipedia.org/wiki/Nix_(package_manager)>) is a package
+  manager that installs software in isolated directories. This isolates
+  software installations from each other and allows multiple versions of
+  packages to coexist. It does not appear to prevent packages from interacting
+  through files in the user's home directory.
 - [Podman](https://github.com/containers/podman) is simlar to Docker but
   daemonless. Its CLI is mostly compatible with Docker's.
