@@ -1,13 +1,23 @@
 # Cubicle development container manager
 
-Cubicle is a program to manage light-weight containers or sandbox environments.
-It is intended for isolating development environments from the host system and
-from each other.
+Cubicle is a program to manage containers or sandbox environments. It is
+intended for isolating development environments from the host system and from
+each other.
 
-Cubicle currently runs on Linux only, as it is built on
-[Bubblewrap](https://github.com/containers/bubblewrap). Cubicle is in early
-stages of development and is likely to change frequently in incompatible ways.
-Users should review the Git commits to see what's changed before upgrading.
+Cubicle runs on top of either of these isolation mechanisms:
+
+- [Docker](<https://en.wikipedia.org/wiki/Docker_(software)>), which is a
+  popular yet heavy-weight container mechanism. Docker runs Linux containers,
+  but it runs on Mac and Windows as well by running a Linux VM. Under Docker,
+  the environments may use sudo to modify their root partitions.
+
+- [Bubblewrap](https://github.com/containers/bubblewrap), which is a
+  light-weight mechanism that runs on Linux only. Under Bubblewrap, the host's
+  root partition is shared read-only with the environments.
+
+Cubicle is in early stages of development and is likely to change frequently in
+incompatible ways. Users should review the Git commits to see what's changed
+before upgrading.
 
 ## Motivation
 
@@ -42,7 +52,7 @@ you spin up a new environment in seconds to try things out. When you find
 something you like, you can define a package so that it's always ready to go
 and up to date in your environments.
 
-### Why Not Docker?
+### What does this provide over Docker?
 
 [Docker](<https://en.wikipedia.org/wiki/Docker_(software)>) is a popular
 container manager. It's commonly used to run long-running network services
@@ -53,9 +63,7 @@ of a Docker container, or share your source files between your host and a
 container, running your editor on the host and the other tools inside the
 container.
 
-Cubicle could probably be rebuilt on top of Docker, but the two don't quite
-align on how containers should be populated or used. For example, Docker
-containers are usually immutable. They are built in sequential layers. They're
+Docker containers are usually immutable and built in sequential layers. They're
 used for the purpose of running a build or a single version of a service, then
 they are thrown away and replaced.
 
@@ -77,31 +85,47 @@ Please leave feedback in the GitHub Discussions.
 The goal of any sandbox is to isolate software so that software running inside
 the sandbox cannot "break out", meaning it cannot access or affect the system
 outside the sandbox. Cubicle may not meet this goal, at least depending on the
-environment. Cubicle does offer a meaningful layer of security when compared to
-running untrusted software directly on your host.
+environment and the enforcement mechanism used. Cubicle does offer a meaningful
+layer of security when compared to running untrusted software directly on your
+host.
 
-Cubicle builds upon Bubblewrap and the Linux kernel, which aren't perfect.
-Users should review Bubblewrap's security and, of course, keep up with Linux
-kernel updates.
+### Security
+
+Cubicle relies on Docker/Bubblewrap and the Linux kernel for isolation, which
+aren't perfect. Users should review Docker/Bubblewrap's security and, of
+course, keep up with Linux kernel updates.
 
 Of particular note, containers with access to X11 probably have full access to
 your keystrokes. See https://wiki.archlinux.org/title/Bubblewrap#Sandboxing_X11
 for more info.
 
-Cubicle does not currently limit host network access, allowing containers to
-access services on the local host and local network.
+Under Docker, Cubicle uses the default network configuration, which isolates
+the containers in their own network namespace.
 
+Under Bubblewrap, Cubicle does not currently limit host network access,
+allowing containers to access services on the local host and local network. The
+UNIX domain abstract socket namespace is also shared between the host and the
+containers, since it is also tied to the network namespace. (This is actually
+how containers running under Bubblewrap currently access the X11 socket without any setup.)
+
+Under Docker, Cubicle uses the default resource limits. Under Bubblewrap,
 Cubicle does not currently limit the resources used by its containers. This may
 leave containers vulnerable to attacks like unauthorized cryptocurrency mining.
 
 ### Seccomp Filter
 
-Cubicle and Bublewrap's security depend on setting a restrictive
+Cubicle and Docker/Bublewrap's security depend on setting a restrictive
 [seccomp](https://en.wikipedia.org/wiki/Seccomp) policy, to limit the system
 calls available to the sandbox environment. Developing such a policy requires a
 careful audit of what is safe or unsafe to expose in the Linux kernel, which is
-a moving target. Cubicle does not currently ship such a seccomp filter. Users
-are encouraged to borrow one from these projects:
+a moving target.
+
+Cubicle does not currently ship such a seccomp filter for Bubblewrap.
+Cubicle can use Docker's default seccomp policy, but it doesn't allow
+electron apps to run without the SUID Chromium Sandbox.
+
+For Bubblewrap, users are encouraged to borrow a seccomp filter from one of
+these projects:
 
 - Podman/Buildah/CRI-O's seccomp filter is here:
   <https://github.com/containers/common/blob/main/pkg/seccomp/seccomp.json>.
@@ -130,9 +154,9 @@ BPF filter from the above source code.
 Cubicle is currently a single-file Python script (that uses no third-party
 libraries) and a collection of shell scripts. Installation is straightforward.
 
-### Installing Dependencies
+### Installing Dependencies (Bubblewrap)
 
-First, install the dependencies:
+Install the dependencies:
 
 - `bwrap` - Bubblewrap, Linux light-weight container tool. Note that while
   bwrap used to be a setuid binary, this is no longer needed on modern
@@ -150,6 +174,17 @@ On Debian 11, you can install the dependencies using `apt`:
 sudo apt install bubblewrap curl git jq pv
 ```
 
+### Installing Dependencies (Docker)
+
+[Install Docker](https://docs.docker.com/get-docker/). On Debian 11, you can
+install it using `apt`:
+
+```sh
+sudo apt install docker.io
+```
+
+You also need Python 3 and `tar`, but you probably already have those.
+
 ### Installing Cubicle
 
 Assuming you'd like to install into `~/opt/cubicle` and already have `~/bin` in
@@ -162,7 +197,36 @@ cd cubicle
 ln -s $(pwd)/cubicle.py ~/bin/cub
 ```
 
-### Installing a Seccomp Filter
+If you would like to use Bubblewrap:
+
+```sh
+echo bubblewrap > .RUNNER
+```
+
+If you would like to use Docker:
+
+```sh
+echo docker > .RUNNER
+```
+
+### Installing a Seccomp Filter (Docker)
+
+If you haven't done so already, please read the security section on why you
+need a good seccomp filter. If Cubicle does not find a `seccomp.json` file, it
+will use Docker's default seccomp filter. Docker's default filter doesn't allow
+VS Codium, other Electron apps, or Chromium to run with the Chromium sandbox
+enabled: see <https://github.com/moby/moby/issues/42441> and
+<https://chromium.googlesource.com/chromium/src/+/HEAD/docs/linux/sandboxing.md>.
+
+To work around this, we can edit Docker's seccomp policy to allow `clone` and
+`unshare` unconditionally (which adds risk):
+
+```sh
+curl -L 'https://raw.githubusercontent.com/moby/moby/master/profiles/seccomp/default.json' > docker-seccomp.json
+sed 's/"getpid",/"getpid", "clone", "unshare",/' < docker-seccomp.json > seccomp.json
+```
+
+### Installing a Seccomp Filter (Bubblewrap)
 
 If you haven't done so already, please read the security section on why you
 need a good seccomp filter. I've extracted a filter from a running Podman
@@ -189,7 +253,10 @@ ln -s $(pwd)/_cub ~/.zfunc/
 
 First, exit out of any running Cubicle environments.
 
-Assuming the same paths as above:
+For Docker, kill the running Cubicle containers and remove the "cubicle-base"
+image.
+
+Assuming the same paths as in the installation instructions above:
 
 ```sh
 rm -r ~/opt/cubicle/
@@ -207,6 +274,24 @@ rm -r ${XDG_DATA_HOME:-~/.local/share}/cubicle/
 
 ## Cubicle Environments
 
+### Under Docker
+
+Each Cubicle environment consists of three logical filesystem layers:
+
+| Layer   | Host Path (with default XDG base dirs) | Container Path   | Lifetime |
+| ------- | -------------------------------------- | ---------------- | -------- |
+| 1. OS   | cubicle-base Docker image              | `/` (read-write) | short    |
+| 2. home | `~/.cache/cubicle/home/ENV`            | `~/`             | short    |
+| 3. work | `~/.local/share/cubicle/work/ENV`      | `~/ENV/`         | long     |
+
+1. The base operating system. This is the "cubicle-base" Docker image that is
+   built automatically by Cubicle. It's currently based on Debian 11. See
+   `Dockerfile.in` for details.
+
+2 and 3 are the same in both Docker and Bubblewrap and are described below.
+
+### Under Bubblewrap
+
 Each Cubicle environment consists of three logical filesystem layers:
 
 | Layer   | Host Path (with default XDG base dirs) | Container Path  | Lifetime |
@@ -217,6 +302,10 @@ Each Cubicle environment consists of three logical filesystem layers:
 
 1. The base operating system. This is currently shared with the host's `/` and
    read-only inside the container.
+
+2 and 3 are the same in both Docker and Bubblewrap and are described below.
+
+### Common (Both Docker and Bubblewrap)
 
 2. A home directory. Inside the environment, this is at the same path as the
    host's `$HOME`, but it's not shared with the host. It lives in
@@ -296,8 +385,8 @@ This is useful for configuration files, for example.
 ### Related Projects
 
 - [Bubblewrap](https://github.com/containers/bubblewrap) is a low-level tool
-  from the Flatpak developers to run lightweight containers. Cubicle is
-  currently a wrapper for Bubblewrap. Julia Evans wrote a recent
+  from the Flatpak developers to run lightweight containers. Julia Evans wrote a
+  recent
   [blog post exploring Bubblewrap](https://jvns.ca/blog/2022/06/28/some-notes-on-bubblewrap/).
 - [Docker](<https://en.wikipedia.org/wiki/Docker_(software)>) is a popular
   container manager.

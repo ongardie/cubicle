@@ -5,7 +5,7 @@ set -e
 # be installed on the system already:
 # https://devguide.python.org/setup/#linux
 
-have=$(python3 --version)
+have=$(python3 --version || true)
 echo "Have ${have:-no python3 version}"
 echo "Checking latest version of Python on GitHub"
 TAGS=$TMPDIR/python-tags

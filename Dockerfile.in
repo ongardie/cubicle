@@ -1,0 +1,91 @@
+FROM debian:11
+RUN echo '@@TIMEZONE@@' > /etc/timezone && \
+  ln -fs /usr/share/zoneinfo/@@TIMEZONE@@ /etc/localtime
+RUN sed -i 's/ main$/ main contrib non-free/' /etc/apt/sources.list
+RUN apt-get update
+RUN apt-get upgrade -y
+RUN apt-get install -y \
+    apt-file \
+    apt-utils \
+    bash-completion \
+    bind9-dnsutils \
+    build-essential \
+    curl \
+    dialog \
+    eatmydata \
+    file \
+    git \
+    iproute2 \
+    iputils-ping \
+    jq \
+    less \
+    lz4 \
+    man-db \
+    manpages \
+    manpages-posix-dev \
+    manpages-dev \
+    net-tools \
+    procps \
+    pv \
+    ripgrep \
+    rsync \
+    sqlite3 \
+    strace \
+    sudo \
+    time \
+    tree \
+    unzip \
+    vim \
+    wget \
+    xdg-utils \
+    zip \
+    zsh \
+    zsh-autosuggestions \
+    zsh-syntax-highlighting
+RUN apt-file update
+RUN adduser \
+    --disabled-password \
+    --gecos '' \
+    --no-create-home \
+    @@USER@@ && \
+    adduser @@USER@@ sudo
+RUN sh -c 'echo "%sudo ALL=NOPASSWD: ALL" > /etc/sudoers.d/nopasswd'
+
+# for Python
+RUN apt-get install -y \
+    build-essential \
+    gdb \
+    lcov \
+    libbz2-dev \
+    libffi-dev \
+    libgdbm-compat-dev \
+    libgdbm-dev \
+    liblzma-dev \
+    libncurses5-dev \
+    libreadline6-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    lzma \
+    lzma-dev \
+    pkg-config \
+    tk-dev \
+    uuid-dev \
+    zlib1g-dev
+
+# for firefox and vs codium
+RUN apt-get install -y \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-glib-1-2 \
+    libdrm2 \
+    libegl1 \
+    libgbm1 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnss3 \
+    libpci3 \
+    x11-utils
+
+ENV TMPDIR=/home/@@USER@@/tmp

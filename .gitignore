@@ -1,2 +1,4 @@
 *.bpf
+*seccomp.json
+/.RUNNER
 __pycache__

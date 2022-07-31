@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import (
     Any,
@@ -104,13 +105,29 @@ for package in transitive_depends(["auto"]):
 
 
 def rmtree(path: Path) -> None:
-    try:
-        shutil.rmtree(path)
-    except PermissionError:
-        # This is needed to handle read-only directories, such as Go's packages.
-        # See <https://github.com/golang/go/issues/27161>.
-        subprocess.run(["chmod", "-R", "u+rwX", path], check=True)
-        shutil.rmtree(path)
+    # This is a bit challenging due to two issues:
+    #
+    # 1. shutil.rmtree and `rm` won't remove the contents of read-only
+    #    directories, such as Go's packages. See
+    #    <https://github.com/golang/go/issues/27161>.
+    #
+    # 2. Docker might leave empty directories owned by root. Specifically, it
+    #    seems to often leave one where a volume was mounted, like a Cubicle
+    #    container's work directory within its home directory. These are
+    #    removable but their permissions can't be altered by chmod.
+    def onerror(_: Any, path: Any, exc_info: Any) -> None:
+        err: BaseException = exc_info[1]
+        if isinstance(err, PermissionError):
+            path = Path(path)
+            subprocess.run(["chmod", "-R", "u+rwX", path.parent], check=True)
+            if path.is_dir():
+                path.rmdir()
+            else:
+                path.unlink()
+            return
+        raise err
+
+    shutil.rmtree(path, onerror=onerror)
 
 
 def update_packages(packages: Iterable[PackageName]) -> None:
@@ -127,7 +144,6 @@ def update_packages(packages: Iterable[PackageName]) -> None:
             else:
                 later.append(key)
         if len(later) == len(todo):
-            print(later)
             raise RuntimeError(
                 f"Package dependencies are unsatisfiable for: {sorted(todo)}"
             )
@@ -166,7 +182,6 @@ def update_package(key: PackageName) -> None:
     package = PACKAGES[key]
     name = f"package-{key}"
     print(f"Updating {key} package")
-    subprocess.Popen
     tar_path = XDG_CACHE_HOME / "cubicle" / f"{name}.tar"
     seed = subprocess.run(
         flatten(
@@ -190,7 +205,9 @@ def update_package(key: PackageName) -> None:
     except subprocess.CalledProcessError as e:
         if not (PACKAGE_CACHE / f"{key}.tar").is_file():
             raise e
-        print(f"WARNING: Failed to update package {key} (exit status {e.returncode}). Keeping stale version.")
+        print(
+            f"WARNING: Failed to update package {key} (exit status {e.returncode}). Keeping stale version."
+        )
         return
     finally:
         tar_path.unlink()
@@ -487,6 +504,7 @@ def purge_environment(name: str) -> None:
     if not host_work.exists() and not host_home.exists():
         print(f"warning: environment {name} does not exist (nothing to purge)")
         return
+    RUNNER.kill(name)
     if host_work.exists():
         rmtree(host_work)
     if host_home.exists():
@@ -506,6 +524,7 @@ def reset_environment(
         sys.exit(1)
     host_home = HOME_DIRS / name
     if host_home.exists():
+        RUNNER.kill(name)
         rmtree(host_home)
     if clean:
         return
@@ -583,90 +602,298 @@ def run(
     except FileExistsError:
         pass
 
-    seed: Optional[subprocess.Popen[bytes]] = None
     seeds = packages_to_seeds(packages) + extra_seeds
-    if seeds:
-        print("Packing seed tarball")
-        seed = subprocess.Popen(
-            ["pv", "-i", "0.1", *seeds],
-            stdout=subprocess.PIPE,
-        )
-
-    env: dict[str, str | Path] = {
-        "PATH": f"{HOME}/bin:/bin:/sbin",
-        "SANDBOX": name,
-        "TMPDIR": HOME / "tmp",
-    }
-    for var in ["DISPLAY", "HOME", "SHELL", "TERM"]:
-        if var in os.environ:
-            env[var] = os.environ[var]
-
-    seccomp = open(SCRIPT_PATH / "seccomp.bpf")
-    bwrap = subprocess.Popen(
-        flatten(
-            "bwrap",
-            "--die-with-parent",
-            "--unshare-cgroup",
-            "--unshare-ipc",
-            "--unshare-pid",
-            "--unshare-uts",
-            ("--hostname", f"{name}.{HOSTNAME}"),
-            ("--symlink", "/usr/bin", "/bin"),
-            ("--dev", "/dev"),
-            (ro_bind_try(init, "/dev/shm/init.sh") if init else []),
-            (
-                []
-                if seed is None
-                else [
-                    "--file",
-                    str(assert_some(seed.stdout).fileno()),
-                    "/dev/shm/seed.tar",
-                ]
-            ),
-            ro_bind_try("/etc"),
-            ("--bind", host_home, HOME),
-            ("--dir", HOME / ".dev-init"),
-            ("--dir", HOME / "bin"),
-            ("--dir", HOME / "opt"),
-            ("--dir", HOME / "tmp"),
-            ("--bind", host_work, HOME / name),
-            ("--symlink", "/usr/lib", "/lib"),
-            ("--symlink", "/usr/lib64", "/lib64"),
-            ro_bind_try("/opt"),
-            ("--proc", "/proc"),
-            ("--symlink", "/usr/sbin", "/sbin"),
-            ("--tmpfs", "/tmp"),
-            ro_bind_try("/usr"),
-            ro_bind_try("/var/lib/apt/lists/"),
-            ro_bind_try("/var/lib/dpkg/"),
-            ("--seccomp", str(seccomp.fileno())),
-            ("--chdir", HOME / name),
-            "--",
-            os.environ["SHELL"],
-            "-l",
-            (
-                ["-c", "/dev/shm/init.sh"]
-                if init
-                else ["-c", shlex.join(exec)]
-                if exec
-                else []
-            ),
-        ),
-        env=env,
-        pass_fds=[
-            *([] if seed is None else [assert_some(seed.stdout).fileno()]),
-            seccomp.fileno(),
-        ],
+    RUNNER.run(
+        name=name,
+        host_home=host_home,
+        host_work=host_work,
+        seeds=seeds,
+        init=init,
+        exec=exec,
     )
 
-    if seed is not None:
-        assert_some(seed.stdout).close()  # so tar receives SIGPIPE
 
-    if bwrap.wait() != 0:
-        raise subprocess.CalledProcessError(bwrap.returncode, "bwrap")
+class Runner(ABC):
+    @abstractmethod
+    def kill(
+        self,
+        name: str,
+    ) -> None:
+        pass
 
-    if seed is not None:
-        seed.wait()
+    @abstractmethod
+    def run(
+        self,
+        *,
+        name: str,
+        host_home: Path,
+        host_work: Path,
+        seeds: list[Path],
+        init: Union[Literal[False], Path],
+        exec: Union[Literal[False], list[str]],
+    ) -> None:
+        pass
+
+
+class Bubblewrap(Runner):
+    def kill(self, name: str) -> None:
+        pass
+
+    def run(
+        self,
+        *,
+        name: str,
+        host_home: Path,
+        host_work: Path,
+        seeds: list[Path],
+        init: Union[Literal[False], Path],
+        exec: Union[Literal[False], list[str]],
+    ) -> None:
+        seed: Optional[subprocess.Popen[bytes]] = None
+        if seeds:
+            print("Packing seed tarball")
+            seed = subprocess.Popen(
+                ["pv", "-i", "0.1", *seeds],
+                stdout=subprocess.PIPE,
+            )
+
+        env: dict[str, str | Path] = {
+            "PATH": f"{HOME}/bin:/bin:/sbin",
+            "SANDBOX": name,
+            "TMPDIR": HOME / "tmp",
+        }
+        for var in ["DISPLAY", "HOME", "SHELL", "TERM"]:
+            if var in os.environ:
+                env[var] = os.environ[var]
+
+        seccomp = open(SCRIPT_PATH / "seccomp.bpf")
+        bwrap = subprocess.Popen(
+            flatten(
+                "bwrap",
+                "--die-with-parent",
+                "--unshare-cgroup",
+                "--unshare-ipc",
+                "--unshare-pid",
+                "--unshare-uts",
+                ("--hostname", f"{name}.{HOSTNAME}"),
+                ("--symlink", "/usr/bin", "/bin"),
+                ("--dev", "/dev"),
+                (ro_bind_try(init, "/dev/shm/init.sh") if init else []),
+                (
+                    []
+                    if seed is None
+                    else [
+                        "--file",
+                        str(assert_some(seed.stdout).fileno()),
+                        "/dev/shm/seed.tar",
+                    ]
+                ),
+                ro_bind_try("/etc"),
+                ("--bind", host_home, HOME),
+                ("--dir", HOME / ".dev-init"),
+                ("--dir", HOME / "bin"),
+                ("--dir", HOME / "opt"),
+                ("--dir", HOME / "tmp"),
+                ("--bind", host_work, HOME / name),
+                ("--symlink", "/usr/lib", "/lib"),
+                ("--symlink", "/usr/lib64", "/lib64"),
+                ro_bind_try("/opt"),
+                ("--proc", "/proc"),
+                ("--symlink", "/usr/sbin", "/sbin"),
+                ("--tmpfs", "/tmp"),
+                ro_bind_try("/usr"),
+                ro_bind_try("/var/lib/apt/lists/"),
+                ro_bind_try("/var/lib/dpkg/"),
+                ("--seccomp", str(seccomp.fileno())),
+                ("--chdir", HOME / name),
+                "--",
+                os.environ["SHELL"],
+                "-l",
+                (
+                    ["-c", "/dev/shm/init.sh"]
+                    if init
+                    else ["-c", shlex.join(exec)]
+                    if exec
+                    else []
+                ),
+            ),
+            env=env,
+            pass_fds=[
+                *([] if seed is None else [assert_some(seed.stdout).fileno()]),
+                seccomp.fileno(),
+            ],
+        )
+
+        if seed is not None:
+            assert_some(seed.stdout).close()  # so tar receives SIGPIPE
+
+        if bwrap.wait() != 0:
+            raise subprocess.CalledProcessError(bwrap.returncode, "bwrap")
+
+        if seed is not None:
+            seed.wait()
+
+
+class Docker(Runner):
+    def kill(self, name: str) -> None:
+        if self.is_running(name):
+            subprocess.run(
+                ["docker", "kill", name],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+
+    def is_running(self, name: str) -> bool:
+        result = subprocess.run(
+            ["docker", "inspect", "--type", "container", name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return result.returncode == 0
+
+    def base_mtime(self) -> int:
+        result = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                "--type",
+                "image",
+                "--format",
+                "{{ $.Metadata.LastTagTime.Unix }}",
+                "cubicle-base",
+            ],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            return int(result.stdout)
+        else:
+            return 0
+
+    def build_base(self) -> None:
+        if time.time() - self.base_mtime() < 60 * 60 * 12:
+            return
+        dockerfile = (
+            open(SCRIPT_PATH / "Dockerfile.in")
+            .read()
+            .replace("@@TIMEZONE@@", open("/etc/timezone").read().strip())
+            .replace("@@USER@@", os.environ["USER"])
+        )
+        subprocess.run(
+            ["docker", "build", "--tag", "cubicle-base", "-"],
+            input=dockerfile.encode(),
+            check=True,
+        )
+
+    def spawn(
+        self,
+        *,
+        name: str,
+        host_home: Path,
+        host_work: Path,
+    ) -> None:
+        seccomp_json = SCRIPT_PATH / "seccomp.json"
+        subprocess.run(
+            flatten(
+                "docker",
+                "run",
+                "--detach",
+                ("--env", f"SANDBOX={name}"),
+                ("--hostname", f"{name}.{HOSTNAME}"),
+                "--init",
+                ("--name", name),
+                "--rm",
+                (
+                    ("--security-opt", f"seccomp={ seccomp_json }")
+                    if seccomp_json.is_file()
+                    else []
+                ),
+                ("--user", os.environ["USER"]),
+                ("--volume", "/tmp/.X11-unix:/tmp/.X11-unix:ro"),
+                ("--volume", f"{host_home}:{HOME}"),
+                ("--volume", f"{host_work}:{HOME / name}"),
+                ("--workdir", HOME / name),
+                "cubicle-base",
+                ("sleep", "90d"),
+            ),
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+
+    def run(
+        self,
+        *,
+        name: str,
+        host_home: Path,
+        host_work: Path,
+        seeds: list[Path],
+        init: Union[Literal[False], Path],
+        exec: Union[Literal[False], list[str]],
+    ) -> None:
+        if not self.is_running(name):
+            self.build_base()
+            self.spawn(name=name, host_home=host_home, host_work=host_work)
+        seed: Optional[subprocess.Popen[bytes]] = None
+        if seeds:
+            print("Copying/extracting seed tarball")
+            # Use pv from inside the container since it may not be installed on
+            # the host. Since it's reading from a stream, it needs to know the
+            # total size to display a good progress bar.
+            size = sum(du(s)[1] for s in seeds)
+            seed = subprocess.Popen(
+                ["cat", *seeds],
+                stdout=subprocess.PIPE,
+            )
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    "--interactive",
+                    name,
+                    "sh",
+                    "-c",
+                    (
+                        f"pv --interval 0.1 --force --size {size} | "
+                        + "tar --ignore-zero --directory ~ --extract"
+                    ),
+                ],
+                check=True,
+                stdin=seed.stdout,
+            )
+
+        if init:
+            subprocess.run(
+                ["docker", "cp", "--archive", init, f"{name}:/cubicle-init.sh"],
+                check=True,
+            )
+
+        subprocess.run(
+            flatten(
+                "docker",
+                "exec",
+                ("--env", "DISPLAY"),
+                (
+                    # The debian:11 image hasn't gone through usrmerge, so
+                    # /usr/bin and /bin are distinct there.
+                    "--env",
+                    f"PATH={HOME}/bin:/bin:/sbin:/usr/bin:/usr/sbin",
+                ),
+                ("--env", "SHELL"),
+                ("--env", "TERM"),
+                "--interactive",
+                "--tty",
+                name,
+                os.environ["SHELL"],
+                "-l",
+                (
+                    ["-c", "/cubicle-init.sh"]
+                    if init
+                    else ["-c", shlex.join(exec)]
+                    if exec
+                    else []
+                ),
+            ),
+            check=True,
+        )
 
 
 def package_list(packages: str) -> set[PackageName]:
@@ -783,6 +1010,22 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    runners = "'bubblewrap' or 'docker'"
+    try:
+        runner = open(SCRIPT_PATH / ".RUNNER").read().strip()
+    except FileNotFoundError:
+        print(f"Runner should be set to {runners}")
+        raise
+    RUNNER: Runner
+    if runner == "bubblewrap":
+        RUNNER = Bubblewrap()
+    elif runner == "docker":
+        RUNNER = Docker()
+    else:
+        raise RuntimeError(
+            f"Unknown runner in {SCRIPT_PATH / '.RUNNER'}: {runner!r}, expected {runners}"
+        )
+
     args = parse_args()
     if args.command == "enter":
         enter_environment(name=args.name)
