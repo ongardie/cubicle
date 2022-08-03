@@ -88,4 +88,8 @@ RUN apt-get install -y \
     libpci3 \
     x11-utils
 
+# for Mold/Rust
+RUN apt-get install -y \
+    clang
+
 ENV TMPDIR=/home/@@USER@@/tmp
