@@ -351,9 +351,15 @@ after its directory. It must contain one or more of these files:
   updated. The package builder environments are kept around as a form of
   caching.
 
+- `build-depends.txt`: A newline-separated list of package names on which this
+  package depends when it is built. The package builder environment will be
+  seeded with the listed packages, but other environments that depend on this
+  package will not.
+
 - `depends.txt`: A newline-separated list of package names on which this
-  package depends. Both the package builder environment and the new
-  environments that depend on this package will be seeded with these packages.
+  package or its output depends. Both the package builder environment and the
+  new environments that depend on this package will be seeded with the listed
+  packages.
 
 These files and any other files in the package directory are injected into the
 work directory of the package builder environment.
@@ -363,7 +369,8 @@ be run upon creating and resetting target environments.
 
 Packages are built automatically when they are first used, and they are updated
 when they are used if 12 hours have elapsed, their package definitions have
-changed, or one of their dependencies has been updated more recently.
+changed, or one of their dependencies or build-dependencies has been updated
+more recently.
 
 Cubicle looks for package definitions in the following locations:
 

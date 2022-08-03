@@ -32,6 +32,7 @@ PackageName = str
 PackageSpec = TypedDict(
     "PackageSpec",
     {
+        "build-depends": set[PackageName],
         "depends": set[PackageName],
         "dir": Path,
         "origin": str,
@@ -57,6 +58,12 @@ def add_packages(dir: Path, origin: str) -> None:
     for package_dir in dir.iterdir():
         if package_dir.name not in PACKAGES:
             try:
+                build_depends = set(
+                    path.strip() for path in open(package_dir / "build-depends.txt")
+                )
+            except FileNotFoundError:
+                build_depends = set()
+            try:
                 depends = set(
                     path.strip() for path in open(package_dir / "depends.txt")
                 )
@@ -68,6 +75,7 @@ def add_packages(dir: Path, origin: str) -> None:
             else:
                 update = None
             PACKAGES[package_dir.name] = {
+                "build-depends": build_depends,
                 "depends": depends,
                 "dir": package_dir,
                 "origin": origin,
@@ -75,7 +83,9 @@ def add_packages(dir: Path, origin: str) -> None:
             }
 
 
-def transitive_depends(packages: Iterable[PackageName]) -> set[PackageName]:
+def transitive_depends(
+    packages: Iterable[PackageName], *, build_depends: bool
+) -> set[PackageName]:
     visited = set()
 
     def visit(p: PackageName) -> None:
@@ -83,6 +93,9 @@ def transitive_depends(packages: Iterable[PackageName]) -> set[PackageName]:
             visited.add(p)
             for q in PACKAGES[p]["depends"]:
                 visit(q)
+            if build_depends:
+                for q in PACKAGES[p]["build-depends"]:
+                    visit(q)
 
     for p in packages:
         visit(p)
@@ -96,7 +109,7 @@ for dir in sorted(USER_PACKAGE_DIR.iterdir()):
 CODE_PACKAGE_DIR.mkdir(exist_ok=True, parents=True)
 add_packages(CODE_PACKAGE_DIR, "built-in")
 
-for package in transitive_depends(["auto"]):
+for package in transitive_depends(["auto"], build_depends=True):
     d = PACKAGES[package]["depends"]
     try:
         d.remove("auto")
@@ -132,13 +145,15 @@ def rmtree(path: Path) -> None:
 
 def update_packages(packages: Iterable[PackageName]) -> None:
     now = time.time()
-    todo = sorted(transitive_depends(packages))
+    todo = sorted(transitive_depends(packages, build_depends=True))
     done: set[PackageName] = set()
     while len(todo) > 0:
         later = []
         for key in todo:
             package = PACKAGES[key]
-            if done.issuperset(package["depends"]):
+            if done.issuperset(package["depends"]) and done.issuperset(
+                package["build-depends"]
+            ):
                 update_stale_package(key, now)
                 done.add(key)
             else:
@@ -172,7 +187,10 @@ def update_stale_package(key: PackageName, now: float) -> None:
     if (
         mtime < built
         and now - built < 60 * 60 * 12
-        and all(last_built(p) < built for p in transitive_depends(package["depends"]))
+        and all(
+            last_built(p) < built
+            for p in package["build-depends"].union(package["depends"])
+        )
     ):
         return
     update_package(key)
@@ -198,7 +216,7 @@ def update_package(key: PackageName) -> None:
     try:
         run(
             name,
-            packages=package["depends"],
+            packages=package["build-depends"].union(package["depends"]),
             extra_seeds=[tar_path],
             init=(SCRIPT_PATH / "dev-init.sh"),
         )
@@ -384,6 +402,7 @@ def list_packages(format: str = "default") -> None:
     for name, p in PACKAGES.items():
         error, size, built = du(PACKAGE_CACHE / f"{name}.tar")
         packages[name] = {
+            "build-depends": sorted(p["build-depends"]),
             "dir": str(p["dir"]),
             "depends": sorted(p["depends"]),
             "origin": p["origin"],
@@ -397,31 +416,25 @@ def list_packages(format: str = "default") -> None:
     else:
         nw = max([10] + [len(name) for name in packages])
         print(
-            "{:<{nw}}  {:<8}  {:>10}  {:>13}  {:>13}  {:<20}".format(
+            "{:<{nw}}  {:<8}  {:>10}  {:>13}  {:>13}".format(
                 "name",
                 "origin",
                 "size",
                 "built",
                 "edited",
-                "dependencies",
                 nw=nw,
             )
         )
-        print(
-            "{0:-<{nw}}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}  {0:-<20}".format(
-                "", nw=nw
-            )
-        )
+        print("{0:-<{nw}}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}".format("", nw=nw))
         for name in sorted(packages):
             package = packages[name]
             print(
-                "{:<{nw}}  {:<8}  {:>10}  {:>13}  {:>13}  {:<20}".format(
+                "{:<{nw}}  {:<8}  {:>10}  {:>13}  {:>13}".format(
                     name,
                     package["origin"],
                     "N/A" if package["size"] is None else si_bytes(package["size"]),
                     rel_time(package["built"], now),
                     rel_time(package["edited"], now),
-                    ",".join(package["depends"]),
                     nw=nw,
                 )
             )
@@ -544,7 +557,7 @@ def reset_environment(
     else:
         key = m.group(1)
         package = PACKAGES[key]
-        packages = set(package["depends"]).union(packages)
+        packages = package["build-depends"].union(package["depends"], packages)
         update_packages(packages)
         update_package(key)
         open(work_dir / "packages.txt", "w").write("\n".join(sorted(packages)) + "\n")
@@ -574,7 +587,7 @@ def ro_bind_try(
 
 def packages_to_seeds(packages: Iterable[PackageName]) -> list[Path]:
     args = []
-    for package in sorted(transitive_depends(packages)):
+    for package in sorted(transitive_depends(packages, build_depends=False)):
         provides = PACKAGE_CACHE / f"{package}.tar"
         if provides.is_file():
             args.append(provides)
@@ -770,7 +783,11 @@ class Docker(Runner):
             return 0
 
     def build_base(self) -> None:
-        if time.time() - self.base_mtime() < 60 * 60 * 12:
+        base_mtime = self.base_mtime()
+        if (
+            time.time() - base_mtime < 60 * 60 * 12
+            and (SCRIPT_PATH / "Dockerfile.in").stat().st_mtime < base_mtime
+        ):
             return
         dockerfile = (
             open(SCRIPT_PATH / "Dockerfile.in")
