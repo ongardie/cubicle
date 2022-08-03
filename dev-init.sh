@@ -21,7 +21,9 @@ for f in ~/.dev-init/*; do
     fi
 done
 
-if [ -x ~/$SANDBOX/update.sh ]; then
+# We want this to fail if `update.sh` isn't executable, so check with `-e`
+# instead of `-x`.
+if [ -e ~/$SANDBOX/update.sh ]; then
     echo "Running ~/$SANDBOX/update.sh"
     ~/$SANDBOX/update.sh
 fi
