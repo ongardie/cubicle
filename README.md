@@ -166,7 +166,7 @@ Install the dependencies:
 - `jq` - command-line JSON processor.
 - `pv` - pipe viewer, displays progress bars.
 
-You also need Python 3 and `tar`, but you probably already have those.
+You also need Python 3.9+ and `tar`, but you probably already have those.
 
 On Debian 11, you can install the dependencies using `apt`:
 
@@ -183,7 +183,7 @@ install it using `apt`:
 sudo apt install docker.io
 ```
 
-You also need Python 3 and `tar`, but you probably already have those.
+You also need Python 3.9+ and `tar`, but you probably already have those.
 
 ### Installing Cubicle
 
