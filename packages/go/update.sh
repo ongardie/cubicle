@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+cd
 
 CACHE_HOME=${XDG_CACHE_HOME:-"$HOME/.cache"}
 mkdir -p "$CACHE_HOME"
