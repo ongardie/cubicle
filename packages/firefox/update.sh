@@ -39,9 +39,12 @@ if [ ! -f ~/.mozilla/firefox/profiles.ini ]; then
 EOF
 fi
 
+mkdir -p ~/.local/share/applications/
+cp firefox.desktop ~/.local/share/applications/
+
 cat > ~/.dev-init/firefox.sh <<"EOF"
 # This writes to `~/.config/mimeapps.list`.
-xdg-mime default firefox-esr.desktop x-scheme-handler/https x-scheme-handler/http
+xdg-mime default firefox.desktop x-scheme-handler/https x-scheme-handler/http
 EOF
 chmod +x ~/.dev-init/firefox.sh
 
