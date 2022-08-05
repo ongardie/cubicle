@@ -361,6 +361,11 @@ after its directory. It must contain one or more of these files:
   new environments that depend on this package will be seeded with the listed
   packages.
 
+- `test.sh`: An executable that is run in a clean environment to sanity check
+  the package output files. The test environment is seeded with the package's
+  dependencies, the package output files, and the package source directory
+  (except `update.sh`).
+
 These files and any other files in the package directory are injected into the
 work directory of the package builder environment.
 

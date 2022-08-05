@@ -37,6 +37,7 @@ PackageSpec = TypedDict(
         "dir": Path,
         "origin": str,
         "update": Optional[Path],
+        "test": Optional[Path],
     },
 )
 
@@ -70,6 +71,10 @@ def add_packages(dir: Path, origin: str) -> None:
             except FileNotFoundError:
                 depends = set()
             depends.add("auto")
+            if (package_dir / "test.sh").exists():
+                test = package_dir / "test.sh"
+            else:
+                test = None
             if (package_dir / "update.sh").exists():
                 update = package_dir / "update.sh"
             else:
@@ -80,6 +85,7 @@ def add_packages(dir: Path, origin: str) -> None:
                 "dir": package_dir,
                 "origin": origin,
                 "update": update,
+                "test": test,
             }
 
 
@@ -201,7 +207,7 @@ def update_package(key: PackageName) -> None:
     name = f"package-{key}"
     print(f"Updating {key} package")
     tar_path = XDG_CACHE_HOME / "cubicle" / f"{name}.tar"
-    seed = subprocess.run(
+    subprocess.run(
         flatten(
             "tar",
             "-c",
@@ -229,6 +235,54 @@ def update_package(key: PackageName) -> None:
         return
     finally:
         tar_path.unlink()
+
+    if package["test"] is not None:
+        print(f"Testing {key} package")
+        test_name = f"test-package-{key}"
+        subprocess.run(
+            flatten(
+                "tar",
+                "-c",
+                "--anchored",
+                ("--directory", package["dir"]),
+                (
+                    # dev-init.sh will run `update.sh` if it's present, but we
+                    # don't want that
+                    "--exclude",
+                    "./update.sh",
+                ),
+                ".",
+                ("--transform", f"s/^\./{test_name}/"),
+                ("-f", tar_path),
+            ),
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        try:
+            purge_environment(test_name, quiet=True)
+            work_dir = WORK_DIRS / test_name
+            work_dir.mkdir(parents=True)
+            run(
+                test_name,
+                packages=package["depends"],
+                extra_seeds=[tar_path, HOME_DIRS / name / "provides.tar"],
+                init=(SCRIPT_PATH / "dev-init.sh"),
+            )
+            run(
+                test_name,
+                exec=["./test.sh"],
+            )
+            purge_environment(f"test-package-{key}")
+        except subprocess.CalledProcessError as e:
+            if not (PACKAGE_CACHE / f"{key}.tar").is_file():
+                raise e
+            print(
+                f"WARNING: Updated package {key} failed tests (exit status {e.returncode}). Keeping stale version."
+            )
+            return
+        finally:
+            tar_path.unlink()
+
     PACKAGE_CACHE.mkdir(exist_ok=True, parents=True)
     shutil.copyfile(
         HOME_DIRS / name / "provides.tar",
@@ -511,11 +565,12 @@ def create_enter_tmp_environment(packages: list[PackageName] = ["default"]) -> N
     raise RuntimeError("failed to generate random environment name")
 
 
-def purge_environment(name: str) -> None:
+def purge_environment(name: str, *, quiet: bool = False) -> None:
     host_work = WORK_DIRS / name
     host_home = HOME_DIRS / name
     if not host_work.exists() and not host_home.exists():
-        print(f"warning: environment {name} does not exist (nothing to purge)")
+        if not quiet:
+            print(f"warning: environment {name} does not exist (nothing to purge)")
         return
     RUNNER.kill(name)
     if host_work.exists():
