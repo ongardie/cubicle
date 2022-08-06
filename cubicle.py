@@ -879,6 +879,14 @@ class Docker(Runner):
                     if seccomp_json.is_file()
                     else []
                 ),
+                (
+                    # The default `/dev/shm` is limited to only 64 MiB under
+                    # Docker (v20.10.5), which causes many crashes in Chromium
+                    # and Electron-based programs. See
+                    # <https://github.com/ongardie/cubicle/issues/3>.
+                    "--shm-size",
+                    str(1_000_000_000),
+                ),
                 ("--user", os.environ["USER"]),
                 ("--volume", "/tmp/.X11-unix:/tmp/.X11-unix:ro"),
                 ("--volume", f"{host_home}:{HOME}"),
