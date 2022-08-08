@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import (
     Any,
+    IO,
     Iterable,
     Literal,
     Optional,
@@ -55,18 +56,33 @@ CODE_PACKAGE_DIR = SCRIPT_PATH / "packages"
 USER_PACKAGE_DIR = XDG_DATA_HOME / "cubicle" / "packages"
 
 
+def open_no_follow(path: Union[Path, str], mode: str = "r") -> Any:
+    return open(
+        path,
+        mode=mode,
+        opener=lambda path, flags: os.open(path, flags | os.O_NOFOLLOW),
+    )
+
+
+def copyfile_no_follow(src: Union[Path, str], dst: Union[Path, str]) -> None:
+    fsrc = open_no_follow(src, "rb")
+    fdst = open_no_follow(dst, "wb")
+    shutil.copyfileobj(fsrc, fdst)
+
+
 def add_packages(dir: Path, origin: str) -> None:
     for package_dir in dir.iterdir():
         if package_dir.name not in PACKAGES:
             try:
                 build_depends = set(
-                    path.strip() for path in open(package_dir / "build-depends.txt")
+                    path.strip()
+                    for path in open_no_follow(package_dir / "build-depends.txt")
                 )
             except FileNotFoundError:
                 build_depends = set()
             try:
                 depends = set(
-                    path.strip() for path in open(package_dir / "depends.txt")
+                    path.strip() for path in open_no_follow(package_dir / "depends.txt")
                 )
             except FileNotFoundError:
                 depends = set()
@@ -236,7 +252,17 @@ def update_package(key: PackageName) -> None:
     finally:
         tar_path.unlink()
 
-    if package["test"] is not None:
+    PACKAGE_CACHE.mkdir(exist_ok=True, parents=True)
+    if package["test"] is None:
+        # We want to access `provides.tar` from the package build container.
+        # However, that could potentially be a (malicious) symlink that points
+        # to some sensitive file elsewhere on the host. This throws an
+        # exception if `provides.tar` is a symlink.
+        copyfile_no_follow(
+            HOME_DIRS / name / "provides.tar",
+            PACKAGE_CACHE / f"{key}.tar",
+        )
+    else:
         print(f"Testing {key} package")
         test_name = f"test-package-{key}"
         subprocess.run(
@@ -258,6 +284,16 @@ def update_package(key: PackageName) -> None:
             stdout=subprocess.PIPE,
             check=True,
         )
+
+        # We want to access `provides.tar` from the package build container.
+        # However, that could potentially be a (malicious) symlink that points
+        # to some sensitive file elsewhere on the host. This throws an
+        # exception if `provides.tar` is a symlink.
+        copyfile_no_follow(
+            HOME_DIRS / name / "provides.tar",
+            PACKAGE_CACHE / f"{key}.testing.tar",
+        )
+
         try:
             purge_environment(test_name, quiet=True)
             work_dir = WORK_DIRS / test_name
@@ -265,7 +301,7 @@ def update_package(key: PackageName) -> None:
             run(
                 test_name,
                 packages=package["depends"],
-                extra_seeds=[tar_path, HOME_DIRS / name / "provides.tar"],
+                extra_seeds=[tar_path, PACKAGE_CACHE / f"{key}.testing.tar"],
                 init=(SCRIPT_PATH / "dev-init.sh"),
             )
             run(
@@ -274,6 +310,7 @@ def update_package(key: PackageName) -> None:
             )
             purge_environment(f"test-package-{key}")
         except subprocess.CalledProcessError as e:
+            (PACKAGE_CACHE / f"{key}.testing.tar").unlink()
             if not (PACKAGE_CACHE / f"{key}.tar").is_file():
                 raise e
             print(
@@ -283,11 +320,10 @@ def update_package(key: PackageName) -> None:
         finally:
             tar_path.unlink()
 
-    PACKAGE_CACHE.mkdir(exist_ok=True, parents=True)
-    shutil.copyfile(
-        HOME_DIRS / name / "provides.tar",
-        PACKAGE_CACHE / f"{key}.tar",
-    )
+        os.rename(
+            PACKAGE_CACHE / f"{key}.testing.tar",
+            PACKAGE_CACHE / f"{key}.tar",
+        )
 
 
 def enter_environment(name: str) -> None:
@@ -503,7 +539,9 @@ def new_environment(name: str, packages: list[PackageName] = ["default"]) -> Non
         sys.exit(1)
     update_packages(packages)
     work_dir.mkdir(parents=True)
-    open(work_dir / "packages.txt", "w").write("\n".join(sorted(packages)) + "\n")
+    open_no_follow(work_dir / "packages.txt", "w").write(
+        "\n".join(sorted(packages)) + "\n"
+    )
     run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
@@ -556,7 +594,7 @@ def create_enter_tmp_environment(packages: list[PackageName] = ["default"]) -> N
         if not work_dir.exists() and not (HOME_DIRS / name).exists():
             update_packages(packages)
             work_dir.mkdir(parents=True)
-            open(work_dir / "packages.txt", "w").write(
+            open_no_follow(work_dir / "packages.txt", "w").write(
                 "\n".join(sorted(packages)) + "\n"
             )
             run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
@@ -600,14 +638,18 @@ def reset_environment(
     if packages is None:
         try:
             packages = {
-                p.strip() for p in open(work_dir / "packages.txt") if p.strip() != ""
+                p.strip()
+                for p in open_no_follow(work_dir / "packages.txt")
+                if p.strip() != ""
             }
         except FileNotFoundError:
             packages = set()
     m = re.match("^package-(.*)$", name)
     if m is None:
         update_packages(packages)
-        open(work_dir / "packages.txt", "w").write("\n".join(sorted(packages)) + "\n")
+        open_no_follow(work_dir / "packages.txt", "w").write(
+            "\n".join(sorted(packages)) + "\n"
+        )
         run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
     else:
         key = m.group(1)
@@ -615,7 +657,9 @@ def reset_environment(
         packages = package["build-depends"].union(package["depends"], packages)
         update_packages(packages)
         update_package(key)
-        open(work_dir / "packages.txt", "w").write("\n".join(sorted(packages)) + "\n")
+        open_no_follow(work_dir / "packages.txt", "w").write(
+            "\n".join(sorted(packages)) + "\n"
+        )
         run(name, packages=packages, init=(SCRIPT_PATH / "dev-init.sh"))
 
 
