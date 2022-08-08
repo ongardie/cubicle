@@ -53,13 +53,10 @@ fi
 echo 'Upgrading pip and packages'
 pip3 install --upgrade pip
 
-# pylama needs pyflakes < 2.5.0 right now. Otherwise, we don't need the pyflakes
-# line here at all. See <https://github.com/klen/pylama/issues/224>.
-
 pip3 install --upgrade \
     black \
     ipython \
-    'pyflakes==2.4' \
+    pyflakes \
     'pylama[all]' \
     | pv -i 0.1 -l -N packages >/dev/null
 
