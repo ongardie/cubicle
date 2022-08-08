@@ -400,6 +400,9 @@ This is useful for configuration files, for example.
   from the Flatpak developers to run lightweight containers. Julia Evans wrote a
   recent
   [blog post exploring Bubblewrap](https://jvns.ca/blog/2022/06/28/some-notes-on-bubblewrap/).
+- [Development Containers](https://containers.dev/) appears to be a proposed
+  specification by Microsoft for configuring full-featured development
+  environments using Docker.
 - [Docker](<https://en.wikipedia.org/wiki/Docker_(software)>) is a popular
   container manager.
 - [Firejail](https://github.com/netblue30/firejail) defines and enforces
@@ -418,3 +421,9 @@ This is useful for configuration files, for example.
   through files in the user's home directory.
 - [Podman](https://github.com/containers/podman) is simlar to Docker but
   daemonless. Its CLI is mostly compatible with Docker's.
+
+### Related Articles
+
+- [Docker Containers on the Desktop](https://blog.jessfraz.com/post/docker-containers-on-the-desktop/)
+  by Jessie Frazelle (2015). Discusses using Docker to isolate desktop apps,
+  including 10 examples.
