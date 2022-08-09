@@ -1,4 +1,6 @@
 *.bpf
 *seccomp.json
 /.RUNNER
+/Cargo.lock
+/target
 __pycache__
