@@ -1,12 +1,21 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use lazy_static::lazy_static;
+use regex::{Regex, RegexBuilder};
+use serde::Serialize;
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::Write;
+use std::iter;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+mod bytes;
+use bytes::Bytes;
 
 struct Cubicle {
     shell: String,
@@ -102,24 +111,245 @@ impl Cubicle {
             },
         )
     }
+}
 
+struct DiskUsage {
+    error: bool,
+    size: usize,
+    mtime: SystemTime,
+}
+
+fn du(path: &Path) -> Result<DiskUsage> {
+    let output = Command::new("du")
+        .args(["-cs", "--block-size=1", "--time", "--time-style=+%s"])
+        .arg(path)
+        .output()?;
+    let error = !&output.stderr.is_empty();
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    lazy_static! {
+        static ref RE: Regex = RegexBuilder::new(r#"^(?P<size>[0-9]+)\t(?P<mtime>[0-9]+)\ttotal$"#)
+            .multi_line(true)
+            .build()
+            .unwrap();
+    }
+    match RE.captures(&stdout) {
+        Some(caps) => {
+            let size = caps.name("size").unwrap().as_str();
+            let size = usize::from_str(size).unwrap();
+            let mtime = caps.name("mtime").unwrap().as_str();
+            let mtime = u64::from_str(mtime).unwrap();
+            let mtime = UNIX_EPOCH + Duration::from_secs(mtime);
+            Ok(DiskUsage { error, size, mtime })
+        }
+        None => Err(anyhow!("Unexpected output from du: {:#?}", stdout)),
+    }
+}
+
+fn try_iterdir(path: &Path) -> Result<Vec<OsString>> {
+    let readdir = fs::read_dir(path);
+    if matches!(&readdir, Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
+        return Ok(Vec::new());
+    };
+    let mut names = readdir?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    names.sort_unstable();
+    Ok(names)
+}
+
+fn time_serialize<S>(time: &Option<SystemTime>, ser: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match time {
+        Some(time) => {
+            let time = time.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
+            ser.serialize_some(&time)
+        }
+        None => ser.serialize_none(),
+    }
+}
+
+fn rel_time(duration: Option<Duration>) -> String {
+    let mut duration = match duration {
+        Some(duration) => duration.as_secs_f64(),
+        None => return String::from("N/A"),
+    };
+    duration /= 60.0;
+    if duration < 59.5 {
+        return format!("{duration:.0} minutes");
+    }
+    duration /= 60.0;
+    if duration < 23.5 {
+        return format!("{duration:.0} hours");
+    }
+    duration /= 24.0;
+    return format!("{duration:.0} days");
+}
+
+impl Cubicle {
     fn list_environments(&self, format: ListFormat) -> Result<()> {
         if format == ListFormat::Names {
             // fast path for shell completions
-            let readdir = fs::read_dir(&self.work_dirs);
-            if matches!(&readdir, Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
-                return Ok(());
-            };
-            let mut names = readdir?
-                .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().to_string()))
-                .collect::<std::io::Result<Vec<_>>>()?;
-            names.sort_unstable();
-            for name in names {
-                println!("{}", name);
+            for name in try_iterdir(&self.work_dirs)? {
+                println!("{}", name.to_string_lossy());
             }
             return Ok(());
         }
-        todo!("list format={:#?}", format);
+
+        let names: Vec<EnvironmentName> = {
+            let mut names = try_iterdir(&self.work_dirs)?;
+            let mut home_dirs_only: Vec<OsString> = Vec::new();
+            for name in try_iterdir(&self.home_dirs)? {
+                if names.binary_search(&name).is_err() {
+                    home_dirs_only.push(name);
+                }
+            }
+            names.extend(home_dirs_only);
+            names.sort_unstable();
+            names
+                .iter()
+                .map(|name| EnvironmentName::from_str(name.to_string_lossy().into_owned().as_ref()))
+                .collect::<Result<Vec<_>>>()?
+        };
+
+        #[derive(Debug, Serialize)]
+        struct Env {
+            home_dir: Option<PathBuf>,
+            home_dir_du_error: bool,
+            home_dir_size: Option<usize>,
+            #[serde(serialize_with = "time_serialize")]
+            home_dir_mtime: Option<SystemTime>,
+            work_dir: Option<PathBuf>,
+            work_dir_du_error: bool,
+            work_dir_size: Option<usize>,
+            #[serde(serialize_with = "time_serialize")]
+            work_dir_mtime: Option<SystemTime>,
+        }
+
+        let envs = names.iter().map(|name| {
+            let home_dir = self.home_dirs.join(name);
+            let (home_dir_du_error, home_dir_size, home_dir_mtime) = match du(&home_dir) {
+                Ok(DiskUsage {
+                    error: true,
+                    size: 0,
+                    ..
+                })
+                | Err(_) => (true, None, None),
+                Ok(DiskUsage { error, size, mtime }) => (error, Some(size), Some(mtime)),
+            };
+            let work_dir = self.work_dirs.join(name);
+            let (work_dir_du_error, work_dir_size, work_dir_mtime) = match du(&work_dir) {
+                Ok(DiskUsage {
+                    error: true,
+                    size: 0,
+                    ..
+                })
+                | Err(_) => (true, None, None),
+                Ok(DiskUsage { error, size, mtime }) => (error, Some(size), Some(mtime)),
+            };
+            (
+                name,
+                Env {
+                    home_dir: if home_dir.exists() {
+                        Some(home_dir)
+                    } else {
+                        None
+                    },
+                    home_dir_du_error,
+                    home_dir_size,
+                    home_dir_mtime,
+                    work_dir: if work_dir.exists() {
+                        Some(work_dir)
+                    } else {
+                        None
+                    },
+                    work_dir_du_error,
+                    work_dir_size,
+                    work_dir_mtime,
+                },
+            )
+        });
+
+        match format {
+            ListFormat::Names => unreachable!("handled above"),
+
+            ListFormat::Json => {
+                let envs = envs
+                    .map(|(name, value)| (name.0.clone(), value))
+                    .collect::<BTreeMap<String, _>>();
+                println!("{}", serde_json::to_string_pretty(&envs)?);
+            }
+
+            ListFormat::Default => {
+                let nw = names
+                    .iter()
+                    .map(|name| name.0.len())
+                    .chain(iter::once(10))
+                    .max()
+                    .unwrap();
+                let now = SystemTime::now();
+                println!(
+                    "{:<nw$} | {:^24} | {:^24}",
+                    "",
+                    "home directory",
+                    "work directory",
+                    nw = nw
+                );
+                println!(
+                    "{:<nw$} | {:>10} {:>13} | {:>10} {:>13}",
+                    "name",
+                    "size",
+                    "modified",
+                    "size",
+                    "modified",
+                    nw = nw,
+                );
+                println!(
+                    "{0:-<nw$} + {0:-<10} {0:-<13} + {0:-<10} {0:-<13}",
+                    "",
+                    nw = nw
+                );
+                for (name, env) in envs {
+                    println!(
+                        "{:<nw$} | {:>10} {:>13} | {:>10} {:>13}",
+                        name,
+                        match env.home_dir_size {
+                            Some(size) => {
+                                let mut size = Bytes(size as u64).to_string();
+                                if env.home_dir_du_error {
+                                    size.push('+');
+                                }
+                                size
+                            }
+                            None => String::from("N/A"),
+                        },
+                        match env.home_dir_mtime {
+                            Some(mtime) => rel_time(now.duration_since(mtime).ok()),
+                            None => String::from("N/A"),
+                        },
+                        match env.work_dir_size {
+                            Some(size) => {
+                                let mut size = Bytes(size as u64).to_string();
+                                if env.work_dir_du_error {
+                                    size.push('+');
+                                }
+                                size
+                            }
+                            None => String::from("N/A"),
+                        },
+                        match env.work_dir_mtime {
+                            Some(mtime) => rel_time(now.duration_since(mtime).ok()),
+                            None => String::from("N/A"),
+                        },
+                        nw = nw,
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     fn run(&self, name: &EnvironmentName, args: &RunArgs) -> Result<()> {
