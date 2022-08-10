@@ -87,7 +87,63 @@ impl Cubicle {
 
         Ok(program)
     }
+}
 
+fn rmtree(path: &Path) -> Result<()> {
+    // This is a bit challenging for a few reasons:
+    //
+    // 1. Symlinks leading out of the `path` directory must not cause this
+    //    function to affect files outside the `path` directory.
+    //
+    // 2. `remove_dir_all` won't remove the contents of read-only directories,
+    //    such as Go's packages. See
+    //    <https://github.com/golang/go/issues/27161>.
+    //
+    // 3. Docker might leave empty directories owned by root. Specifically, it
+    //    seems to often leave one where a volume was mounted, like a Cubicle
+    //    container's work directory within its home directory. These are
+    //    removable but their permissions can't be altered.
+
+    let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
+    match dir.remove_open_dir_all() {
+        Ok(()) => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            // continue below
+        }
+        Err(e) => return Err(e.into()),
+    }
+
+    fn rm_contents(dir: &cap_std::fs::Dir) -> Result<()> {
+        for entry in dir.entries()? {
+            let entry = entry?;
+            let file_name = entry.file_name();
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                let metadata = entry.metadata()?;
+                let mut permissions = metadata.permissions();
+                if permissions.readonly() {
+                    permissions.set_readonly(false);
+                    // This may fail for empty directories owned by root.
+                    // Continue anyway.
+                    let _ = dir.set_permissions(&file_name, permissions);
+                }
+                let child_dir = entry.open_dir()?;
+                rm_contents(&child_dir)?;
+                dir.remove_dir(file_name)?;
+            } else {
+                dir.remove_file(file_name)?;
+            }
+        }
+        Ok(())
+    }
+
+    let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
+    let _ = rm_contents(&dir); // ignore this error
+    dir.remove_open_dir_all()?; // prefer this one
+    Ok(())
+}
+
+impl Cubicle {
     fn enter_environment(&self, name: &EnvironmentName) -> Result<()> {
         if !self.work_dirs.join(name).exists() {
             return Err(anyhow!("Environment {} does not exist", name));
@@ -351,6 +407,40 @@ impl Cubicle {
         }
         Ok(())
     }
+}
+
+#[derive(PartialEq)]
+struct Quiet(bool);
+
+impl Cubicle {
+    fn purge_environment(&self, name: &EnvironmentName, quiet: Quiet) -> Result<()> {
+        let host_home = self.home_dirs.join(name);
+        let host_work = self.work_dirs.join(name);
+        if !host_home.exists() && !host_work.exists() {
+            if quiet == Quiet(false) {
+                println!("Warning: environment {name} does not exist (nothing to purge)");
+            }
+            return Ok(());
+        }
+        self.with_runner(|runner| runner.kill(name))?;
+        if host_work.exists() {
+            rmtree(&host_work)?;
+        }
+        if host_home.exists() {
+            rmtree(&host_home)?;
+        }
+        Ok(())
+    }
+
+    fn with_runner<F, T>(&self, func: F) -> Result<T>
+    where
+        F: Fn(&dyn Runner) -> Result<T>,
+    {
+        match self.runner {
+            RunnerKind::Bubblewrap => todo!("bubblewrap runner"),
+            RunnerKind::Docker => func(&Docker { program: self }),
+        }
+    }
 
     fn run(&self, name: &EnvironmentName, args: &RunArgs) -> Result<()> {
         let host_home = self.home_dirs.join(name);
@@ -359,19 +449,16 @@ impl Cubicle {
         fs::create_dir_all(&host_home)?;
 
         // TODO: seeds
-        let runner = match self.runner {
-            RunnerKind::Bubblewrap => todo!("bubblewrap runner"),
-            RunnerKind::Docker => Box::new(Docker { program: self }),
-        };
-
-        runner.run(
-            name,
-            &RunnerRunArgs {
-                command: args.command,
-                host_home: &host_home,
-                host_work: &host_work,
-            },
-        )
+        self.with_runner(|runner| {
+            runner.run(
+                name,
+                &RunnerRunArgs {
+                    command: args.command,
+                    host_home: &host_home,
+                    host_work: &host_work,
+                },
+            )
+        })
     }
 }
 
@@ -674,6 +761,13 @@ enum Commands {
         #[clap(long, value_enum, default_value_t)]
         format: ListFormat,
     },
+
+    /// Delete environment(s) and their work directories.
+    Purge {
+        /// Environment name(s).
+        #[clap(required(true))]
+        names: Vec<EnvironmentName>,
+    },
 }
 
 #[derive(Debug)]
@@ -774,5 +868,11 @@ fn main() -> Result<()> {
         Enter { name } => program.enter_environment(name),
         Exec { name, command } => program.exec_environment(name, command),
         List { format } => program.list_environments(*format),
+        Purge { names } => {
+            for name in names {
+                program.purge_environment(name, Quiet(false))?;
+            }
+            Ok(())
+        }
     }
 }
