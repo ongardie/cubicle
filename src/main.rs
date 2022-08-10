@@ -21,8 +21,8 @@ struct Cubicle {
 
 impl Cubicle {
     fn new() -> Result<Cubicle> {
-        let home = PathBuf::from(std::env::var("HOME")?);
-        let user = std::env::var("USER")?;
+        let home = PathBuf::from(std::env::var("HOME").context("Invalid $HOME")?);
+        let user = std::env::var("USER").context("Invalid $USER")?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/sh"));
 
         let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
@@ -83,10 +83,27 @@ impl Cubicle {
         if !self.work_dirs.join(name).exists() {
             return Err(anyhow!("Environment {} does not exist", name));
         }
-        self.run(name)
+        self.run(
+            name,
+            &RunArgs {
+                command: RunCommand::Interactive,
+            },
+        )
     }
 
-    fn run(&self, name: &EnvironmentName) -> Result<()> {
+    fn exec_environment(&self, name: &EnvironmentName, command: &[String]) -> Result<()> {
+        if !self.work_dirs.join(name).exists() {
+            return Err(anyhow!("Environment {} does not exist", name));
+        }
+        self.run(
+            name,
+            &RunArgs {
+                command: RunCommand::Exec(command),
+            },
+        )
+    }
+
+    fn run(&self, name: &EnvironmentName, args: &RunArgs) -> Result<()> {
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
 
@@ -101,11 +118,23 @@ impl Cubicle {
         runner.run(
             name,
             &RunnerRunArgs {
+                command: args.command,
                 host_home: &host_home,
                 host_work: &host_work,
             },
         )
     }
+}
+
+struct RunArgs<'a> {
+    command: RunCommand<'a>,
+}
+
+#[derive(Clone, Copy)]
+enum RunCommand<'a> {
+    Interactive,
+    Init(&'a Path),
+    Exec(&'a [String]),
 }
 
 #[derive(Debug)]
@@ -132,6 +161,7 @@ trait Runner {
 }
 
 struct RunnerRunArgs<'a> {
+    command: RunCommand<'a>,
     host_home: &'a Path,
     host_work: &'a Path,
 }
@@ -335,11 +365,27 @@ impl<'a> Runner for Docker<'a> {
         command.args(["--env", "DISPLAY"]);
         command.args(["--env", &format!("PATH={}", fallback_path)]);
         command.args(["--env", "SHELL"]);
+        command.args(["--env", "USER"]);
         command.args(["--env", "TERM"]);
         command.arg("--interactive");
         command.arg("--tty");
         command.arg(name);
         command.args([&self.program.shell, "-l"]);
+        match args.command {
+            RunCommand::Interactive => {}
+            RunCommand::Init(_init) => todo!("init"),
+            RunCommand::Exec(exec) => {
+                command.arg("-c");
+                // `shlex.join` doesn't work directly since `exec` has
+                // `String`s, not `str`s.
+                command.arg(
+                    exec.iter()
+                        .map(|a| shlex::quote(a))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                );
+            }
+        }
 
         let status = command.status()?;
         if !status.success() {
@@ -362,6 +408,15 @@ enum Commands {
     Enter {
         /// Environment name.
         name: EnvironmentName,
+    },
+
+    /// Run a command in an existing environment.
+    Exec {
+        /// Environment name.
+        name: EnvironmentName,
+        /// Command and arguments to run.
+        #[clap(last = true, required(true))]
+        command: Vec<String>,
     },
 }
 
@@ -450,7 +505,9 @@ fn get_runner(script_path: &Path) -> Result<RunnerKind> {
 fn main() -> Result<()> {
     let program = Cubicle::new()?;
     let args = Args::parse();
-    match args.command {
-        Commands::Enter { name } => program.enter_environment(&name),
+    use Commands::*;
+    match &args.command {
+        Enter { name } => program.enter_environment(name),
+        Exec { name, command } => program.exec_environment(name, command),
     }
 }

@@ -1003,6 +1003,7 @@ class Docker(Runner):
                 ),
                 ("--env", "SHELL"),
                 ("--env", "TERM"),
+                ("--env", "USER"),
                 "--interactive",
                 "--tty",
                 name,
