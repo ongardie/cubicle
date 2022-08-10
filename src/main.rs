@@ -19,6 +19,7 @@ use bytes::Bytes;
 
 struct Cubicle {
     shell: String,
+    script_name: String,
     script_path: PathBuf,
     home: PathBuf,
     home_dirs: PathBuf,
@@ -44,16 +45,23 @@ impl Cubicle {
             Err(_) => home.join(".local").join("share"),
         };
 
-        let script_path = {
-            let exe = std::env::current_exe()?;
-            match exe.ancestors().nth(3) {
-                Some(path) => path.to_owned(),
-                None => {
-                    return Err(anyhow!(
-                        "could not find project root. binary run from unexpected location: {:?}",
-                        exe
-                    ))
-                }
+        let exe = std::env::current_exe()?;
+        let script_name = match exe.file_name() {
+            Some(path) => path.to_string_lossy().into_owned(),
+            None => {
+                return Err(anyhow!(
+                    "could not get executable name from current_exe: {:?}",
+                    exe
+                ));
+            }
+        };
+        let script_path = match exe.ancestors().nth(3) {
+            Some(path) => path.to_owned(),
+            None => {
+                return Err(anyhow!(
+                    "could not find project root. binary run from unexpected location: {:?}",
+                    exe
+                ));
             }
         };
 
@@ -76,6 +84,7 @@ impl Cubicle {
 
         let program = Cubicle {
             shell,
+            script_name,
             script_path,
             home,
             home_dirs,
@@ -407,6 +416,25 @@ impl Cubicle {
         }
         Ok(())
     }
+
+    fn new_environment(&self, name: &EnvironmentName) -> Result<()> {
+        let work_dir = self.work_dirs.join(name);
+        if work_dir.exists() || self.home_dirs.join(name).exists() {
+            return Err(anyhow!(
+                "environment {name} exists (did you mean '{} reset'?)",
+                self.script_name,
+            ));
+        }
+        // TODO: update_packages
+        std::fs::create_dir_all(work_dir)?;
+        // TODO: write out packages.txt
+        self.run(
+            name,
+            &RunArgs {
+                command: RunCommand::Init(&self.script_path.join("dev-init.sh")),
+            },
+        )
+    }
 }
 
 #[derive(PartialEq)]
@@ -567,7 +595,6 @@ impl<'a> Docker<'a> {
 
         let status = child.wait()?;
         if !status.success() {
-            Err(ExitStatusError::new(status))?;
             return Err(anyhow!(
                 "failed to build cubicle-base Docker image: \
                 docker build exited with status {:#?}",
@@ -684,6 +711,24 @@ impl<'a> Runner for Docker<'a> {
             )?;
         }
 
+        if let RunCommand::Init(init) = args.command {
+            // TODO: this could probably write the script directly into
+            // docker exec's stdin instead.
+            let status = Command::new("docker")
+                .arg("cp")
+                .arg("--archive")
+                .arg(init)
+                .arg(format!("{name}:/cubicle-init.sh"))
+                .status()?;
+            if !status.success() {
+                return Err(anyhow!(
+                    "failed to cp init script into Docker container: \
+                    docker cp exited with status {:#?}",
+                    status.code(),
+                ));
+            }
+        }
+
         let fallback_path = std::env::join_paths(&[
             self.program.home.join("bin").as_path(),
             // The debian:11 image hasn't gone through usrmerge, so
@@ -709,7 +754,9 @@ impl<'a> Runner for Docker<'a> {
         command.args([&self.program.shell, "-l"]);
         match args.command {
             RunCommand::Interactive => {}
-            RunCommand::Init(_init) => todo!("init"),
+            RunCommand::Init(_) => {
+                command.args(["-c", "/cubicle-init.sh"]);
+            }
             RunCommand::Exec(exec) => {
                 command.arg("-c");
                 // `shlex.join` doesn't work directly since `exec` has
@@ -760,6 +807,16 @@ enum Commands {
         /// Set output format.
         #[clap(long, value_enum, default_value_t)]
         format: ListFormat,
+    },
+
+    /// Create a new environment.
+    New {
+        /// Run a shell in new environment.
+        #[clap(long)]
+        enter: bool,
+        // TODO: packages
+        /// Environment name.
+        name: EnvironmentName,
     },
 
     /// Delete environment(s) and their work directories.
@@ -864,13 +921,20 @@ fn main() -> Result<()> {
     let program = Cubicle::new()?;
     let args = Args::parse();
     use Commands::*;
-    match &args.command {
-        Enter { name } => program.enter_environment(name),
-        Exec { name, command } => program.exec_environment(name, command),
-        List { format } => program.list_environments(*format),
+    match args.command {
+        Enter { name } => program.enter_environment(&name),
+        Exec { name, command } => program.exec_environment(&name, &command),
+        List { format } => program.list_environments(format),
+        New { name, enter } => {
+            program.new_environment(&name)?;
+            if enter {
+                program.enter_environment(&name)?;
+            }
+            Ok(())
+        }
         Purge { names } => {
             for name in names {
-                program.purge_environment(name, Quiet(false))?;
+                program.purge_environment(&name, Quiet(false))?;
             }
             Ok(())
         }
