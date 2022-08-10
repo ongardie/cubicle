@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::fmt;
 use std::fs;
 use std::io::Write;
@@ -101,6 +101,25 @@ impl Cubicle {
                 command: RunCommand::Exec(command),
             },
         )
+    }
+
+    fn list_environments(&self, format: ListFormat) -> Result<()> {
+        if format == ListFormat::Names {
+            // fast path for shell completions
+            let readdir = fs::read_dir(&self.work_dirs);
+            if matches!(&readdir, Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
+                return Ok(());
+            };
+            let mut names = readdir?
+                .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().to_string()))
+                .collect::<std::io::Result<Vec<_>>>()?;
+            names.sort_unstable();
+            for name in names {
+                println!("{}", name);
+            }
+            return Ok(());
+        }
+        todo!("list format={:#?}", format);
     }
 
     fn run(&self, name: &EnvironmentName, args: &RunArgs) -> Result<()> {
@@ -418,6 +437,13 @@ enum Commands {
         #[clap(last = true, required(true))]
         command: Vec<String>,
     },
+
+    /// Show existing environments.
+    List {
+        /// Set output format.
+        #[clap(long, value_enum, default_value_t)]
+        format: ListFormat,
+    },
 }
 
 #[derive(Debug)]
@@ -479,6 +505,14 @@ impl std::convert::AsRef<std::ffi::OsStr> for EnvironmentName {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
+enum ListFormat {
+    #[default]
+    Default,
+    Json,
+    Names,
+}
+
 enum RunnerKind {
     Bubblewrap,
     Docker,
@@ -509,5 +543,6 @@ fn main() -> Result<()> {
     match &args.command {
         Enter { name } => program.enter_environment(name),
         Exec { name, command } => program.exec_environment(name, command),
+        List { format } => program.list_environments(*format),
     }
 }
