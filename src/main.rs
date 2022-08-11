@@ -16,6 +16,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod bytes;
 use bytes::Bytes;
 
+struct PackageSpec {
+    build_depends: PackageNameList,
+    depends: PackageNameList,
+    dir: PathBuf,
+    origin: String,
+    update: Option<PathBuf>,
+    test: Option<PathBuf>,
+}
+
+type PackageSpecs = BTreeMap<PackageName, PackageSpec>;
+
 struct Cubicle {
     shell: String,
     script_name: String,
@@ -105,6 +116,140 @@ impl Cubicle {
 
         Ok(program)
     }
+
+    fn add_packages(
+        &self,
+        packages: &mut BTreeMap<PackageName, PackageSpec>,
+        dir: &Path,
+        origin: &str,
+    ) -> Result<()> {
+        for name in try_iterdir(dir)? {
+            let name = match name.to_str() {
+                Some(name) => PackageName::from_str(name)?,
+                None => {
+                    return Err(anyhow!(
+                        "package names must be valid UTF-8, found {name:#?} in {dir:#?}"
+                    ))
+                }
+            };
+            if packages.contains_key(&name) {
+                continue;
+            }
+            let dir = dir.join(&name.0);
+            let build_depends = read_package_list(&dir, "build-depends.txt")?
+                .unwrap_or_else(PackageNameList::new_empty);
+            let mut depends =
+                read_package_list(&dir, "depends.txt")?.unwrap_or_else(PackageNameList::new_empty);
+            depends.insert(PackageName::from_str("auto").unwrap());
+            let test = if dir.join("test.sh").exists() {
+                Some(PathBuf::from("test.sh"))
+            } else {
+                None
+            };
+            let update = if dir.join("update.sh").exists() {
+                Some(PathBuf::from("update.sh"))
+            } else {
+                None
+            };
+            packages.insert(
+                name,
+                PackageSpec {
+                    build_depends,
+                    depends,
+                    dir,
+                    origin: origin.to_owned(),
+                    test,
+                    update,
+                },
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct BuildDepends(bool);
+
+fn transitive_depends(
+    packages: &PackageNameList,
+    specs: &PackageSpecs,
+    build_depends: BuildDepends,
+) -> BTreeSet<PackageName> {
+    fn visit(
+        specs: &PackageSpecs,
+        build_depends: BuildDepends,
+        visited: &mut BTreeSet<PackageName>,
+        p: &PackageName,
+    ) {
+        if !visited.contains(p) {
+            visited.insert(p.clone());
+            if let Some(spec) = specs.get(p) {
+                for q in spec.depends.iter() {
+                    visit(specs, build_depends, visited, q);
+                }
+                if build_depends.0 {
+                    for q in spec.build_depends.iter() {
+                        visit(specs, build_depends, visited, q);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut visited = BTreeSet::new();
+    for p in packages.iter() {
+        visit(specs, build_depends, &mut visited, p);
+    }
+    visited
+}
+
+impl Cubicle {
+    fn scan_package_names(&self) -> Result<PackageNameList> {
+        let mut names = BTreeSet::new();
+
+        for dir in try_iterdir(&self.user_package_dir)? {
+            for name in try_iterdir(&self.user_package_dir.join(&dir))? {
+                if let Some(name) = name.to_str().and_then(|s| PackageName::from_str(s).ok()) {
+                    names.insert(name);
+                }
+            }
+        }
+
+        for name in try_iterdir(&self.code_package_dir)? {
+            if let Some(name) = name.to_str().and_then(|s| PackageName::from_str(s).ok()) {
+                names.insert(name);
+            }
+        }
+
+        Ok(names.into())
+    }
+
+    fn scan_packages(&self) -> Result<PackageSpecs> {
+        let mut specs = BTreeMap::new();
+
+        for dir in try_iterdir(&self.user_package_dir)? {
+            let origin = dir.to_string_lossy();
+            self.add_packages(&mut specs, &self.user_package_dir.join(&dir), &origin)?;
+        }
+
+        self.add_packages(&mut specs, &self.code_package_dir, "built-in")?;
+
+        let auto_deps = transitive_depends(
+            &PackageNameList::new(vec![String::from("auto")]).unwrap(),
+            &specs,
+            BuildDepends(true),
+        );
+        for name in auto_deps {
+            match specs.get_mut(&name) {
+                Some(spec) => {
+                    spec.depends.remove(&PackageName::from_str("auto").unwrap());
+                }
+                None => return Err(anyhow!("package auto transitively depends on {name} but definition of {name} not found")),
+            }
+        }
+
+        Ok(specs)
+    }
 }
 
 fn rmtree(path: &Path) -> Result<()> {
@@ -162,6 +307,11 @@ fn rmtree(path: &Path) -> Result<()> {
 }
 
 impl Cubicle {
+    fn update_packages(&self, packages: &PackageNameList, specs: PackageSpecs) -> Result<()> {
+        println!("TODO: update_packages: {packages:?}");
+        Ok(())
+    }
+
     fn enter_environment(&self, name: &EnvironmentName) -> Result<()> {
         if !self.work_dirs.join(name).exists() {
             return Err(anyhow!("Environment {} does not exist", name));
@@ -179,7 +329,7 @@ impl Cubicle {
 
 struct DiskUsage {
     error: bool,
-    size: usize,
+    size: u64,
     mtime: SystemTime,
 }
 
@@ -201,7 +351,7 @@ fn du(path: &Path) -> Result<DiskUsage> {
     match RE.captures(&stdout) {
         Some(caps) => {
             let size = caps.name("size").unwrap().as_str();
-            let size = usize::from_str(size).unwrap();
+            let size = u64::from_str(size).unwrap();
             let mtime = caps.name("mtime").unwrap().as_str();
             let mtime = u64::from_str(mtime).unwrap();
             let mtime = UNIX_EPOCH + Duration::from_secs(mtime);
@@ -223,7 +373,15 @@ fn try_iterdir(path: &Path) -> Result<Vec<OsString>> {
     Ok(names)
 }
 
-fn time_serialize<S>(time: &Option<SystemTime>, ser: S) -> Result<S::Ok, S::Error>
+fn time_serialize<S>(time: &SystemTime, ser: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let time = time.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
+    ser.serialize_f64(time)
+}
+
+fn time_serialize_opt<S>(time: &Option<SystemTime>, ser: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -250,7 +408,7 @@ fn rel_time(duration: Option<Duration>) -> String {
         return format!("{duration:.0} hours");
     }
     duration /= 24.0;
-    return format!("{duration:.0} days");
+    format!("{duration:.0} days")
 }
 
 impl Cubicle {
@@ -283,13 +441,13 @@ impl Cubicle {
         struct Env {
             home_dir: Option<PathBuf>,
             home_dir_du_error: bool,
-            home_dir_size: Option<usize>,
-            #[serde(serialize_with = "time_serialize")]
+            home_dir_size: Option<u64>,
+            #[serde(serialize_with = "time_serialize_opt")]
             home_dir_mtime: Option<SystemTime>,
             work_dir: Option<PathBuf>,
             work_dir_du_error: bool,
-            work_dir_size: Option<usize>,
-            #[serde(serialize_with = "time_serialize")]
+            work_dir_size: Option<u64>,
+            #[serde(serialize_with = "time_serialize_opt")]
             work_dir_mtime: Option<SystemTime>,
         }
 
@@ -357,32 +515,20 @@ impl Cubicle {
                 let now = SystemTime::now();
                 println!(
                     "{:<nw$} | {:^24} | {:^24}",
-                    "",
-                    "home directory",
-                    "work directory",
-                    nw = nw
+                    "", "home directory", "work directory",
                 );
                 println!(
                     "{:<nw$} | {:>10} {:>13} | {:>10} {:>13}",
-                    "name",
-                    "size",
-                    "modified",
-                    "size",
-                    "modified",
-                    nw = nw,
+                    "name", "size", "modified", "size", "modified",
                 );
-                println!(
-                    "{0:-<nw$} + {0:-<10} {0:-<13} + {0:-<10} {0:-<13}",
-                    "",
-                    nw = nw
-                );
+                println!("{0:-<nw$} + {0:-<10} {0:-<13} + {0:-<10} {0:-<13}", "",);
                 for (name, env) in envs {
                     println!(
                         "{:<nw$} | {:>10} {:>13} | {:>10} {:>13}",
                         name,
                         match env.home_dir_size {
                             Some(size) => {
-                                let mut size = Bytes(size as u64).to_string();
+                                let mut size = Bytes(size).to_string();
                                 if env.home_dir_du_error {
                                     size.push('+');
                                 }
@@ -396,7 +542,7 @@ impl Cubicle {
                         },
                         match env.work_dir_size {
                             Some(size) => {
-                                let mut size = Bytes(size as u64).to_string();
+                                let mut size = Bytes(size).to_string();
                                 if env.work_dir_du_error {
                                     size.push('+');
                                 }
@@ -408,7 +554,100 @@ impl Cubicle {
                             Some(mtime) => rel_time(now.duration_since(mtime).ok()),
                             None => String::from("N/A"),
                         },
-                        nw = nw,
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn list_packages(&self, format: ListPackagesFormat) -> Result<()> {
+        type Format = ListPackagesFormat;
+
+        if format == Format::Names {
+            // fast path for shell completions
+            for name in self.scan_package_names()?.iter() {
+                println!("{}", name);
+            }
+            return Ok(());
+        }
+
+        #[derive(Debug, Serialize)]
+        struct Package {
+            build_depends: Vec<String>,
+            #[serde(serialize_with = "time_serialize_opt")]
+            built: Option<SystemTime>,
+            depends: Vec<String>,
+            #[serde(serialize_with = "time_serialize")]
+            edited: SystemTime,
+            dir: PathBuf,
+            origin: String,
+            size: Option<u64>,
+        }
+
+        let specs = self.scan_packages()?;
+        let packages = specs
+            .into_iter()
+            .map(|(name, spec)| -> Result<(PackageName, Package)> {
+                let DiskUsage {
+                    error,
+                    size,
+                    mtime: built,
+                } = du(&self.package_cache.join(format!("{name}.tar")))?;
+                let DiskUsage { mtime: edited, .. } = du(&spec.dir)?;
+                Ok((
+                    name,
+                    Package {
+                        build_depends: spec
+                            .build_depends
+                            .iter()
+                            .map(|name| name.0.to_owned())
+                            .collect(),
+                        built: if error { None } else { Some(built) },
+                        depends: spec.depends.iter().map(|name| name.0.to_owned()).collect(),
+                        dir: spec.dir,
+                        edited,
+                        origin: spec.origin,
+                        size: if error { None } else { Some(size) },
+                    },
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+
+        match format {
+            Format::Names => unreachable!("handled above"),
+
+            Format::Json => {
+                println!("{}", serde_json::to_string_pretty(&packages)?);
+            }
+
+            Format::Default => {
+                let nw = packages
+                    .keys()
+                    .map(|name| name.0.len())
+                    .chain(iter::once(10))
+                    .max()
+                    .unwrap();
+                let now = SystemTime::now();
+                println!(
+                    "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}",
+                    "name", "origin", "size", "built", "edited",
+                );
+                println!("{0:-<nw$}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}", "");
+                for (name, package) in packages {
+                    println!(
+                        "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}",
+                        name,
+                        package.origin,
+                        match package.size {
+                            Some(size) => Bytes(size).to_string(),
+                            None => String::from("N/A"),
+                        },
+                        match package.built {
+                            Some(built) => rel_time(now.duration_since(built).ok()),
+                            None => String::from("N/A"),
+                        },
+                        rel_time(now.duration_since(package.edited).ok()),
                     );
                 }
             }
@@ -417,12 +656,16 @@ impl Cubicle {
     }
 }
 
-fn read_package_list(work_dir: &Path) -> Result<PackageNameList> {
-    let dir = cap_std::fs::Dir::open_ambient_dir(work_dir, cap_std::ambient_authority())?;
-    let file = dir.open("packages.txt")?;
+fn read_package_list(dir: &Path, path: &str) -> Result<Option<PackageNameList>> {
+    let dir = cap_std::fs::Dir::open_ambient_dir(dir, cap_std::ambient_authority())?;
+    let file = match dir.open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
     let reader = io::BufReader::new(file);
     let names = reader.lines().collect::<Result<Vec<String>, _>>()?;
-    PackageNameList::new(names)
+    Ok(Some(PackageNameList::new(names)?))
 }
 
 fn write_package_list(work_dir: &Path, packages: &PackageNameList) -> Result<()> {
@@ -461,7 +704,7 @@ impl Cubicle {
             None => PackageNameList::new(vec![String::from("default")])?,
         };
 
-        // TODO: update_packages
+        self.update_packages(&packages, self.scan_packages()?)?;
         std::fs::create_dir_all(&work_dir)?;
         write_package_list(&work_dir, &packages)?;
         self.run(
@@ -526,11 +769,14 @@ impl Cubicle {
 
         let (unchanged, packages) = match packages {
             Some(packages) => (false, packages.clone()),
-            None => (true, read_package_list(&work_dir)?),
+            None => match read_package_list(&work_dir, "packages.txt")? {
+                None => (false, PackageNameList::new(vec![String::from("default")])?),
+                Some(packages) => (true, packages),
+            },
         };
         match name.extract_builder_package_name() {
             None => {
-                // TODO: update packages
+                self.update_packages(&packages, self.scan_packages()?)?;
                 if !unchanged {
                     write_package_list(&work_dir, &packages)?;
                 }
@@ -985,6 +1231,13 @@ enum Commands {
         format: ListFormat,
     },
 
+    /// Show available packages.
+    Packages {
+        /// Set output format.
+        #[clap(long, value_enum, default_value_t)]
+        format: ListPackagesFormat,
+    },
+
     /// Create a new environment.
     New {
         /// Run a shell in new environment.
@@ -1085,7 +1338,7 @@ impl EnvironmentName {
     }
 }
 
-#[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 struct PackageName(String);
 
 impl FromStr for PackageName {
@@ -1116,6 +1369,10 @@ impl fmt::Display for PackageName {
 struct PackageNameList(Vec<PackageName>);
 
 impl PackageNameList {
+    fn new_empty() -> Self {
+        Self(Vec::new())
+    }
+
     fn new(names: Vec<String>) -> Result<Self> {
         let mut set: BTreeSet<PackageName> = BTreeSet::new();
         for name in names {
@@ -1128,6 +1385,24 @@ impl PackageNameList {
         }
         Ok(Self(set.into_iter().collect()))
     }
+
+    fn insert(&mut self, name: PackageName) {
+        if let Err(i) = self.0.binary_search(&name) {
+            self.0.insert(i, name);
+        }
+    }
+
+    fn remove(&mut self, name: &PackageName) {
+        if let Ok(i) = self.0.binary_search(name) {
+            self.0.remove(i);
+        }
+    }
+}
+
+impl std::convert::From<BTreeSet<PackageName>> for PackageNameList {
+    fn from(set: BTreeSet<PackageName>) -> PackageNameList {
+        PackageNameList(set.into_iter().collect())
+    }
 }
 
 impl std::ops::Deref for PackageNameList {
@@ -1139,6 +1414,14 @@ impl std::ops::Deref for PackageNameList {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
 enum ListFormat {
+    #[default]
+    Default,
+    Json,
+    Names,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
+enum ListPackagesFormat {
     #[default]
     Default,
     Json,
@@ -1191,6 +1474,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        Packages { format } => program.list_packages(format),
         Purge { names } => {
             for name in names {
                 program.purge_environment(&name, Quiet(false))?;

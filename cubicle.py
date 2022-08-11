@@ -75,14 +75,14 @@ def add_packages(dir: Path, origin: str) -> None:
         if package_dir.name not in PACKAGES:
             try:
                 build_depends = set(
-                    path.strip()
-                    for path in open_no_follow(package_dir / "build-depends.txt")
+                    name.strip()
+                    for name in open_no_follow(package_dir / "build-depends.txt")
                 )
             except FileNotFoundError:
                 build_depends = set()
             try:
                 depends = set(
-                    path.strip() for path in open_no_follow(package_dir / "depends.txt")
+                    name.strip() for name in open_no_follow(package_dir / "depends.txt")
                 )
             except FileNotFoundError:
                 depends = set()
