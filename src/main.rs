@@ -8,6 +8,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, BufRead, Write};
 use std::iter;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::str::FromStr;
@@ -17,12 +18,12 @@ mod bytes;
 use bytes::Bytes;
 
 struct PackageSpec {
-    build_depends: PackageNameList,
-    depends: PackageNameList,
+    build_depends: PackageNameSet,
+    depends: PackageNameSet,
     dir: PathBuf,
     origin: String,
-    update: Option<PathBuf>,
-    test: Option<PathBuf>,
+    update: Option<String>,
+    test: Option<String>,
 }
 
 type PackageSpecs = BTreeMap<PackageName, PackageSpec>;
@@ -34,6 +35,7 @@ struct Cubicle {
     home: PathBuf,
     home_dirs: PathBuf,
     work_dirs: PathBuf,
+    tmp_dir: PathBuf,
     timezone: String,
     user: String,
     runner: RunnerKind,
@@ -82,6 +84,11 @@ impl Cubicle {
 
         let work_dirs = xdg_data_home.join("cubicle").join("work");
 
+        let tmp_dir = match std::env::var("TMPDIR") {
+            Ok(path) => PathBuf::from(path),
+            Err(_) => PathBuf::from("/tmp"),
+        };
+
         let timezone = match std::fs::read_to_string("/etc/timezone") {
             Ok(s) => s.trim().to_owned(),
             Err(e) => {
@@ -106,6 +113,7 @@ impl Cubicle {
             home,
             home_dirs,
             work_dirs,
+            tmp_dir,
             timezone,
             user,
             package_cache,
@@ -116,7 +124,21 @@ impl Cubicle {
 
         Ok(program)
     }
+}
 
+fn copyfile_untrusted(
+    src_dir: &Path,
+    src_path: &Path,
+    dst_dir: &Path,
+    dst_path: &Path,
+) -> Result<()> {
+    let src_dir = cap_std::fs::Dir::open_ambient_dir(src_dir, cap_std::ambient_authority())?;
+    let dst_dir = cap_std::fs::Dir::open_ambient_dir(dst_dir, cap_std::ambient_authority())?;
+    src_dir.copy(src_path, &dst_dir, dst_path)?;
+    Ok(())
+}
+
+impl Cubicle {
     fn add_packages(
         &self,
         packages: &mut BTreeMap<PackageName, PackageSpec>,
@@ -136,18 +158,16 @@ impl Cubicle {
                 continue;
             }
             let dir = dir.join(&name.0);
-            let build_depends = read_package_list(&dir, "build-depends.txt")?
-                .unwrap_or_else(PackageNameList::new_empty);
-            let mut depends =
-                read_package_list(&dir, "depends.txt")?.unwrap_or_else(PackageNameList::new_empty);
+            let build_depends = read_package_list(&dir, "build-depends.txt")?.unwrap_or_default();
+            let mut depends = read_package_list(&dir, "depends.txt")?.unwrap_or_default();
             depends.insert(PackageName::from_str("auto").unwrap());
             let test = if dir.join("test.sh").exists() {
-                Some(PathBuf::from("test.sh"))
+                Some(String::from("test.sh"))
             } else {
                 None
             };
             let update = if dir.join("update.sh").exists() {
-                Some(PathBuf::from("update.sh"))
+                Some(String::from("update.sh"))
             } else {
                 None
             };
@@ -171,7 +191,7 @@ impl Cubicle {
 struct BuildDepends(bool);
 
 fn transitive_depends(
-    packages: &PackageNameList,
+    packages: &PackageNameSet,
     specs: &PackageSpecs,
     build_depends: BuildDepends,
 ) -> BTreeSet<PackageName> {
@@ -204,8 +224,8 @@ fn transitive_depends(
 }
 
 impl Cubicle {
-    fn scan_package_names(&self) -> Result<PackageNameList> {
-        let mut names = BTreeSet::new();
+    fn scan_package_names(&self) -> Result<PackageNameSet> {
+        let mut names = PackageNameSet::new();
 
         for dir in try_iterdir(&self.user_package_dir)? {
             for name in try_iterdir(&self.user_package_dir.join(&dir))? {
@@ -221,7 +241,7 @@ impl Cubicle {
             }
         }
 
-        Ok(names.into())
+        Ok(names)
     }
 
     fn scan_packages(&self) -> Result<PackageSpecs> {
@@ -235,7 +255,7 @@ impl Cubicle {
         self.add_packages(&mut specs, &self.code_package_dir, "built-in")?;
 
         let auto_deps = transitive_depends(
-            &PackageNameList::new(vec![String::from("auto")]).unwrap(),
+            &PackageNameSet::from([PackageName::from_str("auto").unwrap()]),
             &specs,
             BuildDepends(true),
         );
@@ -307,9 +327,242 @@ fn rmtree(path: &Path) -> Result<()> {
 }
 
 impl Cubicle {
-    fn update_packages(&self, packages: &PackageNameList, specs: PackageSpecs) -> Result<()> {
-        println!("TODO: update_packages: {packages:?}");
+    fn update_packages(&self, packages: &PackageNameSet, specs: &PackageSpecs) -> Result<()> {
+        let now = SystemTime::now();
+        let mut todo: Vec<PackageName> = transitive_depends(packages, specs, BuildDepends(true))
+            .into_iter()
+            .collect();
+        let mut done = BTreeSet::new();
+        loop {
+            let start_todos = todo.len();
+            if start_todos == 0 {
+                return Ok(());
+            }
+            let mut later = Vec::new();
+            for name in todo.into_iter() {
+                if let Some(spec) = specs.get(&name) {
+                    if done.is_superset(&spec.depends) && done.is_superset(&spec.build_depends) {
+                        self.update_stale_package(specs, &name, now)?;
+                        done.insert(name);
+                    } else {
+                        later.push(name);
+                    }
+                }
+            }
+            if later.len() == start_todos {
+                later.sort();
+                return Err(anyhow!(
+                    "Package dependencies are unsatisfiable for: {later:?}"
+                ));
+            }
+            todo = later;
+        }
+    }
+
+    fn last_built(&self, name: &PackageName) -> Option<SystemTime> {
+        let path = self.package_cache.join(format!("{name}.tar"));
+        let metadata = std::fs::metadata(path).ok()?;
+        metadata.modified().ok()
+    }
+
+    fn update_stale_package(
+        &self,
+        specs: &PackageSpecs,
+        package_name: &PackageName,
+        now: SystemTime,
+    ) -> Result<()> {
+        let spec = match specs.get(package_name) {
+            Some(spec) => spec,
+            None => return Err(anyhow!("Could not find package {package_name} definition")),
+        };
+
+        let needs_build = || -> Result<bool> {
+            if spec.update.is_none() {
+                return Ok(false);
+            }
+            let built = match self.last_built(package_name) {
+                Some(built) => built,
+                None => return Ok(true),
+            };
+            match now.duration_since(built) {
+                Ok(d) if d > Duration::from_secs(60 * 60 * 12) => return Ok(true),
+                Err(_) => return Ok(true),
+                _ => {}
+            }
+            let DiskUsage { mtime, .. } = du(&spec.dir)?;
+            if mtime > built {
+                return Ok(true);
+            }
+            for p in spec.build_depends.union(&spec.depends) {
+                if matches!(self.last_built(p), Some(b) if b > built) {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        };
+
+        if needs_build()? {
+            self.update_package(package_name, spec)?;
+        }
         Ok(())
+    }
+}
+
+struct MaybeTempFile(PathBuf);
+
+impl Deref for MaybeTempFile {
+    type Target = PathBuf;
+    fn deref(&self) -> &PathBuf {
+        &self.0
+    }
+}
+impl Drop for MaybeTempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+impl Cubicle {
+    fn update_package(&self, package_name: &PackageName, spec: &PackageSpec) -> Result<()> {
+        println!("Updating {package_name} package");
+        let env_name = EnvironmentName::from_str(&format!("package-{package_name}")).unwrap();
+
+        let work_dir = self.work_dirs.join(&env_name);
+        if !work_dir.exists() {
+            std::fs::create_dir_all(work_dir)?;
+        }
+
+        {
+            let tar_path = MaybeTempFile(self.tmp_dir.join(format!("cubicle-{package_name}.tar")));
+            let status = Command::new("tar")
+                .arg("-c")
+                .arg("--directory")
+                .arg(&spec.dir)
+                .arg(".")
+                .args(["--transform", &format!(r#"s/^\./{env_name}/"#)])
+                .arg("-f")
+                .arg(tar_path.deref())
+                .status()?;
+            if !status.success() {
+                return Err(anyhow!(
+                    "failed to tar package source for {package_name}: \
+                    tar exited with status {:#?}",
+                    status.code(),
+                ));
+            }
+
+            let packages: PackageNameSet = spec
+                .build_depends
+                .union(&spec.depends)
+                .map(|name| name.to_owned())
+                .collect();
+
+            if let Err(e) = self.run(
+                &env_name,
+                &RunCommand::Init {
+                    packages: &packages,
+                    extra_seeds: &[tar_path.deref()],
+                },
+            ) {
+                let cached = self.package_cache.join(format!("{package_name}.tar"));
+                if cached.exists() {
+                    println!(
+                        "WARNING: Failed to update package {package_name}. \
+                        Keeping stale version. Error was: {e}"
+                    );
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
+
+            // Note: the end of this block removes `tar_path` from the
+            // filesystem.
+        }
+
+        std::fs::create_dir_all(&self.package_cache)?;
+        match &spec.test {
+            None => {
+                // We want to access `provides.tar` from the package build container.
+                // However, that could potentially be a (malicious) symlink that points
+                // to some sensitive file elsewhere on the host.
+                copyfile_untrusted(
+                    &self.home_dirs.join(env_name),
+                    Path::new("provides.tar"),
+                    &self.package_cache,
+                    Path::new(&format!("{package_name}.tar")),
+                )
+            }
+
+            Some(test_script) => {
+                println!("Testing {package_name} package");
+                let test_name =
+                    EnvironmentName::from_str(&format!("test-package-{package_name}")).unwrap();
+
+                let tar_path =
+                    MaybeTempFile(self.tmp_dir.join(format!("cubicle-{package_name}.tar")));
+                let status = Command::new("tar")
+                    .arg("-c")
+                    .arg("--anchored")
+                    .arg("--directory")
+                    .arg(&spec.dir)
+                    // dev-init.sh will run `update.sh` if it's present, but we
+                    // don't want that
+                    .args(["--exclude", "./update.sh"])
+                    .arg(".")
+                    .args(["--transform", &format!(r#"s/^\./{test_name}/"#)])
+                    .arg("-f")
+                    .arg(tar_path.deref())
+                    .status()?;
+                if !status.success() {
+                    return Err(anyhow!(
+                        "failed to tar package source to test {package_name}: \
+                        tar exited with status {:#?}",
+                        status.code(),
+                    ));
+                }
+
+                // See copyfile comment above.
+                let testing_tar = format!("{package_name}.testing.tar");
+                copyfile_untrusted(
+                    &self.home_dirs.join(env_name),
+                    Path::new("provides.tar"),
+                    &self.package_cache,
+                    Path::new(&testing_tar),
+                )?;
+
+                self.purge_environment(&test_name, Quiet(true))?;
+                let work_dir = self.work_dirs.join(&test_name);
+                std::fs::create_dir_all(work_dir)?;
+                let result = self
+                    .run(
+                        &test_name,
+                        &RunCommand::Init {
+                            packages: &spec.depends,
+                            extra_seeds: &[&tar_path, &self.package_cache.join(&testing_tar)],
+                        },
+                    )
+                    .and_then(|_| self.run(&test_name, &RunCommand::Exec(&[test_script.clone()])));
+                if let Err(e) = result {
+                    let cached = self.package_cache.join(format!("{package_name}.tar"));
+                    if cached.exists() {
+                        println!(
+                            "WARNING: Updated package {package_name} failed tests. \
+                            Keeping stale version. Error was: {e}"
+                        );
+                        return Ok(());
+                    } else {
+                        return Err(e);
+                    }
+                }
+                self.purge_environment(&test_name, Quiet(true))?;
+                std::fs::rename(
+                    &self.package_cache.join(testing_tar),
+                    &self.package_cache.join(format!("{package_name}.tar")),
+                )?;
+                Ok(())
+            }
+        }
     }
 
     fn enter_environment(&self, name: &EnvironmentName) -> Result<()> {
@@ -656,7 +909,7 @@ impl Cubicle {
     }
 }
 
-fn read_package_list(dir: &Path, path: &str) -> Result<Option<PackageNameList>> {
+fn read_package_list(dir: &Path, path: &str) -> Result<Option<PackageNameSet>> {
     let dir = cap_std::fs::Dir::open_ambient_dir(dir, cap_std::ambient_authority())?;
     let file = match dir.open(path) {
         Ok(file) => file,
@@ -665,10 +918,10 @@ fn read_package_list(dir: &Path, path: &str) -> Result<Option<PackageNameList>> 
     };
     let reader = io::BufReader::new(file);
     let names = reader.lines().collect::<Result<Vec<String>, _>>()?;
-    Ok(Some(PackageNameList::new(names)?))
+    Ok(Some(package_set_from_names(names)?))
 }
 
-fn write_package_list(work_dir: &Path, packages: &PackageNameList) -> Result<()> {
+fn write_package_list(work_dir: &Path, packages: &PackageNameSet) -> Result<()> {
     let dir = cap_std::fs::Dir::open_ambient_dir(work_dir, cap_std::ambient_authority())?;
     let mut file = dir.open_with(
         "packages.txt",
@@ -689,7 +942,7 @@ impl Cubicle {
     fn new_environment(
         &self,
         name: &EnvironmentName,
-        packages: Option<PackageNameList>,
+        packages: Option<PackageNameSet>,
     ) -> Result<()> {
         let work_dir = self.work_dirs.join(name);
         if work_dir.exists() || self.home_dirs.join(name).exists() {
@@ -701,10 +954,10 @@ impl Cubicle {
 
         let packages = match packages {
             Some(p) => p,
-            None => PackageNameList::new(vec![String::from("default")])?,
+            None => PackageNameSet::from([PackageName::from_str("default").unwrap()]),
         };
 
-        self.update_packages(&packages, self.scan_packages()?)?;
+        self.update_packages(&packages, &self.scan_packages()?)?;
         std::fs::create_dir_all(&work_dir)?;
         write_package_list(&work_dir, &packages)?;
         self.run(
@@ -748,7 +1001,7 @@ impl Cubicle {
     fn reset_environment(
         &self,
         name: &EnvironmentName,
-        packages: &Option<PackageNameList>,
+        packages: &Option<PackageNameSet>,
         clean: Clean,
     ) -> Result<()> {
         let work_dir = self.work_dirs.join(name);
@@ -767,21 +1020,41 @@ impl Cubicle {
             return Ok(());
         }
 
-        let (unchanged, packages) = match packages {
-            Some(packages) => (false, packages.clone()),
+        let (mut changed, mut packages) = match packages {
+            Some(packages) => (true, packages.clone()),
             None => match read_package_list(&work_dir, "packages.txt")? {
-                None => (false, PackageNameList::new(vec![String::from("default")])?),
-                Some(packages) => (true, packages),
+                None => (
+                    true,
+                    PackageNameSet::from([PackageName::from_str("default").unwrap()]),
+                ),
+                Some(packages) => (false, packages),
             },
         };
         match name.extract_builder_package_name() {
             None => {
-                self.update_packages(&packages, self.scan_packages()?)?;
-                if !unchanged {
+                self.update_packages(&packages, &self.scan_packages()?)?;
+                if !changed {
                     write_package_list(&work_dir, &packages)?;
                 }
             }
-            Some(package_name) => todo!("reset package-*"),
+            Some(package_name) => {
+                let specs = self.scan_packages()?;
+                let spec = match specs.get(&package_name) {
+                    Some(spec) => spec,
+                    None => {
+                        return Err(anyhow!("Could not find package source for {package_name}"))
+                    }
+                };
+                let start_len = packages.len();
+                packages.extend(spec.build_depends.iter().map(|name| name.to_owned()));
+                packages.extend(spec.depends.iter().map(|name| name.to_owned()));
+                changed = changed || packages.len() != start_len;
+                self.update_packages(&packages, &specs)?;
+                self.update_package(&package_name, spec)?;
+                if changed {
+                    write_package_list(&work_dir, &packages)?;
+                }
+            }
         }
         self.run(
             name,
@@ -802,10 +1075,11 @@ impl Cubicle {
         }
     }
 
-    fn packages_to_seeds(&self, packages: &PackageNameList) -> Result<Vec<PathBuf>> {
-        // TODO: transitive depends
+    fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<PathBuf>> {
         let mut seeds = Vec::with_capacity(packages.len());
-        for package in packages.iter() {
+        let specs = self.scan_packages()?;
+        let deps = transitive_depends(packages, &specs, BuildDepends(false));
+        for package in deps {
             let provides = self.package_cache.join(format!("{package}.tar"));
             if provides.exists() {
                 seeds.push(provides);
@@ -827,7 +1101,9 @@ impl Cubicle {
                 extra_seeds,
             } => {
                 let mut seeds = self.packages_to_seeds(packages)?;
-                seeds.extend_from_slice(extra_seeds);
+                for seed in extra_seeds.iter() {
+                    seeds.push((*seed).to_owned());
+                }
                 RunnerCommand::Init {
                     seeds,
                     script: self.script_path.join("dev-init.sh"),
@@ -852,8 +1128,8 @@ impl Cubicle {
 enum RunCommand<'a> {
     Interactive,
     Init {
-        packages: &'a PackageNameList,
-        extra_seeds: &'a [PathBuf],
+        packages: &'a PackageNameSet,
+        extra_seeds: &'a [&'a Path],
     },
     Exec(&'a [String]),
 }
@@ -1257,7 +1533,7 @@ enum Commands {
         names: Vec<EnvironmentName>,
     },
 
-    // Recreate an environment (keeping its work directory).
+    /// Recreate an environment (keeping its work directory).
     Reset {
         /// Remove home directory and do not recreate it.
         #[clap(long)]
@@ -1365,51 +1641,19 @@ impl fmt::Display for PackageName {
     }
 }
 
-#[derive(Debug, Clone)]
-struct PackageNameList(Vec<PackageName>);
+type PackageNameSet = BTreeSet<PackageName>;
 
-impl PackageNameList {
-    fn new_empty() -> Self {
-        Self(Vec::new())
-    }
-
-    fn new(names: Vec<String>) -> Result<Self> {
-        let mut set: BTreeSet<PackageName> = BTreeSet::new();
-        for name in names {
-            let name = name.trim();
-            if name.is_empty() {
-                continue;
-            }
-            let name = PackageName::from_str(name)?;
-            set.insert(name);
+fn package_set_from_names(names: Vec<String>) -> Result<PackageNameSet> {
+    let mut set: PackageNameSet = BTreeSet::new();
+    for name in names {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
         }
-        Ok(Self(set.into_iter().collect()))
+        let name = PackageName::from_str(name)?;
+        set.insert(name);
     }
-
-    fn insert(&mut self, name: PackageName) {
-        if let Err(i) = self.0.binary_search(&name) {
-            self.0.insert(i, name);
-        }
-    }
-
-    fn remove(&mut self, name: &PackageName) {
-        if let Ok(i) = self.0.binary_search(name) {
-            self.0.remove(i);
-        }
-    }
-}
-
-impl std::convert::From<BTreeSet<PackageName>> for PackageNameList {
-    fn from(set: BTreeSet<PackageName>) -> PackageNameList {
-        PackageNameList(set.into_iter().collect())
-    }
-}
-
-impl std::ops::Deref for PackageNameList {
-    type Target = Vec<PackageName>;
-    fn deref(&self) -> &Vec<PackageName> {
-        &self.0
-    }
+    Ok(set)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
@@ -1464,10 +1708,7 @@ fn main() -> Result<()> {
             enter,
             packages,
         } => {
-            let packages = match packages {
-                Some(packages) => Some(PackageNameList::new(packages)?),
-                None => None,
-            };
+            let packages = packages.map(package_set_from_names).transpose()?;
             program.new_environment(&name, packages)?;
             if enter {
                 program.enter_environment(&name)?;
@@ -1486,10 +1727,7 @@ fn main() -> Result<()> {
             clean,
             packages,
         } => {
-            let packages = match packages {
-                Some(packages) => Some(PackageNameList::new(packages)?),
-                None => None,
-            };
+            let packages = packages.map(package_set_from_names).transpose()?;
             for name in &names {
                 program.reset_environment(name, &packages, Clean(clean))?;
             }
