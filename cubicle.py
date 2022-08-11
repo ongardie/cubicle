@@ -956,7 +956,6 @@ class Docker(Runner):
         if not self.is_running(name):
             self.build_base()
             self.spawn(name=name, host_home=host_home, host_work=host_work)
-        seed: Optional[subprocess.Popen[bytes]] = None
         if seeds:
             print("Copying/extracting seed tarball")
             # Use pv from inside the container since it may not be installed on

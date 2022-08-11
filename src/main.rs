@@ -3,11 +3,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fmt;
-use std::fs;
-use std::io::Write;
+use std::io::{self, BufRead, Write};
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -27,6 +26,9 @@ struct Cubicle {
     timezone: String,
     user: String,
     runner: RunnerKind,
+    package_cache: PathBuf,
+    code_package_dir: PathBuf,
+    user_package_dir: PathBuf,
 }
 
 impl Cubicle {
@@ -69,7 +71,7 @@ impl Cubicle {
 
         let work_dirs = xdg_data_home.join("cubicle").join("work");
 
-        let timezone = match fs::read_to_string("/etc/timezone") {
+        let timezone = match std::fs::read_to_string("/etc/timezone") {
             Ok(s) => s.trim().to_owned(),
             Err(e) => {
                 println!(
@@ -79,6 +81,10 @@ impl Cubicle {
                 String::from("Etc/UTC")
             }
         };
+
+        let package_cache = xdg_cache_home.join("cubicle").join("packages");
+        let code_package_dir = script_path.join("packages");
+        let user_package_dir = xdg_data_home.join("cubicle").join("packages");
 
         let runner = get_runner(&script_path)?;
 
@@ -91,6 +97,9 @@ impl Cubicle {
             work_dirs,
             timezone,
             user,
+            package_cache,
+            code_package_dir,
+            user_package_dir,
             runner,
         };
 
@@ -116,7 +125,7 @@ fn rmtree(path: &Path) -> Result<()> {
     let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
     match dir.remove_open_dir_all() {
         Ok(()) => return Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
             // continue below
         }
         Err(e) => return Err(e.into()),
@@ -157,24 +166,14 @@ impl Cubicle {
         if !self.work_dirs.join(name).exists() {
             return Err(anyhow!("Environment {} does not exist", name));
         }
-        self.run(
-            name,
-            &RunArgs {
-                command: RunCommand::Interactive,
-            },
-        )
+        self.run(name, &RunCommand::Interactive)
     }
 
     fn exec_environment(&self, name: &EnvironmentName, command: &[String]) -> Result<()> {
         if !self.work_dirs.join(name).exists() {
             return Err(anyhow!("Environment {} does not exist", name));
         }
-        self.run(
-            name,
-            &RunArgs {
-                command: RunCommand::Exec(command),
-            },
-        )
+        self.run(name, &RunCommand::Exec(command))
     }
 }
 
@@ -213,13 +212,13 @@ fn du(path: &Path) -> Result<DiskUsage> {
 }
 
 fn try_iterdir(path: &Path) -> Result<Vec<OsString>> {
-    let readdir = fs::read_dir(path);
-    if matches!(&readdir, Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
+    let readdir = std::fs::read_dir(path);
+    if matches!(&readdir, Err(e) if e.kind() == io::ErrorKind::NotFound) {
         return Ok(Vec::new());
     };
     let mut names = readdir?
         .map(|entry| entry.map(|entry| entry.file_name()))
-        .collect::<std::io::Result<Vec<_>>>()?;
+        .collect::<io::Result<Vec<_>>>()?;
     names.sort_unstable();
     Ok(names)
 }
@@ -416,8 +415,39 @@ impl Cubicle {
         }
         Ok(())
     }
+}
 
-    fn new_environment(&self, name: &EnvironmentName) -> Result<()> {
+fn read_package_list(work_dir: &Path) -> Result<PackageNameList> {
+    let dir = cap_std::fs::Dir::open_ambient_dir(work_dir, cap_std::ambient_authority())?;
+    let file = dir.open("packages.txt")?;
+    let reader = io::BufReader::new(file);
+    let names = reader.lines().collect::<Result<Vec<String>, _>>()?;
+    PackageNameList::new(names)
+}
+
+fn write_package_list(work_dir: &Path, packages: &PackageNameList) -> Result<()> {
+    let dir = cap_std::fs::Dir::open_ambient_dir(work_dir, cap_std::ambient_authority())?;
+    let mut file = dir.open_with(
+        "packages.txt",
+        cap_std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true),
+    )?;
+    for package in packages.iter() {
+        writeln!(file, "{package}")?;
+    }
+    writeln!(file)?;
+    file.flush()?;
+    Ok(())
+}
+
+impl Cubicle {
+    fn new_environment(
+        &self,
+        name: &EnvironmentName,
+        packages: Option<PackageNameList>,
+    ) -> Result<()> {
         let work_dir = self.work_dirs.join(name);
         if work_dir.exists() || self.home_dirs.join(name).exists() {
             return Err(anyhow!(
@@ -425,13 +455,20 @@ impl Cubicle {
                 self.script_name,
             ));
         }
+
+        let packages = match packages {
+            Some(p) => p,
+            None => PackageNameList::new(vec![String::from("default")])?,
+        };
+
         // TODO: update_packages
-        std::fs::create_dir_all(work_dir)?;
-        // TODO: write out packages.txt
+        std::fs::create_dir_all(&work_dir)?;
+        write_package_list(&work_dir, &packages)?;
         self.run(
             name,
-            &RunArgs {
-                command: RunCommand::Init(&self.script_path.join("dev-init.sh")),
+            &RunCommand::Init {
+                packages: &packages,
+                extra_seeds: &[],
             },
         )
     }
@@ -459,6 +496,55 @@ impl Cubicle {
         }
         Ok(())
     }
+}
+
+#[derive(PartialEq)]
+struct Clean(bool);
+
+impl Cubicle {
+    fn reset_environment(
+        &self,
+        name: &EnvironmentName,
+        packages: &Option<PackageNameList>,
+        clean: Clean,
+    ) -> Result<()> {
+        let work_dir = self.work_dirs.join(name);
+        if !work_dir.exists() {
+            return Err(anyhow!(
+                "environment {name} does not exist (did you mean '{} reset'?)",
+                self.script_name,
+            ));
+        }
+        let host_home = self.home_dirs.join(name);
+        if host_home.exists() {
+            self.with_runner(|runner| runner.kill(name))?;
+            rmtree(&host_home)?;
+        }
+        if clean.0 {
+            return Ok(());
+        }
+
+        let (unchanged, packages) = match packages {
+            Some(packages) => (false, packages.clone()),
+            None => (true, read_package_list(&work_dir)?),
+        };
+        match name.extract_builder_package_name() {
+            None => {
+                // TODO: update packages
+                if !unchanged {
+                    write_package_list(&work_dir, &packages)?;
+                }
+            }
+            Some(package_name) => todo!("reset package-*"),
+        }
+        self.run(
+            name,
+            &RunCommand::Init {
+                packages: &packages,
+                extra_seeds: &[],
+            },
+        )
+    }
 
     fn with_runner<F, T>(&self, func: F) -> Result<T>
     where
@@ -470,18 +556,45 @@ impl Cubicle {
         }
     }
 
-    fn run(&self, name: &EnvironmentName, args: &RunArgs) -> Result<()> {
+    fn packages_to_seeds(&self, packages: &PackageNameList) -> Result<Vec<PathBuf>> {
+        // TODO: transitive depends
+        let mut seeds = Vec::with_capacity(packages.len());
+        for package in packages.iter() {
+            let provides = self.package_cache.join(format!("{package}.tar"));
+            if provides.exists() {
+                seeds.push(provides);
+            }
+        }
+        Ok(seeds)
+    }
+
+    fn run(&self, name: &EnvironmentName, command: &RunCommand) -> Result<()> {
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
 
-        fs::create_dir_all(&host_home)?;
+        std::fs::create_dir_all(&host_home)?;
 
-        // TODO: seeds
+        let runner_command = match command {
+            RunCommand::Interactive => RunnerCommand::Interactive,
+            RunCommand::Init {
+                packages,
+                extra_seeds,
+            } => {
+                let mut seeds = self.packages_to_seeds(packages)?;
+                seeds.extend_from_slice(extra_seeds);
+                RunnerCommand::Init {
+                    seeds,
+                    script: self.script_path.join("dev-init.sh"),
+                }
+            }
+            RunCommand::Exec(cmd) => RunnerCommand::Exec(cmd),
+        };
+
         self.with_runner(|runner| {
             runner.run(
                 name,
                 &RunnerRunArgs {
-                    command: args.command,
+                    command: &runner_command,
                     host_home: &host_home,
                     host_work: &host_work,
                 },
@@ -490,14 +603,21 @@ impl Cubicle {
     }
 }
 
-struct RunArgs<'a> {
-    command: RunCommand<'a>,
-}
-
-#[derive(Clone, Copy)]
 enum RunCommand<'a> {
     Interactive,
-    Init(&'a Path),
+    Init {
+        packages: &'a PackageNameList,
+        extra_seeds: &'a [PathBuf],
+    },
+    Exec(&'a [String]),
+}
+
+enum RunnerCommand<'a> {
+    Interactive,
+    Init {
+        seeds: Vec<PathBuf>,
+        script: PathBuf,
+    },
     Exec(&'a [String]),
 }
 
@@ -525,7 +645,7 @@ trait Runner {
 }
 
 struct RunnerRunArgs<'a> {
-    command: RunCommand<'a>,
+    command: &'a RunnerCommand<'a>,
     host_home: &'a Path,
     host_work: &'a Path,
 }
@@ -574,11 +694,11 @@ impl<'a> Docker<'a> {
         let base_mtime = self.base_mtime()?.unwrap_or(UNIX_EPOCH);
         let image_fresh =
             base_mtime.elapsed().unwrap_or(Duration::ZERO) < Duration::from_secs(60 * 60 * 12);
-        let dockerfile_mtime = fs::metadata(&dockerfile_path)?.modified()?;
+        let dockerfile_mtime = std::fs::metadata(&dockerfile_path)?.modified()?;
         if image_fresh && dockerfile_mtime < base_mtime {
             return Ok(());
         }
-        let dockerfile = fs::read_to_string(dockerfile_path)?
+        let dockerfile = std::fs::read_to_string(dockerfile_path)?
             .replace("@@TIMEZONE@@", &self.program.timezone)
             .replace("@@USER@@", &self.program.user);
         let mut child = Command::new("docker")
@@ -711,21 +831,77 @@ impl<'a> Runner for Docker<'a> {
             )?;
         }
 
-        if let RunCommand::Init(init) = args.command {
+        if let RunnerCommand::Init { script, seeds } = args.command {
             // TODO: this could probably write the script directly into
             // docker exec's stdin instead.
             let status = Command::new("docker")
                 .arg("cp")
                 .arg("--archive")
-                .arg(init)
+                .arg(script)
                 .arg(format!("{name}:/cubicle-init.sh"))
                 .status()?;
             if !status.success() {
                 return Err(anyhow!(
-                    "failed to cp init script into Docker container: \
+                    "failed to copy init script into Docker container: \
                     docker cp exited with status {:#?}",
                     status.code(),
                 ));
+            }
+
+            if !seeds.is_empty() {
+                println!("Copying/extracting seed tarball");
+                // Use pv from inside the container since it may not be
+                // installed on the host. Since it's reading from a stream, it
+                // needs to know the total size to display a good progress bar.
+                #[cfg(not(unix))]
+                let size: Option<u64> = None;
+                #[cfg(unix)]
+                let size: Option<u64> = Some({
+                    let mut size: u64 = 0;
+                    for path in seeds {
+                        let metadata = std::fs::metadata(path)?;
+                        use std::os::unix::fs::MetadataExt;
+                        size += metadata.size();
+                    }
+                    size
+                });
+
+                let mut child = Command::new("docker")
+                    .arg("exec")
+                    .arg("--interactive")
+                    .arg(name)
+                    .args([
+                        "sh",
+                        "-c",
+                        &format!(
+                            "pv --interval 0.1 --force {} | \
+                            tar --ignore-zero --directory ~ --extract",
+                            match size {
+                                Some(size) => format!("--size {size}"),
+                                None => String::from(""),
+                            },
+                        ),
+                    ])
+                    .stdin(Stdio::piped())
+                    .spawn()?;
+                {
+                    let mut stdin = child
+                        .stdin
+                        .take()
+                        .ok_or_else(|| anyhow!("failed to open stdin"))?;
+                    for path in seeds {
+                        let mut file = std::fs::File::open(path)?;
+                        io::copy(&mut file, &mut stdin)?;
+                    }
+                }
+                let status = child.wait()?;
+                if !status.success() {
+                    return Err(anyhow!(
+                        "failed to copy package seeds into Docker container: \
+                        docker exec (pv | tar) exited with status {:#?}",
+                        status.code(),
+                    ));
+                }
             }
         }
 
@@ -753,11 +929,11 @@ impl<'a> Runner for Docker<'a> {
         command.arg(name);
         command.args([&self.program.shell, "-l"]);
         match args.command {
-            RunCommand::Interactive => {}
-            RunCommand::Init(_) => {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Init { .. } => {
                 command.args(["-c", "/cubicle-init.sh"]);
             }
-            RunCommand::Exec(exec) => {
+            RunnerCommand::Exec(exec) => {
                 command.arg("-c");
                 // `shlex.join` doesn't work directly since `exec` has
                 // `String`s, not `str`s.
@@ -814,13 +990,28 @@ enum Commands {
         /// Run a shell in new environment.
         #[clap(long)]
         enter: bool,
-        // TODO: packages
+        /// Comma-separated names of packages to inject into home directory.
+        #[clap(long, use_value_delimiter(true))]
+        packages: Option<Vec<String>>,
         /// Environment name.
         name: EnvironmentName,
     },
 
     /// Delete environment(s) and their work directories.
     Purge {
+        /// Environment name(s).
+        #[clap(required(true))]
+        names: Vec<EnvironmentName>,
+    },
+
+    // Recreate an environment (keeping its work directory).
+    Reset {
+        /// Remove home directory and do not recreate it.
+        #[clap(long)]
+        clean: bool,
+        /// Comma-separated names of packages to inject into home directory.
+        #[clap(long, use_value_delimiter(true))]
+        packages: Option<Vec<String>>,
         /// Environment name(s).
         #[clap(required(true))]
         names: Vec<EnvironmentName>,
@@ -886,6 +1077,66 @@ impl std::convert::AsRef<std::ffi::OsStr> for EnvironmentName {
     }
 }
 
+impl EnvironmentName {
+    fn extract_builder_package_name(&self) -> Option<PackageName> {
+        self.0
+            .strip_prefix("package-")
+            .and_then(|s| PackageName::from_str(s).ok())
+    }
+}
+
+#[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq)]
+struct PackageName(String);
+
+impl FromStr for PackageName {
+    type Err = anyhow::Error;
+    fn from_str(mut s: &str) -> Result<Self> {
+        s = s.trim();
+        if s.is_empty() {
+            return Err(anyhow!("package name cannot be empty"));
+        }
+        if s.contains(|c: char| {
+            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
+                || c.is_control()
+                || c.is_whitespace()
+        }) {
+            return Err(anyhow!("package name cannot contain special characters"));
+        }
+        Ok(PackageName(s.to_owned()))
+    }
+}
+
+impl fmt::Display for PackageName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PackageNameList(Vec<PackageName>);
+
+impl PackageNameList {
+    fn new(names: Vec<String>) -> Result<Self> {
+        let mut set: BTreeSet<PackageName> = BTreeSet::new();
+        for name in names {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let name = PackageName::from_str(name)?;
+            set.insert(name);
+        }
+        Ok(Self(set.into_iter().collect()))
+    }
+}
+
+impl std::ops::Deref for PackageNameList {
+    type Target = Vec<PackageName>;
+    fn deref(&self) -> &Vec<PackageName> {
+        &self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, ValueEnum)]
 enum ListFormat {
     #[default]
@@ -902,7 +1153,7 @@ enum RunnerKind {
 fn get_runner(script_path: &Path) -> Result<RunnerKind> {
     let runner_path = script_path.join(".RUNNER");
     let runners = "'bubblewrap' or 'docker'";
-    match fs::read_to_string(&runner_path)
+    match std::fs::read_to_string(&runner_path)
         .with_context(|| format!("Could not read {:?}. Expected {}.", runner_path, runners))?
         .trim()
     {
@@ -925,8 +1176,16 @@ fn main() -> Result<()> {
         Enter { name } => program.enter_environment(&name),
         Exec { name, command } => program.exec_environment(&name, &command),
         List { format } => program.list_environments(format),
-        New { name, enter } => {
-            program.new_environment(&name)?;
+        New {
+            name,
+            enter,
+            packages,
+        } => {
+            let packages = match packages {
+                Some(packages) => Some(PackageNameList::new(packages)?),
+                None => None,
+            };
+            program.new_environment(&name, packages)?;
             if enter {
                 program.enter_environment(&name)?;
             }
@@ -935,6 +1194,20 @@ fn main() -> Result<()> {
         Purge { names } => {
             for name in names {
                 program.purge_environment(&name, Quiet(false))?;
+            }
+            Ok(())
+        }
+        Reset {
+            names,
+            clean,
+            packages,
+        } => {
+            let packages = match packages {
+                Some(packages) => Some(PackageNameList::new(packages)?),
+                None => None,
+            };
+            for name in &names {
+                program.reset_environment(name, &packages, Clean(clean))?;
             }
             Ok(())
         }
