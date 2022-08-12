@@ -151,9 +151,10 @@ impl<'a> Runner for Bubblewrap<'a> {
         }
 
         let status = command.status()?;
-        if !status.success() {
-            Err(ExitStatusError::new(status))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ExitStatusError::new(status).into())
         }
-        Ok(())
     }
 }

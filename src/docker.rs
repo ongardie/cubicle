@@ -141,10 +141,11 @@ impl<'a> Docker<'a> {
         command.args(["sleep", "90d"]);
         command.stdout(Stdio::null());
         let status = command.status()?;
-        if !status.success() {
-            Err(ExitStatusError::new(status))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ExitStatusError::new(status).into())
         }
-        Ok(())
     }
 }
 
@@ -161,7 +162,6 @@ impl<'a> Runner for Docker<'a> {
                 .stdout(Stdio::null())
                 .status()?;
             if !status.success() {
-                Err(ExitStatusError::new(status))?;
                 return Err(anyhow!(
                     "failed to stop Docker container {}: \
                     docker kill exited with status {:#?}",
@@ -221,8 +221,8 @@ impl<'a> Runner for Docker<'a> {
                 let size: Option<u64> = Some({
                     let mut size: u64 = 0;
                     for path in seeds {
-                        let metadata = std::fs::metadata(path)?;
                         use std::os::unix::fs::MetadataExt;
+                        let metadata = std::fs::metadata(path)?;
                         size += metadata.size();
                     }
                     size
@@ -309,9 +309,10 @@ impl<'a> Runner for Docker<'a> {
         }
 
         let status = command.status()?;
-        if !status.success() {
-            Err(ExitStatusError::new(status))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ExitStatusError::new(status).into())
         }
-        Ok(())
     }
 }

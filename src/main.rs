@@ -1,3 +1,12 @@
+#![warn(clippy::explicit_into_iter_loop)]
+#![warn(clippy::explicit_iter_loop)]
+#![warn(clippy::if_then_some_else_none)]
+#![warn(clippy::implicit_clone)]
+#![warn(clippy::redundant_else)]
+#![warn(clippy::single_match_else)]
+#![warn(clippy::try_err)]
+#![warn(clippy::unreadable_literal)]
+
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use rand::seq::SliceRandom;
@@ -72,7 +81,7 @@ fn get_hostname() -> Option<String> {
 }
 
 impl Cubicle {
-    fn new() -> Result<Cubicle> {
+    fn new() -> Result<Self> {
         let hostname = get_hostname();
         let home = PathBuf::from(std::env::var("HOME").context("Invalid $HOME")?);
         let user = std::env::var("USER").context("Invalid $USER")?;
@@ -136,7 +145,7 @@ impl Cubicle {
 
         let runner = get_runner(&script_path)?;
 
-        let program = Cubicle {
+        let program = Self {
             shell,
             script_name,
             script_path,
@@ -147,10 +156,10 @@ impl Cubicle {
             tmp_dir,
             timezone,
             user,
+            runner,
             package_cache,
             code_package_dir,
             user_package_dir,
-            runner,
             eff_word_list_dir,
         };
 
@@ -179,16 +188,14 @@ impl Cubicle {
             let build_depends = read_package_list(&dir, "build-depends.txt")?.unwrap_or_default();
             let mut depends = read_package_list(&dir, "depends.txt")?.unwrap_or_default();
             depends.insert(PackageName::from_str("auto").unwrap());
-            let test = if dir.join("test.sh").exists() {
-                Some(String::from("./test.sh"))
-            } else {
-                None
-            };
-            let update = if dir.join("update.sh").exists() {
-                Some(String::from("./update.sh"))
-            } else {
-                None
-            };
+            let test = dir
+                .join("test.sh")
+                .exists()
+                .then_some(String::from("./test.sh"));
+            let update = dir
+                .join("update.sh")
+                .exists()
+                .then_some(String::from("./update.sh"));
             packages.insert(
                 name,
                 PackageSpec {
@@ -222,11 +229,11 @@ fn transitive_depends(
         if !visited.contains(p) {
             visited.insert(p.clone());
             if let Some(spec) = specs.get(p) {
-                for q in spec.depends.iter() {
+                for q in &spec.depends {
                     visit(specs, build_depends, visited, q);
                 }
                 if build_depends.0 {
-                    for q in spec.build_depends.iter() {
+                    for q in &spec.build_depends {
                         visit(specs, build_depends, visited, q);
                     }
                 }
@@ -298,7 +305,7 @@ impl Cubicle {
                 return Ok(());
             }
             let mut later = Vec::new();
-            for name in todo.into_iter() {
+            for name in todo {
                 if let Some(spec) = specs.get(&name) {
                     if done.is_superset(&spec.depends) && done.is_superset(&spec.build_depends) {
                         self.update_stale_package(specs, &name, now)?;
@@ -394,11 +401,8 @@ impl Cubicle {
                 ));
             }
 
-            let packages: PackageNameSet = spec
-                .build_depends
-                .union(&spec.depends)
-                .map(|name| name.to_owned())
-                .collect();
+            let packages: PackageNameSet =
+                spec.build_depends.union(&spec.depends).cloned().collect();
 
             if let Err(e) = self.run(
                 &env_name,
@@ -414,9 +418,8 @@ impl Cubicle {
                         Keeping stale version. Error was: {e}"
                     );
                     return Ok(());
-                } else {
-                    return Err(e);
                 }
+                return Err(e);
             }
 
             // Note: the end of this block removes `tar_path` from the
@@ -494,9 +497,8 @@ impl Cubicle {
                             Keeping stale version. Error was: {e}"
                         );
                         return Ok(());
-                    } else {
-                        return Err(e);
                     }
+                    return Err(e);
                 }
                 self.purge_environment(&test_name, Quiet(true))?;
                 std::fs::rename(
@@ -625,19 +627,11 @@ impl Cubicle {
             (
                 name,
                 Env {
-                    home_dir: if home_dir.exists() {
-                        Some(home_dir)
-                    } else {
-                        None
-                    },
+                    home_dir: home_dir.exists().then_some(home_dir),
                     home_dir_du_error,
                     home_dir_size,
                     home_dir_mtime,
-                    work_dir: if work_dir.exists() {
-                        Some(work_dir)
-                    } else {
-                        None
-                    },
+                    work_dir: work_dir.exists().then_some(work_dir),
                     work_dir_du_error,
                     work_dir_size,
                     work_dir_mtime,
@@ -716,7 +710,7 @@ impl Cubicle {
 
         if format == Format::Names {
             // fast path for shell completions
-            for name in self.scan_package_names()?.iter() {
+            for name in self.scan_package_names()? {
                 println!("{}", name);
             }
             return Ok(());
@@ -751,10 +745,10 @@ impl Cubicle {
                         build_depends: spec
                             .build_depends
                             .iter()
-                            .map(|name| name.0.to_owned())
+                            .map(|name| name.0.clone())
                             .collect(),
                         built: if error { None } else { Some(built) },
-                        depends: spec.depends.iter().map(|name| name.0.to_owned()).collect(),
+                        depends: spec.depends.iter().map(|name| name.0.clone()).collect(),
                         dir: spec.dir,
                         edited,
                         origin: spec.origin,
@@ -880,7 +874,7 @@ impl Cubicle {
             for _ in 0..200 {
                 if let Some(line) = lines.choose(&mut rng) {
                     for word in line.split_ascii_whitespace() {
-                        if word.chars().all(|c| c.is_numeric()) {
+                        if word.chars().all(char::is_numeric) {
                             // probably diceware numbers
                             continue;
                         }
@@ -992,7 +986,7 @@ impl Cubicle {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 struct Quiet(bool);
 
 impl Cubicle {
@@ -1016,7 +1010,7 @@ impl Cubicle {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 struct Clean(bool);
 
 impl Cubicle {
@@ -1065,8 +1059,8 @@ impl Cubicle {
                     }
                 };
                 let start_len = packages.len();
-                packages.extend(spec.build_depends.iter().map(|name| name.to_owned()));
-                packages.extend(spec.depends.iter().map(|name| name.to_owned()));
+                packages.extend(spec.build_depends.iter().cloned());
+                packages.extend(spec.depends.iter().cloned());
                 changed = changed || packages.len() != start_len;
                 self.update_packages(&packages, &specs)?;
                 self.update_package(&package_name, spec)?;
@@ -1302,7 +1296,7 @@ impl FromStr for EnvironmentName {
             return Err(anyhow!("environment name cannot manipulate path"));
         }
 
-        Ok(EnvironmentName(s.to_owned()))
+        Ok(Self(s.to_owned()))
     }
 }
 
@@ -1355,7 +1349,7 @@ impl FromStr for PackageName {
         }) {
             return Err(anyhow!("package name cannot contain special characters"));
         }
-        Ok(PackageName(s.to_owned()))
+        Ok(Self(s.to_owned()))
     }
 }
 
@@ -1424,9 +1418,9 @@ fn get_runner(script_path: &Path) -> Result<RunnerKind> {
 }
 
 fn main() -> Result<()> {
+    use Commands::*;
     let program = Cubicle::new()?;
     let args = Args::parse();
-    use Commands::*;
     match args.command {
         Enter { name } => program.enter_environment(&name),
         Exec { name, command } => program.exec_environment(&name, &command),

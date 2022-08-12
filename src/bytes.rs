@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-/// A count of bytes. This type is useful for its [fmt::Display] impl.
+/// A count of bytes. This type is useful for its [`fmt::Display`] impl.
 pub struct Bytes(pub u64);
 
 impl fmt::Display for Bytes {
