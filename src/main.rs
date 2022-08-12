@@ -1427,7 +1427,7 @@ impl<'a> Runner for Bubblewrap<'a> {
         );
         command.env("SANDBOX", name);
         command.env("TMPDIR", self.program.home.join("tmp"));
-        for key in ["DISPLAY", "HOME", "SHELL", "TERM"] {
+        for key in ["DISPLAY", "HOME", "SHELL", "TERM", "USER"] {
             if let Ok(value) = std::env::var(key) {
                 command.env(key, value);
             }
