@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use lazy_static::lazy_static;
+use rand::seq::SliceRandom;
 use regex::{Regex, RegexBuilder};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,6 +33,7 @@ struct Cubicle {
     shell: String,
     script_name: String,
     script_path: PathBuf,
+    hostname: Option<String>,
     home: PathBuf,
     home_dirs: PathBuf,
     work_dirs: PathBuf,
@@ -42,10 +44,25 @@ struct Cubicle {
     package_cache: PathBuf,
     code_package_dir: PathBuf,
     user_package_dir: PathBuf,
+    eff_word_list_dir: PathBuf,
+}
+
+fn get_hostname() -> Option<String> {
+    #[cfg(unix)]
+    {
+        let uname = rustix::process::uname();
+        if let Ok(node_name) = uname.nodename().to_str() {
+            if !node_name.is_empty() {
+                return Some(node_name.to_owned());
+            }
+        }
+    }
+    None
 }
 
 impl Cubicle {
     fn new() -> Result<Cubicle> {
+        let hostname = get_hostname();
         let home = PathBuf::from(std::env::var("HOME").context("Invalid $HOME")?);
         let user = std::env::var("USER").context("Invalid $USER")?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/sh"));
@@ -104,12 +121,15 @@ impl Cubicle {
         let code_package_dir = script_path.join("packages");
         let user_package_dir = xdg_data_home.join("cubicle").join("packages");
 
+        let eff_word_list_dir = xdg_cache_home.join("cubicle");
+
         let runner = get_runner(&script_path)?;
 
         let program = Cubicle {
             shell,
             script_name,
             script_path,
+            hostname,
             home,
             home_dirs,
             work_dirs,
@@ -120,6 +140,7 @@ impl Cubicle {
             code_package_dir,
             user_package_dir,
             runner,
+            eff_word_list_dir,
         };
 
         Ok(program)
@@ -226,21 +247,18 @@ fn transitive_depends(
 impl Cubicle {
     fn scan_package_names(&self) -> Result<PackageNameSet> {
         let mut names = PackageNameSet::new();
-
-        for dir in try_iterdir(&self.user_package_dir)? {
-            for name in try_iterdir(&self.user_package_dir.join(&dir))? {
+        let mut add = |dir: &Path| -> Result<()> {
+            for name in try_iterdir(dir)? {
                 if let Some(name) = name.to_str().and_then(|s| PackageName::from_str(s).ok()) {
                     names.insert(name);
                 }
             }
+            Ok(())
+        };
+        for dir in try_iterdir(&self.user_package_dir)? {
+            add(&self.user_package_dir.join(dir))?;
         }
-
-        for name in try_iterdir(&self.code_package_dir)? {
-            if let Some(name) = name.to_str().and_then(|s| PackageName::from_str(s).ok()) {
-                names.insert(name);
-            }
-        }
-
+        add(&self.code_package_dir)?;
         Ok(names)
     }
 
@@ -591,6 +609,7 @@ fn du(path: &Path) -> Result<DiskUsage> {
         .args(["-cs", "--block-size=1", "--time", "--time-style=+%s"])
         .arg(path)
         .output()?;
+    // ignore permissions errors
     let error = !&output.stderr.is_empty();
 
     let stdout = String::from_utf8(output.stdout)?;
@@ -921,10 +940,10 @@ fn read_package_list(dir: &Path, path: &str) -> Result<Option<PackageNameSet>> {
     Ok(Some(package_set_from_names(names)?))
 }
 
-fn write_package_list(work_dir: &Path, packages: &PackageNameSet) -> Result<()> {
-    let dir = cap_std::fs::Dir::open_ambient_dir(work_dir, cap_std::ambient_authority())?;
+fn write_package_list(dir: &Path, path: &str, packages: &PackageNameSet) -> Result<()> {
+    let dir = cap_std::fs::Dir::open_ambient_dir(dir, cap_std::ambient_authority())?;
     let mut file = dir.open_with(
-        "packages.txt",
+        path,
         cap_std::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -959,7 +978,7 @@ impl Cubicle {
 
         self.update_packages(&packages, &self.scan_packages()?)?;
         std::fs::create_dir_all(&work_dir)?;
-        write_package_list(&work_dir, &packages)?;
+        write_package_list(&work_dir, "packages.txt", &packages)?;
         self.run(
             name,
             &RunCommand::Init {
@@ -967,6 +986,131 @@ impl Cubicle {
                 extra_seeds: &[],
             },
         )
+    }
+
+    fn random_name<F>(&self, filter: F) -> Option<String>
+    where
+        F: Fn(&str) -> bool,
+    {
+        fn from_file<F>(file: std::fs::File, filter: F) -> Result<String>
+        where
+            F: Fn(&str) -> bool,
+        {
+            let mut rng = rand::thread_rng();
+            let reader = io::BufReader::new(file);
+            let lines = reader.lines().collect::<Result<Vec<String>, _>>()?;
+            for _ in 0..200 {
+                if let Some(line) = lines.choose(&mut rng) {
+                    for word in line.split_ascii_whitespace() {
+                        if word.chars().all(|c| c.is_numeric()) {
+                            // probably diceware numbers
+                            continue;
+                        }
+                        if filter(word) {
+                            return Ok(word.to_owned());
+                        }
+                    }
+                }
+            }
+            Err(anyhow!("found no suitable word"))
+        }
+
+        // 1. Prefer the EFF short word list. See https://www.eff.org/dice for
+        // more info.
+        let eff = || -> Result<String> {
+            let eff_word_list = self.eff_word_list_dir.join("eff_short_wordlist_1.txt");
+            let file = match std::fs::File::open(&eff_word_list) {
+                Ok(file) => file,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    println!("Downloading EFF short wordlist");
+                    let url = "https://www.eff.org/files/2016/09/08/eff_short_wordlist_1.txt";
+                    let body = reqwest::blocking::get(url)?.text()?;
+                    std::fs::write(&eff_word_list, body)?;
+                    std::fs::File::open(&eff_word_list)?
+                }
+                Err(e) => return Err(e.into()),
+            };
+            from_file(file, |w| w.len() < 10 && filter(w))
+        };
+
+        // 2. /usr/share/dict/words
+        let dict = || -> Result<String> {
+            let file = std::fs::File::open("/usr/share/dict/words")?;
+            from_file(file, |w| w.len() < 6 && filter(w))
+        };
+
+        match eff() {
+            Ok(word) => return Some(word),
+            Err(e) => {
+                println!("Warning: failed to extract word from EFF list: {e}");
+            }
+        }
+        match dict() {
+            Ok(word) => return Some(word),
+            Err(e) => {
+                println!("Warning: failed to extract word from /usr/share/dict/words: {e}");
+            }
+        }
+
+        // 3. Random 6 letters
+        let mut rng = rand::thread_rng();
+        let alphabet = [
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
+            'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+        ];
+        for _ in 0..20 {
+            let word = std::iter::repeat_with(|| alphabet.choose(&mut rng).unwrap())
+                .take(6)
+                .collect::<String>();
+            if filter(&word) {
+                return Some(word);
+            }
+        }
+
+        // 4. Random 32 letters
+        let word = std::iter::repeat_with(|| alphabet.choose(&mut rng).unwrap())
+            .take(32)
+            .collect::<String>();
+        if filter(&word) {
+            return Some(word);
+        }
+
+        // 5. Give up.
+        None
+    }
+
+    fn create_enter_tmp_environment(&self, packages: Option<PackageNameSet>) -> Result<()> {
+        let name = match self.random_name(|name| {
+            if name.starts_with("cub") {
+                // that'd be confusing
+                return false;
+            }
+            let name = format!("tmp-{name}");
+            EnvironmentName::from_str(&name).is_ok()
+                && !self.work_dirs.join(&name).exists()
+                && !self.home_dirs.join(&name).exists()
+        }) {
+            Some(name) => EnvironmentName::from_str(&format!("tmp-{name}")).unwrap(),
+            None => return Err(anyhow!("failed to generate random environment name")),
+        };
+
+        let packages = match packages {
+            Some(p) => p,
+            None => PackageNameSet::from([PackageName::from_str("default").unwrap()]),
+        };
+        self.update_packages(&packages, &self.scan_packages()?)?;
+
+        let work_dir = self.work_dirs.join(&name);
+        std::fs::create_dir_all(&work_dir)?;
+        write_package_list(&work_dir, "packages.txt", &packages)?;
+        self.run(
+            &name,
+            &RunCommand::Init {
+                packages: &packages,
+                extra_seeds: &[],
+            },
+        )?;
+        self.run(&name, &RunCommand::Interactive)
     }
 }
 
@@ -1033,9 +1177,6 @@ impl Cubicle {
         match name.extract_builder_package_name() {
             None => {
                 self.update_packages(&packages, &self.scan_packages()?)?;
-                if !changed {
-                    write_package_list(&work_dir, &packages)?;
-                }
             }
             Some(package_name) => {
                 let specs = self.scan_packages()?;
@@ -1051,11 +1192,12 @@ impl Cubicle {
                 changed = changed || packages.len() != start_len;
                 self.update_packages(&packages, &specs)?;
                 self.update_package(&package_name, spec)?;
-                if changed {
-                    write_package_list(&work_dir, &packages)?;
-                }
             }
         }
+        if changed {
+            write_package_list(&work_dir, "packages.txt", &packages)?;
+        }
+
         self.run(
             name,
             &RunCommand::Init {
@@ -1252,21 +1394,18 @@ impl<'a> Docker<'a> {
         command.arg("run");
         command.arg("--detach");
         command.args(["--env", &format!("SANDBOX={}", name)]);
-        // TODO: Python version did f"{name}.{HOSTNAME}", but this isn't
-        // available in Rust's stdlib.
-        command.args(["--hostname", name.as_ref()]);
+        command.arg("--hostname");
+        match &self.program.hostname {
+            Some(hostname) => command.arg(format!("{name}.{hostname}")),
+            None => command.arg(name),
+        };
         command.arg("--init");
         command.args(["--name", name.as_ref()]);
         command.arg("--rm");
         if seccomp_json.exists() {
             command.args([
                 "--security-opt",
-                &format!(
-                    "seccomp={}",
-                    seccomp_json
-                        .to_str()
-                        .ok_or_else(|| anyhow!("path not valid UTF-8: {:#?}", seccomp_json))?
-                ),
+                &format!("seccomp={}", seccomp_json.display()),
             ]);
         }
         // The default `/dev/shm` is limited to only 64 MiB under
@@ -1545,6 +1684,13 @@ enum Commands {
         #[clap(required(true))]
         names: Vec<EnvironmentName>,
     },
+
+    /// Create and enter a new temporary environment.
+    Tmp {
+        /// Comma-separated names of packages to inject into home directory.
+        #[clap(long, use_value_delimiter(true))]
+        packages: Option<Vec<String>>,
+    },
 }
 
 #[derive(Debug)]
@@ -1722,6 +1868,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        // TODO: rename
         Reset {
             names,
             clean,
@@ -1732,6 +1879,11 @@ fn main() -> Result<()> {
                 program.reset_environment(name, &packages, Clean(clean))?;
             }
             Ok(())
+        }
+
+        Tmp { packages } => {
+            let packages = packages.map(package_set_from_names).transpose()?;
+            program.create_enter_tmp_environment(packages)
         }
     }
 }
