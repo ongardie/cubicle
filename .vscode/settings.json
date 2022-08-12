@@ -1,12 +1,3 @@
 {
   "editor.formatOnSave": true,
-  "python.formatting.provider": "black",
-  "python.linting.pylamaEnabled": false,
-  "python.linting.enabled": true,
-  "python.linting.lintOnSave": true,
-  "python.linting.mypyEnabled": true,
-  "python.linting.ignorePatterns": ["test_*.py"],
-  "python.testing.unittestArgs": ["-v", "-s", ".", "-p", "test_*.py"],
-  "python.testing.pytestEnabled": false,
-  "python.testing.unittestEnabled": true
 }
