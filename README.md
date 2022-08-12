@@ -38,7 +38,8 @@ impractical to audit all your software's own dependencies in depth.
 I found that I was avoiding lots of tools just because I didn't want to add
 risk to my host system. Do I want to install that janky VS Code extension that
 has 3 users, just for syntax highlighting? When it suggests installing a
-linter, do I want to do that too?
+linter, do I want to do that too? (Yes, there's some irony in that Cubicle
+itself is a janky program that has fewer than 3 users -- for now.)
 
 Modern development also moves fast. VS Code gets updates every month. Rust
 nightly builds are updated, well, nightly. It's hard for distributions to keep
@@ -151,12 +152,15 @@ BPF filter from the above source code.
 
 ## Installing
 
-Cubicle is currently a single-file Python script (that uses no third-party
-libraries) and a collection of shell scripts. Installation is straightforward.
+Cubicle is made up of a Rust program that runs on the host and a collection of
+shell scripts for package setup that run in containers.
 
 ### Installing Dependencies (Bubblewrap)
 
-Install the dependencies:
+You'll need [Rust and Cargo](https://www.rust-lang.org/tools/install). The
+version in Debian 11 is too old.
+
+Install the other dependencies:
 
 - `bwrap` - Bubblewrap, Linux light-weight container tool. Note that while
   bwrap used to be a setuid binary, this is no longer needed on modern
@@ -166,8 +170,6 @@ Install the dependencies:
 - `jq` - command-line JSON processor.
 - `pv` - pipe viewer, displays progress bars.
 
-You also need Python 3.9+ and `tar`, but you probably already have those.
-
 On Debian 11, you can install the dependencies using `apt`:
 
 ```sh
@@ -176,6 +178,19 @@ sudo apt install bubblewrap curl git jq pv
 
 ### Installing Dependencies (Docker)
 
+You'll need [Rust and Cargo](https://www.rust-lang.org/tools/install). The
+version in Debian 11 is too old. Alternatively, you can use Docker to run the
+Rust compiler, if the host system is similar enough to Debian 11 (Bullseye).
+Below, run `cargo` with:
+
+```sh
+docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$PWD:$PWD" -w "$PWD" \
+    rust:1-bullseye \
+    cargo build --release
+```
+
 [Install Docker](https://docs.docker.com/get-docker/). On Debian 11, you can
 install it using `apt`:
 
@@ -183,7 +198,8 @@ install it using `apt`:
 sudo apt install docker.io
 ```
 
-You also need Python 3.9+ and `tar`, but you probably already have those.
+You also need GNU's `du` and `tar`. Unfortunately, Mac is currently
+unsupported; see <https://github.com/ongardie/cubicle/issues/2>.
 
 ### Installing Cubicle
 
@@ -194,7 +210,8 @@ your `$PATH`:
 cd ~/opt/
 git clone https://github.com/ongardie/cubicle/
 cd cubicle
-ln -s $(pwd)/cubicle.py ~/bin/cub
+cargo build --release
+ln -s $(pwd)/target/release/cubicle ~/bin/cub
 ```
 
 If you would like to use Bubblewrap:
