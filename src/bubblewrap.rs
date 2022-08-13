@@ -47,20 +47,21 @@ impl<'a> Runner for Bubblewrap<'a> {
             _child: ScopedChild, // this is here so its destructor will reap it later
             stdout: ChildStdout,
         }
-        let seed = if let RunnerCommand::Init { seeds, .. } = run_command {
-            println!("Packing seed tarball");
-            let mut child = Command::new("pv")
-                .args(["-i", "0.1"])
-                .stdout(Stdio::piped())
-                .args(seeds)
-                .scoped_spawn()?;
-            let stdout = child.stdout.take().unwrap();
-            Some(Seed {
-                _child: child,
-                stdout,
-            })
-        } else {
-            None
+        let seed = match run_command {
+            RunnerCommand::Init { seeds, .. } if !seeds.is_empty() => {
+                println!("Packing seed tarball");
+                let mut child = Command::new("pv")
+                    .args(["-i", "0.1"])
+                    .stdout(Stdio::piped())
+                    .args(seeds)
+                    .scoped_spawn()?;
+                let stdout = child.stdout.take().unwrap();
+                Some(Seed {
+                    _child: child,
+                    stdout,
+                })
+            }
+            _ => None,
         };
 
         let seccomp = std::fs::File::open(self.program.script_path.join("seccomp.bpf"))?;
