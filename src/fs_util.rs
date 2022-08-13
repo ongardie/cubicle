@@ -1,8 +1,9 @@
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use std::ffi::OsString;
 use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn copyfile_untrusted(
@@ -100,6 +101,7 @@ pub fn file_size_cap(metadata: &cap_std::fs::Metadata) -> Option<u64> {
     None
 }
 
+#[derive(Debug)]
 pub struct DirSummary {
     pub errors: bool,
     pub total_size: u64,
@@ -107,57 +109,45 @@ pub struct DirSummary {
 }
 
 pub fn summarize_dir(path: &Path) -> Result<DirSummary> {
-    fn handle_entry(
-        summary: &mut DirSummary,
-        entry: io::Result<cap_std::fs::DirEntry>,
-    ) -> Result<()> {
-        let entry = entry?;
-        let metadata = entry.metadata()?;
-        match metadata.modified() {
-            Ok(time) => {
-                let time = time.into_std();
-                if time > summary.last_modified {
-                    summary.last_modified = time;
-                }
-            }
-            Err(_) => {
-                summary.errors = true;
-            }
-        }
-        if metadata.is_dir() {
-            let child_dir = entry.open_dir()?;
-            handle_dir(summary, child_dir);
-        } else {
-            match file_size_cap(&metadata) {
-                Some(size) => summary.total_size += size,
-                None => summary.errors = true,
-            }
-        }
-        Ok(())
-    }
-
-    fn handle_dir(summary: &mut DirSummary, dir: cap_std::fs::Dir) {
-        match dir.entries() {
-            Ok(entries) => {
-                for entry in entries {
-                    if handle_entry(summary, entry).is_err() {
+    fn handle_entry(summary: &mut DirSummary, entry: Result<WalkDirEntry>) {
+        match entry {
+            Ok(WalkDirEntry { entry, .. }) => {
+                let metadata = if let Ok(metadata) = entry.metadata() {
+                    metadata
+                } else {
+                    summary.errors = true;
+                    return;
+                };
+                match metadata.modified() {
+                    Ok(time) => {
+                        let time = time.into_std();
+                        if time > summary.last_modified {
+                            summary.last_modified = time;
+                        }
+                    }
+                    Err(_) => {
                         summary.errors = true;
                     }
                 }
+                if !metadata.is_dir() {
+                    match file_size_cap(&metadata) {
+                        Some(size) => summary.total_size += size,
+                        None => summary.errors = true,
+                    }
+                }
             }
-            Err(_) => {
-                summary.errors = true;
-            }
+            Err(_) => summary.errors = true,
         }
     }
 
-    let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
     let mut summary = DirSummary {
         errors: false,
         total_size: 0,
         last_modified: UNIX_EPOCH,
     };
-    handle_dir(&mut summary, dir);
+    for entry in WalkDir::new(path)? {
+        handle_entry(&mut summary, entry);
+    }
     Ok(summary)
 }
 
@@ -186,4 +176,150 @@ impl Drop for MaybeTempFile {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
     }
+}
+
+pub struct WalkDirCursor {
+    path: PathBuf,
+    dir: Rc<cap_std::fs::Dir>,
+    entries: cap_std::fs::ReadDir,
+}
+
+pub struct WalkDirEntry {
+    parent: Rc<cap_std::fs::Dir>,
+    path: PathBuf,
+    entry: cap_std::fs::DirEntry,
+    file_type: cap_std::fs::FileType,
+}
+
+pub struct WalkDir {
+    stack: Vec<WalkDirCursor>,
+}
+
+impl WalkDir {
+    pub fn new(path: &Path) -> Result<WalkDir> {
+        let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
+        let entries = dir.entries()?;
+        Ok(WalkDir {
+            stack: vec![WalkDirCursor {
+                path: PathBuf::new(),
+                dir: Rc::new(dir),
+                entries,
+            }],
+        })
+    }
+}
+
+impl Iterator for WalkDir {
+    type Item = Result<WalkDirEntry>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let (parent, path, entry) = loop {
+            match self.stack.pop() {
+                Some(mut cursor) => match cursor.entries.next() {
+                    Some(entry) => {
+                        match entry
+                            .with_context(|| format!("Failed to list directory {:#?}", cursor.path))
+                        {
+                            Ok(entry) => {
+                                let entry_path = cursor.path.join(entry.file_name());
+                                let parent = cursor.dir.clone();
+                                self.stack.push(cursor);
+                                break (parent, entry_path, entry);
+                            }
+                            Err(e) => {
+                                self.stack.push(cursor);
+                                return Some(Err(e));
+                            }
+                        }
+                    }
+                    None => continue,
+                },
+                None => return None,
+            };
+        };
+
+        match entry
+            .file_type()
+            .with_context(|| format!("Failed to get file type for {path:#?}"))
+        {
+            Ok(file_type) => {
+                if file_type.is_dir() {
+                    match entry
+                        .open_dir()
+                        .and_then(|dir| dir.entries().map(|entries| (dir, entries)))
+                        .with_context(|| format!("Failed to list directory {path:#?}"))
+                    {
+                        Ok((dir, contents)) => self.stack.push(WalkDirCursor {
+                            path: path.clone(),
+                            dir: Rc::new(dir),
+                            entries: contents,
+                        }),
+                        Err(e) => return Some(Err(e)),
+                    }
+                }
+                Some(Ok(WalkDirEntry {
+                    parent,
+                    path,
+                    entry,
+                    file_type,
+                }))
+            }
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct TarOptions {
+    pub prefix: Option<PathBuf>,
+    pub exclude: Vec<PathBuf>,
+}
+
+pub fn create_tar<W: io::Write>(dir: &Path, w: W, opts: &TarOptions) -> Result<()> {
+    let mut builder = tar::Builder::new(w);
+    for entry in WalkDir::new(dir)? {
+        let WalkDirEntry {
+            parent,
+            path,
+            entry,
+            file_type,
+        } = entry?;
+        let mut add = || {
+            if opts.exclude.contains(&path) {
+                return Ok(());
+            }
+            let append_path = match &opts.prefix {
+                Some(prefix) => prefix.join(&path),
+                None => path.clone(),
+            };
+            if file_type.is_file() {
+                let file = entry.open()?;
+                builder.append_file(append_path, &mut file.into_std())?;
+                return Ok(());
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let metadata = entry.metadata()?;
+                let mut header = tar::Header::new_gnu();
+                header.set_mtime(metadata.mtime() as u64);
+                header.set_uid(metadata.uid() as u64);
+                header.set_gid(metadata.gid() as u64);
+                header.set_mode(metadata.mode());
+                if file_type.is_dir() {
+                    header.set_entry_type(tar::EntryType::Directory);
+                    builder.append_data(&mut header, append_path, io::empty())?;
+                    return Ok(());
+                } else if file_type.is_symlink() {
+                    header.set_entry_type(tar::EntryType::Symlink);
+                    let target = parent.read_link(path.file_name().unwrap())?;
+                    builder.append_link(&mut header, append_path, target)?;
+                    return Ok(());
+                }
+            }
+            Err(anyhow!("Unsupported file type: {file_type:?}"))
+        };
+        add().with_context(|| format!("Failed to add {:#?} to tar archive", dir.join(path)))?;
+    }
+    builder.into_inner().and_then(|mut f| f.flush())?;
+    Ok(())
 }

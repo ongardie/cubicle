@@ -19,7 +19,7 @@ use std::io::{self, BufRead, Write};
 use std::iter;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::ExitStatus;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -28,7 +28,8 @@ use bytes::Bytes;
 
 mod fs_util;
 use fs_util::{
-    copyfile_untrusted, file_size, rmtree, summarize_dir, try_iterdir, DirSummary, MaybeTempFile,
+    copyfile_untrusted, create_tar, file_size, rmtree, summarize_dir, try_iterdir, DirSummary,
+    MaybeTempFile, TarOptions,
 };
 
 mod scoped_child;
@@ -387,22 +388,16 @@ impl Cubicle {
 
         {
             let tar_path = MaybeTempFile(self.tmp_dir.join(format!("cubicle-{package_name}.tar")));
-            let status = Command::new("tar")
-                .arg("-c")
-                .arg("--directory")
-                .arg(&spec.dir)
-                .arg(".")
-                .args(["--transform", &format!(r#"s/^\./{env_name}/"#)])
-                .arg("-f")
-                .arg(tar_path.deref())
-                .status()?;
-            if !status.success() {
-                return Err(anyhow!(
-                    "failed to tar package source for {package_name}: \
-                    tar exited with status {:#?}",
-                    status.code(),
-                ));
-            }
+
+            create_tar(
+                &spec.dir,
+                std::fs::File::create(&tar_path.0)?,
+                &TarOptions {
+                    prefix: Some(PathBuf::from(&env_name)),
+                    ..TarOptions::default()
+                },
+            )
+            .with_context(|| format!("Failed to tar package source for {package_name}"))?;
 
             let packages: PackageNameSet =
                 spec.build_depends.union(&spec.depends).cloned().collect();
@@ -450,26 +445,18 @@ impl Cubicle {
 
                 let tar_path =
                     MaybeTempFile(self.tmp_dir.join(format!("cubicle-{package_name}.tar")));
-                let status = Command::new("tar")
-                    .arg("-c")
-                    .arg("--anchored")
-                    .arg("--directory")
-                    .arg(&spec.dir)
-                    // dev-init.sh will run `update.sh` if it's present, but we
-                    // don't want that
-                    .args(["--exclude", "./update.sh"])
-                    .arg(".")
-                    .args(["--transform", &format!(r#"s/^\./{test_name}/"#)])
-                    .arg("-f")
-                    .arg(tar_path.deref())
-                    .status()?;
-                if !status.success() {
-                    return Err(anyhow!(
-                        "failed to tar package source to test {package_name}: \
-                        tar exited with status {:#?}",
-                        status.code(),
-                    ));
-                }
+
+                create_tar(
+                    &spec.dir,
+                    std::fs::File::create(&tar_path.0)?,
+                    &TarOptions {
+                        prefix: Some(PathBuf::from(&test_name)),
+                        // `dev-init.sh` will run `update.sh` if it's present, but
+                        // we don't want that
+                        exclude: vec![PathBuf::from("update.sh")],
+                    },
+                )
+                .with_context(|| format!("Failed to tar package source to test {package_name}"))?;
 
                 // See copyfile comment above.
                 let testing_tar = format!("{package_name}.testing.tar");
@@ -1163,12 +1150,18 @@ enum RunnerCommand<'a> {
 }
 
 #[derive(Debug)]
-struct ExitStatusError(ExitStatus);
+struct ExitStatusError {
+    status: ExitStatus,
+    context: String,
+}
 
 impl ExitStatusError {
-    fn new(status: ExitStatus) -> Self {
+    fn new(status: ExitStatus, context: &str) -> Self {
         assert!(matches!(status.code(), Some(c) if c != 0));
-        Self(status)
+        Self {
+            status,
+            context: context.to_owned(),
+        }
     }
 }
 
@@ -1176,7 +1169,12 @@ impl std::error::Error for ExitStatusError {}
 
 impl fmt::Display for ExitStatusError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "non-zero exit status ({})", self.0.code().unwrap())
+        write!(
+            f,
+            "non-zero exit status ({}) from {}",
+            self.status.code().unwrap(),
+            self.context
+        )
     }
 }
 

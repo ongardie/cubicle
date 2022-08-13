@@ -154,7 +154,7 @@ impl<'a> Runner for Bubblewrap<'a> {
         if status.success() {
             Ok(())
         } else {
-            Err(ExitStatusError::new(status).into())
+            Err(ExitStatusError::new(status, "bwrap").into())
         }
     }
 }

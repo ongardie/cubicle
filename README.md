@@ -198,8 +198,8 @@ install it using `apt`:
 sudo apt install docker.io
 ```
 
-You also need GNU's `tar`. Unfortunately, Mac is currently
-unsupported; see <https://github.com/ongardie/cubicle/issues/2>.
+Unfortunately, Mac is currently unsupported; see
+<https://github.com/ongardie/cubicle/issues/2>.
 
 ### Installing Cubicle
 

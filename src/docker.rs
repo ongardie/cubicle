@@ -144,7 +144,7 @@ impl<'a> Docker<'a> {
         if status.success() {
             Ok(())
         } else {
-            Err(ExitStatusError::new(status).into())
+            Err(ExitStatusError::new(status, "docker run").into())
         }
     }
 }
@@ -312,7 +312,7 @@ impl<'a> Runner for Docker<'a> {
         if status.success() {
             Ok(())
         } else {
-            Err(ExitStatusError::new(status).into())
+            Err(ExitStatusError::new(status, "docker exec").into())
         }
     }
 }
