@@ -256,16 +256,6 @@ curl -LO 'https://ongardie.net/static/podman.bpf'
 ln -s podman.bpf seccomp.bpf
 ```
 
-### Installing Shell Completions
-
-If you use Zsh ([Z shell](https://en.wikipedia.org/wiki/Z_shell)), you can set
-up shell completions. You can check `$fpath` to see where this should go. This
-example assumes `~/.zfunc` is listed in `$fpath` already:
-
-```sh
-ln -s $(pwd)/_cub ~/.zfunc/
-```
-
 ### Uninstalling
 
 First, exit out of any running Cubicle environments.
