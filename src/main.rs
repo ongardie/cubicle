@@ -27,7 +27,9 @@ mod bytes;
 use bytes::Bytes;
 
 mod fs_util;
-use fs_util::{copyfile_untrusted, du, rmtree, try_iterdir, DiskUsage, MaybeTempFile};
+use fs_util::{
+    copyfile_untrusted, file_size, rmtree, summarize_dir, try_iterdir, DirSummary, MaybeTempFile,
+};
 
 mod scoped_child;
 
@@ -356,8 +358,8 @@ impl Cubicle {
                 Err(_) => return Ok(true),
                 _ => {}
             }
-            let DiskUsage { mtime, .. } = du(&spec.dir)?;
-            if mtime > built {
+            let DirSummary { last_modified, .. } = summarize_dir(&spec.dir)?;
+            if last_modified > built {
                 return Ok(true);
             }
             for p in spec.build_depends.union(&spec.depends) {
@@ -606,24 +608,24 @@ impl Cubicle {
 
         let envs = names.iter().map(|name| {
             let home_dir = self.home_dirs.join(name);
-            let (home_dir_du_error, home_dir_size, home_dir_mtime) = match du(&home_dir) {
-                Ok(DiskUsage {
-                    error: true,
-                    size: 0,
-                    ..
-                })
-                | Err(_) => (true, None, None),
-                Ok(DiskUsage { error, size, mtime }) => (error, Some(size), Some(mtime)),
+            let (home_dir_du_error, home_dir_size, home_dir_mtime) = match summarize_dir(&home_dir)
+            {
+                Err(_) => (true, None, None),
+                Ok(DirSummary {
+                    errors,
+                    total_size,
+                    last_modified,
+                }) => (errors, Some(total_size), Some(last_modified)),
             };
             let work_dir = self.work_dirs.join(name);
-            let (work_dir_du_error, work_dir_size, work_dir_mtime) = match du(&work_dir) {
-                Ok(DiskUsage {
-                    error: true,
-                    size: 0,
-                    ..
-                })
-                | Err(_) => (true, None, None),
-                Ok(DiskUsage { error, size, mtime }) => (error, Some(size), Some(mtime)),
+            let (work_dir_du_error, work_dir_size, work_dir_mtime) = match summarize_dir(&work_dir)
+            {
+                Err(_) => (true, None, None),
+                Ok(DirSummary {
+                    errors,
+                    total_size,
+                    last_modified,
+                }) => (errors, Some(total_size), Some(last_modified)),
             };
             (
                 name,
@@ -734,12 +736,13 @@ impl Cubicle {
         let packages = specs
             .into_iter()
             .map(|(name, spec)| -> Result<(PackageName, Package)> {
-                let DiskUsage {
-                    error,
-                    size,
-                    mtime: built,
-                } = du(&self.package_cache.join(format!("{name}.tar")))?;
-                let DiskUsage { mtime: edited, .. } = du(&spec.dir)?;
+                let (built, size) = {
+                    match std::fs::metadata(&self.package_cache.join(format!("{name}.tar"))) {
+                        Ok(metadata) => (metadata.modified().ok(), file_size(&metadata)),
+                        Err(_) => (None, None),
+                    }
+                };
+                let edited = summarize_dir(&spec.dir)?.last_modified;
                 Ok((
                     name,
                     Package {
@@ -748,12 +751,12 @@ impl Cubicle {
                             .iter()
                             .map(|name| name.0.clone())
                             .collect(),
-                        built: if error { None } else { Some(built) },
+                        built,
                         depends: spec.depends.iter().map(|name| name.0.clone()).collect(),
                         dir: spec.dir,
                         edited,
                         origin: spec.origin,
-                        size: if error { None } else { Some(size) },
+                        size,
                     },
                 ))
             })

@@ -1,13 +1,9 @@
-use anyhow::{anyhow, Result};
-use lazy_static::lazy_static;
-use regex::{Regex, RegexBuilder};
+use anyhow::Result;
 use std::ffi::OsString;
 use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::str::FromStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn copyfile_untrusted(
     src_dir: &Path,
@@ -75,39 +71,94 @@ pub fn rmtree(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub struct DiskUsage {
-    pub error: bool,
-    pub size: u64,
-    pub mtime: SystemTime,
+pub fn file_size(metadata: &std::fs::Metadata) -> Option<u64> {
+    #[cfg(unix)]
+    return {
+        use std::os::unix::fs::MetadataExt;
+        Some(metadata.size())
+    };
+    #[cfg(windows)]
+    return {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.is_dir() {
+            None
+        } else {
+            Some(metadata.file_size())
+        }
+    };
+    #[allow(unreachable_code)]
+    None
 }
 
-pub fn du(path: &Path) -> Result<DiskUsage> {
-    let output = Command::new("du")
-        .args(["-cs", "--block-size=1", "--time", "--time-style=+%s"])
-        .arg(path)
-        .output()?;
-    // ignore permissions errors
-    let error = !&output.stderr.is_empty();
+pub fn file_size_cap(metadata: &cap_std::fs::Metadata) -> Option<u64> {
+    #[cfg(unix)]
+    return {
+        use std::os::unix::fs::MetadataExt;
+        Some(metadata.size())
+    };
+    #[allow(unreachable_code)]
+    None
+}
 
-    let stdout = String::from_utf8(output.stdout)?;
+pub struct DirSummary {
+    pub errors: bool,
+    pub total_size: u64,
+    pub last_modified: SystemTime,
+}
 
-    lazy_static! {
-        static ref RE: Regex = RegexBuilder::new(r#"^(?P<size>[0-9]+)\t(?P<mtime>[0-9]+)\ttotal$"#)
-            .multi_line(true)
-            .build()
-            .unwrap();
-    }
-    match RE.captures(&stdout) {
-        Some(caps) => {
-            let size = caps.name("size").unwrap().as_str();
-            let size = u64::from_str(size).unwrap();
-            let mtime = caps.name("mtime").unwrap().as_str();
-            let mtime = u64::from_str(mtime).unwrap();
-            let mtime = UNIX_EPOCH + Duration::from_secs(mtime);
-            Ok(DiskUsage { error, size, mtime })
+pub fn summarize_dir(path: &Path) -> Result<DirSummary> {
+    fn handle_entry(
+        summary: &mut DirSummary,
+        entry: io::Result<cap_std::fs::DirEntry>,
+    ) -> Result<()> {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        match metadata.modified() {
+            Ok(time) => {
+                let time = time.into_std();
+                if time > summary.last_modified {
+                    summary.last_modified = time;
+                }
+            }
+            Err(_) => {
+                summary.errors = true;
+            }
         }
-        None => Err(anyhow!("Unexpected output from du: {:#?}", stdout)),
+        if metadata.is_dir() {
+            let child_dir = entry.open_dir()?;
+            handle_dir(summary, child_dir);
+        } else {
+            match file_size_cap(&metadata) {
+                Some(size) => summary.total_size += size,
+                None => summary.errors = true,
+            }
+        }
+        Ok(())
     }
+
+    fn handle_dir(summary: &mut DirSummary, dir: cap_std::fs::Dir) {
+        match dir.entries() {
+            Ok(entries) => {
+                for entry in entries {
+                    if handle_entry(summary, entry).is_err() {
+                        summary.errors = true;
+                    }
+                }
+            }
+            Err(_) => {
+                summary.errors = true;
+            }
+        }
+    }
+
+    let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
+    let mut summary = DirSummary {
+        errors: false,
+        total_size: 0,
+        last_modified: UNIX_EPOCH,
+    };
+    handle_dir(&mut summary, dir);
+    Ok(summary)
 }
 
 pub fn try_iterdir(path: &Path) -> Result<Vec<OsString>> {
