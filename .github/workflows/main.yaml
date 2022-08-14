@@ -7,14 +7,23 @@ on: [push, pull_request]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-
     strategy:
       fail-fast: false
       matrix:
-        rust:
-          - stable
-          - nightly
+        include:
+          - os: ubuntu-20.04
+            rust: stable
+          - os: ubuntu-20.04
+            rust: nightly
+          - os: macos-12
+            rust: stable
+
+    env:
+      # Some checks like `cargo fmt` only need to run once, preferably on the
+      # stable toolchain.
+      STABLE_ONCE_CHECKS: ${{ matrix.os == 'ubuntu-20.04' && matrix.rust == 'stable' }}
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout sources
@@ -39,28 +48,28 @@ jobs:
           command: test
 
       - name: Run cargo fmt
-        if: ${{ matrix.rust == 'stable' }}
+        if: ${{ env.STABLE_ONCE_CHECKS == 'true' }}
         uses: actions-rs/cargo@v1
         with:
           command: fmt
           args: --all -- --check
 
       - name: Run cargo clippy
-        if: ${{ matrix.rust == 'stable' }}
+        if: ${{ env.STABLE_ONCE_CHECKS == 'true' }}
         uses: actions-rs/cargo@v1
         with:
           command: clippy
           args: -- -D warnings
 
       - name: Install cargo audit
-        if: ${{ matrix.rust == 'stable' }}
+        if: ${{ env.STABLE_ONCE_CHECKS == 'true' }}
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: cargo-audit
 
       - name: Run cargo audit
-        if: ${{ matrix.rust == 'stable' }}
+        if: ${{ env.STABLE_ONCE_CHECKS == 'true' }}
         uses: actions-rs/cargo@v1
         with:
           command: audit
