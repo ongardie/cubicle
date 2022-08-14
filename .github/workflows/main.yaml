@@ -1,0 +1,83 @@
+# Based on https://github.com/actions-rs/example/blob/master/.github/workflows/quickstart.yml
+# and https://github.com/ramosbugs/oauth2-rs/blob/main/.github/workflows/main.yml
+
+name: CI
+
+on:
+  push: {}
+  pull_request: {}
+  # Run daily to catch breakages in new Rust versions as well as new cargo
+  # audit findings.
+  schedule:
+    - cron: "0 16 * * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-20.04
+            rust: stable
+          - os: ubuntu-20.04
+            rust: nightly
+          - os: macos-12
+            rust: stable
+
+    env:
+      # Some checks like `cargo fmt` only need to run once, preferably on the
+      # stable toolchain.
+      STABLE_ONCE_CHECKS: ${{ matrix.os == 'ubuntu-20.04' && matrix.rust == 'stable' }}
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+          components: rustfmt, clippy
+
+      - name: Run cargo build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+      - name: Run cargo fmt
+        if: ${{ env.STABLE_ONCE_CHECKS == 'true' }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+      - name: Run cargo clippy
+        if: ${{ env.STABLE_ONCE_CHECKS == 'true' }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+
+      - name: Install cargo audit
+        if: ${{ env.STABLE_ONCE_CHECKS == 'true' }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-audit
+
+      - name: Run cargo audit
+        if: ${{ env.STABLE_ONCE_CHECKS == 'true' }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: audit
