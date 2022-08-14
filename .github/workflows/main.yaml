@@ -3,7 +3,15 @@
 
 name: CI
 
-on: [push, pull_request]
+on:
+  push: {}
+  pull_request: {}
+  # Run daily to catch breakages in new Rust versions as well as new cargo
+  # audit findings.
+  schedule:
+    - cron: "0 16 * * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch: {}
 
 jobs:
   test:
