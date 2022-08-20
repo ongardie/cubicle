@@ -121,10 +121,9 @@ pub fn parse() -> Args {
     Args::parse()
 }
 
-fn print_completions(shell: Shell) -> Result<()> {
+fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
     use clap::CommandFactory;
     let cmd = &mut Args::command();
-    let out = &mut io::stdout();
 
     // We can't list out environment names and package names statically.
     // Unfortunately, there seems to be no general way to tell `clap` about
@@ -139,22 +138,24 @@ fn print_completions(shell: Shell) -> Result<()> {
             match line {
                 r#"':name -- Environment name:' \"# => {
                     counts[0] += 1;
-                    println!(r#"':name -- Environment name:_cub_envs' \"#)
+                    writeln!(out, r#"':name -- Environment name:_cub_envs' \"#)?;
                 }
                 r#"'*::names -- Environment name(s):' \"# => {
                     counts[1] += 1;
-                    println!(r#"'*::names -- Environment name(s):_cub_envs' \"#)
+                    writeln!(out, r#"'*::names -- Environment name(s):_cub_envs' \"#)?;
                 }
                 r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES: ' \"# =>
                 {
                     counts[2] += 1;
-                    println!(
+                    writeln!(
+                        out,
                         r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs' \"#
-                    )
+                    )?;
                 }
                 r#"_cub "$@""# => {
                     counts[3] += 1;
-                    println!(
+                    writeln!(
+                        out,
                         "{}",
                         r#"
 _cub_envs() {
@@ -164,13 +165,15 @@ _cub_pkgs() {
     _values -s , -w 'packages' $(cub packages --format=names)
 }
 "#
-                    );
-                    println!("{}", line);
+                    )?;
+                    writeln!(out, "{}", line)?;
                 }
-                _ => println!("{}", line),
+                _ => {
+                    writeln!(out, "{}", line)?;
+                }
             }
         }
-        debug_assert_eq!(counts, [2, 2, 3, 1], "completions not patched as expected",);
+        debug_assert_eq!(counts, [2, 2, 3, 1], "completions not patched as expected");
     } else {
         generate(shell, cmd, "cub", out);
     }
@@ -180,7 +183,7 @@ _cub_pkgs() {
 pub(super) fn run(args: Args, program: &Cubicle) -> Result<()> {
     use Commands::*;
     match args.command {
-        Completions { shell } => print_completions(shell),
+        Completions { shell } => write_completions(shell, &mut io::stdout()),
         Enter { name } => program.enter_environment(&name),
         Exec { name, command } => program.exec_environment(&name, &command),
         List { format } => program.list_environments(format),
@@ -225,7 +228,7 @@ pub(super) fn run(args: Args, program: &Cubicle) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use insta::assert_display_snapshot;
+    use insta::{assert_display_snapshot, assert_snapshot};
 
     #[test]
     fn usage() {
@@ -245,6 +248,16 @@ mod tests {
             let err = Args::try_parse_from(split_cmd).unwrap_err();
             let name = format!("usage_{}", if cmd.is_empty() { "cub" } else { cmd });
             assert_display_snapshot!(name, err);
+        }
+    }
+
+    #[test]
+    fn write_completions() {
+        for shell in [Shell::Bash, Shell::Zsh] {
+            let mut buf: Vec<u8> = Vec::new();
+            super::write_completions(shell, &mut buf).unwrap();
+            let buf = String::from_utf8(buf).unwrap();
+            assert_snapshot!(format!("write_completions_{shell}"), buf);
         }
     }
 }
