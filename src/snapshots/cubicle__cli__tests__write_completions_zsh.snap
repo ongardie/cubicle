@@ -1,0 +1,189 @@
+---
+source: src/cli.rs
+expression: buf
+---
+#compdef cub
+
+autoload -U is-at-least
+
+_cub() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+":: :_cub_commands" \
+"*::: :->cubicle" \
+&& ret=0
+    case $state in
+    (cubicle)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:cub-command-$line[1]:"
+        case $line[1] in
+            (completions)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+':shell:(bash elvish fish powershell zsh)' \
+&& ret=0
+;;
+(enter)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+':name -- Environment name:_cub_envs' \
+&& ret=0
+;;
+(exec)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+':name -- Environment name:_cub_envs' \
+'*::command -- Command and arguments to run:' \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" \
+'--format=[Set output format]:FORMAT:(default json names)' \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+&& ret=0
+;;
+(packages)
+_arguments "${_arguments_options[@]}" \
+'--format=[Set output format]:FORMAT:(default json names)' \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+&& ret=0
+;;
+(new)
+_arguments "${_arguments_options[@]}" \
+'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs' \
+'--enter[Run a shell in new environment]' \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+':name -- New environment name:' \
+&& ret=0
+;;
+(purge)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+'*::names -- Environment name(s):_cub_envs' \
+&& ret=0
+;;
+(reset)
+_arguments "${_arguments_options[@]}" \
+'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs' \
+'--clean[Remove home directory and do not recreate it]' \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+'*::names -- Environment name(s):_cub_envs' \
+&& ret=0
+;;
+(tmp)
+_arguments "${_arguments_options[@]}" \
+'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs' \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" \
+'-h[Print help information. Use --help for more details]' \
+'--help[Print help information. Use --help for more details]' \
+'*::subcommand -- The subcommand whose help message to display:' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_cub_commands] )) ||
+_cub_commands() {
+    local commands; commands=(
+'completions:Generate tab-completions for your shell' \
+'enter:Run a shell in an existing environment' \
+'exec:Run a command in an existing environment' \
+'list:Show existing environments' \
+'packages:Show available packages' \
+'new:Create a new environment' \
+'purge:Delete environment(s) and their work directories' \
+'reset:Recreate an environment (keeping its work directory)' \
+'tmp:Create and enter a new temporary environment' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'cub commands' commands "$@"
+}
+(( $+functions[_cub__completions_commands] )) ||
+_cub__completions_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub completions commands' commands "$@"
+}
+(( $+functions[_cub__enter_commands] )) ||
+_cub__enter_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub enter commands' commands "$@"
+}
+(( $+functions[_cub__exec_commands] )) ||
+_cub__exec_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub exec commands' commands "$@"
+}
+(( $+functions[_cub__help_commands] )) ||
+_cub__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help commands' commands "$@"
+}
+(( $+functions[_cub__list_commands] )) ||
+_cub__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub list commands' commands "$@"
+}
+(( $+functions[_cub__new_commands] )) ||
+_cub__new_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub new commands' commands "$@"
+}
+(( $+functions[_cub__packages_commands] )) ||
+_cub__packages_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub packages commands' commands "$@"
+}
+(( $+functions[_cub__purge_commands] )) ||
+_cub__purge_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub purge commands' commands "$@"
+}
+(( $+functions[_cub__reset_commands] )) ||
+_cub__reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub reset commands' commands "$@"
+}
+(( $+functions[_cub__tmp_commands] )) ||
+_cub__tmp_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub tmp commands' commands "$@"
+}
+
+
+_cub_envs() {
+    _values -w 'environments' $(cub list --format=names)
+}
+_cub_pkgs() {
+    _values -s , -w 'packages' $(cub packages --format=names)
+}
+
+_cub "$@"
+

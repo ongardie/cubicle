@@ -1,0 +1,14 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-tmp 
+Create and enter a new temporary environment
+
+USAGE:
+    cub tmp [OPTIONS]
+
+OPTIONS:
+    -h, --help                   Print help information. Use --help for more details
+        --packages <PACKAGES>    Comma-separated names of packages to inject into home directory
+

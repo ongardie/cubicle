@@ -1,0 +1,17 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-exec 
+Run a command in an existing environment
+
+USAGE:
+    cub exec <NAME> [--] <COMMAND>...
+
+ARGS:
+    <NAME>          Environment name
+    <COMMAND>...    Command and arguments to run
+
+OPTIONS:
+    -h, --help    Print help information. Use --help for more details
+

@@ -1,0 +1,16 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-enter 
+Run a shell in an existing environment
+
+USAGE:
+    cub enter <NAME>
+
+ARGS:
+    <NAME>    Environment name
+
+OPTIONS:
+    -h, --help    Print help information. Use --help for more details
+
