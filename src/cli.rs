@@ -221,3 +221,30 @@ pub(super) fn run(args: Args, program: &Cubicle) -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_display_snapshot;
+
+    #[test]
+    fn usage() {
+        for cmd in [
+            "",
+            "completions",
+            "enter",
+            "exec",
+            "list",
+            "new",
+            "packages",
+            "purge",
+            "reset",
+            "tmp",
+        ] {
+            let split_cmd = shlex::split(&format!("cub {cmd} --help")).unwrap();
+            let err = Args::try_parse_from(split_cmd).unwrap_err();
+            let name = format!("usage_{}", if cmd.is_empty() { "cub" } else { cmd });
+            assert_display_snapshot!(name, err);
+        }
+    }
+}

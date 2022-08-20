@@ -18,3 +18,14 @@ serde_json = "1.0.83"
 shlex = "1.1.0"
 tar = "0.4.38"
 tempfile = "3.3.0"
+
+[dev-dependencies]
+insta = "1.18.2"
+
+# See https://docs.rs/insta/latest/insta/#optional-faster-runs
+[profile.dev.package.insta]
+opt-level = 3
+
+# See https://docs.rs/insta/latest/insta/#optional-faster-runs
+[profile.dev.package.similar]
+opt-level = 3

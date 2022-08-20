@@ -1,0 +1,15 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-packages 
+Show available packages
+
+USAGE:
+    cub packages [OPTIONS]
+
+OPTIONS:
+        --format <FORMAT>    Set output format [default: default] [possible values: default, json,
+                             names]
+    -h, --help               Print help information. Use --help for more details
+

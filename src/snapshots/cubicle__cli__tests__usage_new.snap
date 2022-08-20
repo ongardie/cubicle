@@ -1,0 +1,18 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-new 
+Create a new environment
+
+USAGE:
+    cub new [OPTIONS] <NAME>
+
+ARGS:
+    <NAME>    New environment name
+
+OPTIONS:
+        --enter                  Run a shell in new environment
+    -h, --help                   Print help information. Use --help for more details
+        --packages <PACKAGES>    Comma-separated names of packages to inject into home directory
+

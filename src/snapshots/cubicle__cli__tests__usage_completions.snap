@@ -1,0 +1,32 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-completions 
+Generate tab-completions for your shell.
+
+Installation for Bash:
+
+$ cub completions bash > ~/.local/share/bash-completion/completions/cub
+
+Installation for ZSH (depending on `$fpath`):
+
+$ cub completions zsh > ~/.zfunc/_cub
+
+You may need to restart your shell or configure it.
+
+This installation works similarly as for rustup's completions. For detailed instructions, see:
+
+$ rustup help completions
+
+USAGE:
+    cub completions <SHELL>
+
+ARGS:
+    <SHELL>
+            [possible values: bash, elvish, fish, powershell, zsh]
+
+OPTIONS:
+    -h, --help
+            Print help information. Use --help for more details
+

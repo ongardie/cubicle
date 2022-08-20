@@ -1,0 +1,18 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-reset 
+Recreate an environment (keeping its work directory)
+
+USAGE:
+    cub reset [OPTIONS] <NAMES>...
+
+ARGS:
+    <NAMES>...    Environment name(s)
+
+OPTIONS:
+        --clean                  Remove home directory and do not recreate it
+    -h, --help                   Print help information. Use --help for more details
+        --packages <PACKAGES>    Comma-separated names of packages to inject into home directory
+
