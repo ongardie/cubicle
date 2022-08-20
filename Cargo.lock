@@ -211,6 +211,7 @@ dependencies = [
  "serde_json",
  "shlex",
  "tar",
+ "tempfile",
 ]
 
 [[package]]

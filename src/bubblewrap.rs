@@ -1,12 +1,43 @@
-use super::scoped_child::{ScopedChild, ScopedSpawn};
-use super::{Cubicle, EnvironmentName, ExitStatusError, Runner, RunnerCommand, RunnerRunArgs};
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
+use std::collections::BTreeSet;
 use std::ffi::OsString;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::process::{ChildStdout, Command, Stdio};
+use std::rc::Rc;
+use std::str::FromStr;
 
-pub struct Bubblewrap<'a> {
-    pub(super) program: &'a Cubicle,
+use super::fs_util::{rmtree, summarize_dir, try_iterdir, DirSummary};
+use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
+use super::scoped_child::{ScopedChild, ScopedSpawn};
+use super::{CubicleShared, EnvironmentName, ExitStatusError};
+
+pub struct Bubblewrap {
+    pub(super) program: Rc<CubicleShared>,
+    home_dirs: PathBuf,
+    work_dirs: PathBuf,
+}
+
+impl Bubblewrap {
+    pub(super) fn new(program: Rc<CubicleShared>) -> Self {
+        let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
+            Ok(path) => PathBuf::from(path),
+            Err(_) => program.home.join(".cache"),
+        };
+        let home_dirs = xdg_cache_home.join("cubicle").join("home");
+
+        let xdg_data_home = match std::env::var("XDG_DATA_HOME") {
+            Ok(path) => PathBuf::from(path),
+            Err(_) => program.home.join(".local").join("share"),
+        };
+        let work_dirs = xdg_data_home.join("cubicle").join("work");
+
+        Self {
+            program,
+            home_dirs,
+            work_dirs,
+        }
+    }
 }
 
 fn get_fd_for_child<F>(file: &F) -> Result<String>
@@ -28,21 +59,131 @@ fn ro_bind_try<P: AsRef<Path>>(path: P) -> [OsString; 3] {
     ];
 }
 
-impl<'a> Runner for Bubblewrap<'a> {
-    fn kill(&self, _name: &EnvironmentName) -> Result<()> {
-        // nothing to do
+impl Runner for Bubblewrap {
+    fn copy_out_from_home(
+        &self,
+        name: &EnvironmentName,
+        path: &Path,
+        w: &mut dyn io::Write,
+    ) -> Result<()> {
+        let home_dir = cap_std::fs::Dir::open_ambient_dir(
+            &self.home_dirs.join(name),
+            cap_std::ambient_authority(),
+        )?;
+        let mut file = home_dir.open(path)?;
+        io::copy(&mut file, w)?;
         Ok(())
     }
 
-    fn run(
+    fn copy_out_from_work(
         &self,
         name: &EnvironmentName,
-        RunnerRunArgs {
-            command: run_command,
-            host_home,
-            host_work,
-        }: &RunnerRunArgs,
+        path: &Path,
+        w: &mut dyn io::Write,
     ) -> Result<()> {
+        let work_dir = cap_std::fs::Dir::open_ambient_dir(
+            &self.work_dirs.join(name),
+            cap_std::ambient_authority(),
+        )?;
+        let mut file = work_dir.open(path)?;
+        io::copy(&mut file, w)?;
+        Ok(())
+    }
+
+    fn create(&self, name: &EnvironmentName) -> Result<()> {
+        std::fs::create_dir_all(&self.home_dirs)?;
+        std::fs::create_dir_all(&self.work_dirs)?;
+        let host_home = self.home_dirs.join(name);
+        let host_work = self.work_dirs.join(name);
+        std::fs::create_dir(&host_home)?;
+        std::fs::create_dir(&host_work)?;
+        Ok(())
+    }
+
+    fn exists(&self, name: &EnvironmentName) -> Result<EnvironmentExists> {
+        let has_home_dir = self.home_dirs.join(name).try_exists()?;
+        let has_work_dir = self.work_dirs.join(name).try_exists()?;
+
+        use EnvironmentExists::*;
+        Ok(if has_home_dir && has_work_dir {
+            FullyExists
+        } else if has_home_dir || has_work_dir {
+            PartiallyExists
+        } else {
+            NoEnvironment
+        })
+    }
+
+    fn stop(&self, _name: &EnvironmentName) -> Result<()> {
+        // don't know how to enumerate such processes, so don't bother
+        Ok(())
+    }
+
+    fn list(&self) -> Result<Vec<EnvironmentName>> {
+        let mut envs = BTreeSet::new();
+
+        for name in try_iterdir(&self.home_dirs)? {
+            let env = name
+                .to_str()
+                .ok_or_else(|| anyhow!("Path not UTF-8: {:?}", self.home_dirs.join(&name)))
+                .and_then(EnvironmentName::from_str)?;
+            envs.insert(env);
+        }
+
+        for name in try_iterdir(&self.work_dirs)? {
+            let env = name
+                .to_str()
+                .ok_or_else(|| anyhow!("Path not UTF-8: {:?}", self.work_dirs.join(&name)))
+                .and_then(EnvironmentName::from_str)?;
+            envs.insert(env);
+        }
+
+        Ok(Vec::from_iter(envs))
+    }
+
+    fn files_summary(&self, name: &EnvironmentName) -> Result<EnvFilesSummary> {
+        let home_dir = self.home_dirs.join(name);
+        let home_dir_exists = home_dir.exists();
+        let home_dir_summary = if home_dir_exists {
+            summarize_dir(&home_dir)?
+        } else {
+            DirSummary::new_with_errors()
+        };
+
+        let work_dir = self.work_dirs.join(name);
+        let work_dir_exists = work_dir.exists();
+        let work_dir_summary = if work_dir_exists {
+            summarize_dir(&home_dir)?
+        } else {
+            DirSummary::new_with_errors()
+        };
+
+        Ok(EnvFilesSummary {
+            home_dir_path: home_dir_exists.then_some(home_dir),
+            home_dir: home_dir_summary,
+            work_dir_path: work_dir_exists.then_some(work_dir),
+            work_dir: work_dir_summary,
+        })
+    }
+
+    fn reset(&self, name: &EnvironmentName) -> Result<()> {
+        let host_home = self.home_dirs.join(name);
+        let host_work = self.work_dirs.join(name);
+        rmtree(&host_home)?;
+        std::fs::create_dir_all(host_home)?;
+        std::fs::create_dir_all(host_work)?;
+        Ok(())
+    }
+
+    fn purge(&self, name: &EnvironmentName) -> Result<()> {
+        rmtree(&self.home_dirs.join(name))?;
+        rmtree(&self.work_dirs.join(name))
+    }
+
+    fn run(&self, name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
+        let host_home = self.home_dirs.join(name);
+        let host_work = self.work_dirs.join(name);
+
         struct Seed {
             _child: ScopedChild, // this is here so its destructor will reap it later
             stdout: ChildStdout,
@@ -52,8 +193,8 @@ impl<'a> Runner for Bubblewrap<'a> {
                 println!("Packing seed tarball");
                 let mut child = Command::new("pv")
                     .args(["-i", "0.1"])
-                    .stdout(Stdio::piped())
                     .args(seeds)
+                    .stdout(Stdio::piped())
                     .scoped_spawn()?;
                 let stdout = child.stdout.take().unwrap();
                 Some(Seed {
@@ -72,8 +213,8 @@ impl<'a> Runner for Bubblewrap<'a> {
         command.env(
             "PATH",
             match self.program.home.to_str() {
-                Some(home) => format!("{home}/bin:/bin:/sbin"),
-                None => String::from("/bin:/sbin"),
+                Some(home) => format!("{home}/bin:/bin:/usr/bin:/sbin:/usr/sbin"),
+                None => String::from("/bin:/usr/bin:/sbin:/usr/sbin"),
             },
         );
         command.env("SANDBOX", name);
@@ -151,7 +292,9 @@ impl<'a> Runner for Bubblewrap<'a> {
             }
         }
 
-        let status = command.status()?;
+        let status = command
+            .status()
+            .context("Failed to execute bwrap process")?;
         if status.success() {
             Ok(())
         } else {

@@ -10,5 +10,8 @@ firefox --screenshot
 
 [ "$( sensible-browser --version )" = "$version" ]
 
-timeout 10s firefox --screenshot https://example.org/
+# `timeout`` was somehow causing this to hang without `--foreground` under sudo
+# to a second user account within a Docker container.
+timeout --foreground --verbose 10s \
+    firefox --screenshot https://example.org/
 [ -f screenshot.png ]

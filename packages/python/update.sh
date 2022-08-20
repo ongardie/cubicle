@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+# Note: this Python installation ends up installed in `$HOME/opt/python/` and
+# cannot be relocated from there, not even to another user's
+# `$HOME/opt/python/`. Therefore, this package is currently unusable under the
+# `users` runner.
+
 # Note: dependencies for a full Python build are listed here and are expected to
 # be installed on the system already:
 # https://devguide.python.org/setup/#linux

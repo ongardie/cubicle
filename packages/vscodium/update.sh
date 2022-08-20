@@ -18,7 +18,7 @@ else
     echo "Downloading VSCodium $latest"
     curl --max-time 120 "https://github.com/VSCodium/vscodium/releases/download/$latest/VSCodium-linux-x64-$latest.tar.gz" | tar -xz
 fi
-ln -fs ~/opt/vscodium/bin/codium ~/bin/codium
+ln -fs ../opt/vscodium/bin/codium ~/bin/codium
 
 mkdir -p ~/opt/vscodium-extensions
 cd ~/opt/vscodium-extensions

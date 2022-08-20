@@ -12,4 +12,6 @@ $HOME/opt/python/latest/bin:\
 /usr/local/games:\
 /usr/games
 
+export BROWSER=firefox
 export GOROOT=$HOME/opt/go
+export TMPDIR=$HOME/tmp

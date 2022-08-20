@@ -1,24 +1,15 @@
 use anyhow::{anyhow, Context, Result};
 use std::ffi::OsString;
 use std::io;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub fn copyfile_untrusted(
-    src_dir: &Path,
-    src_path: &Path,
-    dst_dir: &Path,
-    dst_path: &Path,
-) -> Result<()> {
-    let src_dir = cap_std::fs::Dir::open_ambient_dir(src_dir, cap_std::ambient_authority())?;
-    let dst_dir = cap_std::fs::Dir::open_ambient_dir(dst_dir, cap_std::ambient_authority())?;
-    src_dir.copy(src_path, &dst_dir, dst_path)?;
-    Ok(())
+pub fn rmtree(path: &Path) -> Result<()> {
+    rmtree_(path).with_context(|| format!("Failed to recursively remove directory: {:?}", path))
 }
 
-pub fn rmtree(path: &Path) -> Result<()> {
+fn rmtree_(path: &Path) -> Result<()> {
     // This is a bit challenging for a few reasons:
     //
     // 1. Symlinks leading out of the `path` directory must not cause this
@@ -33,7 +24,11 @@ pub fn rmtree(path: &Path) -> Result<()> {
     //    container's work directory within its home directory. These are
     //    removable but their permissions can't be altered.
 
-    let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
+    let dir = match cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority()) {
+        Ok(dir) => dir,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
     match dir.remove_open_dir_all() {
         Ok(()) => return Ok(()),
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
@@ -108,6 +103,16 @@ pub struct DirSummary {
     pub last_modified: SystemTime,
 }
 
+impl DirSummary {
+    pub fn new_with_errors() -> Self {
+        Self {
+            errors: true,
+            total_size: 0,
+            last_modified: UNIX_EPOCH,
+        }
+    }
+}
+
 pub fn summarize_dir(path: &Path) -> Result<DirSummary> {
     fn handle_entry(summary: &mut DirSummary, entry: Result<WalkDirEntry>) {
         match entry {
@@ -161,21 +166,6 @@ pub fn try_iterdir(path: &Path) -> Result<Vec<OsString>> {
         .collect::<io::Result<Vec<_>>>()?;
     names.sort_unstable();
     Ok(names)
-}
-
-pub struct MaybeTempFile(pub PathBuf);
-
-impl Deref for MaybeTempFile {
-    type Target = PathBuf;
-    fn deref(&self) -> &PathBuf {
-        &self.0
-    }
-}
-
-impl Drop for MaybeTempFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
 }
 
 pub struct WalkDirCursor {
@@ -274,7 +264,7 @@ pub struct TarOptions {
     pub exclude: Vec<PathBuf>,
 }
 
-pub fn create_tar<W: io::Write>(dir: &Path, w: W, opts: &TarOptions) -> Result<()> {
+pub fn create_tar_from_dir<W: io::Write>(dir: &Path, w: W, opts: &TarOptions) -> Result<()> {
     let mut builder = tar::Builder::new(w);
     for entry in WalkDir::new(dir)? {
         let WalkDirEntry {
