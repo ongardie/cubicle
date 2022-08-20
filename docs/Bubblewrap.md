@@ -1,0 +1,170 @@
+# Cubicle Bubblewrap Runner
+
+This document describes using Cubicle using the `bubblewrap` runner.
+[Bubblewrap](https://github.com/containers/bubblewrap) is a light-weight
+mechanism that runs on Linux only. Under Bubblewrap, the host's root partition
+is shared read-only with the environments.
+
+## Security
+
+Cubicle relies on Bubblewrap and the Linux kernel for isolation, which aren't
+perfect. Users should review Bubblewrap's security and, of course, keep up with
+Linux kernel updates.
+
+Environments with access to X11 probably have full access to your keystrokes.
+See <https://wiki.archlinux.org/title/Bubblewrap#Sandboxing_X11> for more info.
+
+Under Bubblewrap, Cubicle does not currently limit host network access,
+allowing containers to access services on the local host and local network. The
+UNIX domain abstract socket namespace is also shared between the host and the
+containers, since it is also tied to the network namespace. (This is actually
+how containers running under Bubblewrap currently access the X11 socket without
+any setup.)
+
+Under Bubblewrap, Cubicle does not currently limit the resources used by its
+containers. This may leave containers vulnerable to attacks like unauthorized
+cryptocurrency mining.
+
+### Seccomp Filter
+
+Bublewrap's security depends on setting a restrictive
+[seccomp](https://en.wikipedia.org/wiki/Seccomp) policy, to limit the system
+calls available to the sandbox environment. Developing such a policy requires a
+careful audit of what is safe or unsafe to expose in the Linux kernel, which is
+a moving target.
+
+Cubicle does not currently ship such a seccomp filter for Bubblewrap. Users are
+encouraged to borrow a seccomp filter from one of these projects:
+
+- Podman/Buildah/CRI-O's seccomp filter is here:
+  <https://github.com/containers/common/blob/main/pkg/seccomp/seccomp.json>.
+  This filter does allow running Electron apps with the Chromium sandbox.
+
+- Docker's seccomp filter is in
+  [moby/profiles/seccomp](https://github.com/moby/moby/tree/master/profiles/seccomp)
+  in both JSON format and Golang. This filter doesn’t allow running Electron
+  apps like VS Code with the Chromium Sandbox turned on. See
+  <https://github.com/moby/moby/issues/42441> for details.
+
+- Flatpak's seccomp filter is around here:
+  [common/flatpak-run.c](https://github.com/flatpak/flatpak/blob/main/common/flatpak-run.c#L3073)
+  in `setup_seccomp`. I haven't tried this one with Cubicle.
+
+This [short C
+program](https://github.com/bradfa/tlpi-dist/blob/master/seccomp/dump_seccomp_filter.c)
+can dump a compiled BFP seccomp filter that is installed in a running process.
+It uses
+[`PTRACE_SECCOMP_GET_FILTER`](https://manpages.debian.org/bullseye/manpages-dev/ptrace.2.en.html#PTRACE_SECCOMP_GET_FILTER)
+to do this. Extracting a filter this way can be easier than trying to compile a
+BPF filter from the above source code.
+
+## Installation
+
+Cubicle is made up of a Rust program that runs on the host and a collection of
+shell scripts for package setup that run in containers.
+
+### Installing Dependencies
+
+You'll need [Rust and Cargo](https://www.rust-lang.org/tools/install). The
+version in Debian 11 is too old.
+
+Install the other dependencies:
+
+- `bwrap` - Bubblewrap, Linux light-weight container tool. Note that while
+  bwrap used to be a setuid binary, this is no longer needed on modern
+  distributions.
+- `curl` - HTTP client.
+- `git` - version control system.
+- `jq` - command-line JSON processor.
+- `pv` - pipe viewer, displays progress bars.
+
+On Debian 11, you can install the dependencies using `apt`:
+
+```sh
+sudo apt install bubblewrap curl git jq pv
+```
+
+### Installing Cubicle
+
+Assuming you'd like to install into `~/opt/cubicle` and already have `~/bin` in
+your `$PATH`:
+
+```sh
+cd ~/opt/
+git clone https://github.com/ongardie/cubicle/
+cd cubicle
+echo bubblewrap > .RUNNER
+cargo build --release
+ln -s $(pwd)/target/release/cubicle ~/bin/cub
+```
+
+### Installing a Seccomp Filter
+
+If you haven't done so already, please read the security section on why you
+need a good seccomp filter. I've extracted a filter from a running Podman
+container on my amd64 machine and shared it for convenience. I don't know
+whether this is secure (for any sandboxing purpose) or will remain so over
+time. Podman is released under the Apache-2.0 license.
+
+```sh
+curl -LO 'https://ongardie.net/static/podman.bpf'
+ln -s podman.bpf seccomp.bpf
+```
+
+## Uninstalling
+
+First, exit out of any running Cubicle environments.
+
+Assuming the same paths as in the installation instructions above:
+
+```sh
+rm -r ~/opt/cubicle/
+rm ~/bin/cub
+```
+
+You may also want to remove these directories if you're done with all your
+Cubicle environments:
+
+```sh
+rm -r ${XDG_CACHE_HOME:-~/.cache}/cubicle/
+rm -r ${XDG_DATA_HOME:-~/.local/share}/cubicle/
+```
+
+## Cubicle Environments
+
+Each Cubicle environment consists of three logical filesystem layers:
+
+| Layer   | Host Path (with default XDG base dirs) | Container Path  | Lifetime |
+| ------- | -------------------------------------- | --------------- | -------- |
+| 1. OS   | `/`                                    | `/` (read-only) | long     |
+| 2. home | `~/.cache/cubicle/home/ENV`            | `~/`            | short    |
+| 3. work | `~/.local/share/cubicle/work/ENV`      | `~/ENV/`        | long     |
+
+1. The base operating system. This is currently shared with the host's `/` and
+   read-only inside the container.
+
+2. A home directory. Inside the environment, this is at the same path as the
+   host's `$HOME`, but it's not shared with the host. It lives in
+   `${XDG_CACHE_HOME:-~/.cache}/cubicle/home/` on the host. The home directory
+   should be treated as replaceable at any time. Cubicle populates the home
+   directory with files from packages when you create the environment (with
+   `cub new`) or reset it (with `cub reset`). Currently, the home directory is
+   populated with physical copies of package files, so the home directories can
+   be large (a few gigabytes) and can take a few seconds to initialize.
+
+3. A work directory. For an environment named `x`, this is at `~/x` inside the
+   environment and `${XDG_DATA_HOME:-~/.local/share}/cubicle/work/x/` on the
+   host. An environment variable named `$SANDBOX` is automatically set to the
+   name of the environment and can be used to access the work directory
+   conveniently from scripts (as `~/$SANDBOX/`). The work directory is where
+   any important files should go. It persists across `cub reset`.
+
+There are a couple of special files in the work directory:
+
+- An executable placed at `~/$SANDBOX/update.sh` will be run automatically at
+  the end of `cub reset`. This can be a useful hook to re-configure a new home
+  directory.
+
+- A file named `~/$SANDBOX/packages.txt` keeps track of which packages the
+  environment was initialized or last reset with. It is used next time the
+  environment is reset (unless the user overrides that on the command line).
