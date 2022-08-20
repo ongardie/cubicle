@@ -11,7 +11,7 @@ else
     mkdir -p ~/opt
     rm -rf ~/opt/firefox/
     curl -L "$url" | tar -C ~/opt -xj
-    ln -fs ~/opt/firefox/firefox ~/bin/firefox
+    ln -fs ../opt/firefox/firefox ~/bin/firefox
     firefox --version
 fi
 

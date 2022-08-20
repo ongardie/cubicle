@@ -1,29 +1,31 @@
 #!/bin/sh
-set -e
+set -eu
 
-# Note: Used for bwrap, not for Docker.
+# Note: Used for bwrap only, not for Docker.
 if [ -f /dev/shm/seed.tar ]; then
     echo "Unpacking seed tarball..."
-    pv -i 0.1 /dev/shm/seed.tar | tar --ignore-zero --directory ~ --extract
+    pv -i 0.1 /dev/shm/seed.tar | tar --ignore-zero --directory "$HOME" --extract
     rm /dev/shm/seed.tar
 fi
 
-mkdir -p ~/.dev-init ~/bin ~/opt ~/tmp
+mkdir -p "$HOME/.dev-init" "$HOME/bin" "$HOME/opt" "$HOME/tmp"
 
 
-if [ -f ~/.profile ]; then
-    . ~/.profile
+if [ -f "$HOME/.profile" ]; then
+    set +u
+    . "$HOME/.profile"
+    set -u
 fi
 
-for f in ~/.dev-init/*; do
+for f in "$HOME/.dev-init/"*; do
     if [ -x "$f" ]; then
-      $f
+        "$f"
     fi
 done
 
 # We want this to fail if `update.sh` isn't executable, so check with `-e`
 # instead of `-x`.
-if [ -e ~/$SANDBOX/update.sh ]; then
-    echo "Running ~/$SANDBOX/update.sh"
-    ~/$SANDBOX/update.sh
+if [ -e "$HOME/$SANDBOX/update.sh" ]; then
+    echo "Running $HOME/$SANDBOX/update.sh"
+    "$HOME/$SANDBOX/update.sh"
 fi

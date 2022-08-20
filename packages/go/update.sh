@@ -27,7 +27,7 @@ if [ "$installed" != "$version" ] || [ "$installed_root" != "$HOME/opt/go" ]; th
 fi
 
 mkdir -p ~/bin
-ln -fs ~/opt/go/bin/go ~/bin/
+ln -fs ../opt/go/bin/go ~/bin/
 
 installed=$(go env GOVERSION || true)
 installed_root=$(go env GOROOT || true)

@@ -4,7 +4,7 @@ Cubicle is a program to manage containers or sandbox environments. It is
 intended for isolating development environments from the host system and from
 each other.
 
-Cubicle runs on top of either of these isolation mechanisms:
+Cubicle can run on top of any of these isolation mechanisms, called _runners_:
 
 - [Docker](<https://en.wikipedia.org/wiki/Docker_(software)>), which is a
   popular yet heavy-weight container mechanism. Docker runs Linux containers,
@@ -14,6 +14,11 @@ Cubicle runs on top of either of these isolation mechanisms:
 - [Bubblewrap](https://github.com/containers/bubblewrap), which is a
   light-weight mechanism that runs on Linux only. Under Bubblewrap, the host's
   root partition is shared read-only with the environments.
+
+- System user accounts, created and switched to via `sudo`. With system user
+  accounts, the operating system prevents (or not) the environments from
+  reading/writing the root partition and other user's files with classical file
+  permissions.
 
 Cubicle is in early stages of development and is likely to change frequently in
 incompatible ways. Users should review the Git commits to see what's changed
@@ -226,6 +231,12 @@ If you would like to use Docker:
 echo docker > .RUNNER
 ```
 
+If you would like to use system user accounts:
+
+```sh
+echo user > .RUNNER
+```
+
 ### Installing a Seccomp Filter (Docker)
 
 If you haven't done so already, please read the security section on why you
@@ -260,8 +271,8 @@ ln -s podman.bpf seccomp.bpf
 
 First, exit out of any running Cubicle environments.
 
-For Docker, kill the running Cubicle containers and remove the "cubicle-base"
-image.
+For Docker, stop and remove the running Cubicle containers and remove the
+"cubicle-base" image.
 
 Assuming the same paths as in the installation instructions above:
 

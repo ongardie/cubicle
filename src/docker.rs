@@ -1,24 +1,74 @@
-use super::scoped_child::ScopedSpawn;
-use super::{Cubicle, EnvironmentName, ExitStatusError, Runner, RunnerCommand, RunnerRunArgs};
 use anyhow::{anyhow, Result};
-use std::io::{self, Write};
-use std::path::Path;
+use std::collections::BTreeSet;
+use std::io::{self, BufRead, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub struct Docker<'a> {
-    pub(super) program: &'a Cubicle,
+use super::fs_util::{rmtree, summarize_dir, try_iterdir, DirSummary};
+use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
+use super::scoped_child::ScopedSpawn;
+use super::{CubicleShared, EnvironmentName, ExitStatusError};
+
+pub struct Docker {
+    pub(super) program: Rc<CubicleShared>,
+    home_dirs: PathBuf,
+    work_dirs: PathBuf,
 }
 
-impl<'a> Docker<'a> {
-    fn is_running(&self, name: &EnvironmentName) -> Result<bool> {
+impl Docker {
+    pub(super) fn new(program: Rc<CubicleShared>) -> Self {
+        let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
+            Ok(path) => PathBuf::from(path),
+            Err(_) => program.home.join(".cache"),
+        };
+        let home_dirs = xdg_cache_home.join("cubicle").join("home");
+
+        let xdg_data_home = match std::env::var("XDG_DATA_HOME") {
+            Ok(path) => PathBuf::from(path),
+            Err(_) => program.home.join(".local").join("share"),
+        };
+        let work_dirs = xdg_data_home.join("cubicle").join("work");
+
+        Self {
+            program,
+            home_dirs,
+            work_dirs,
+        }
+    }
+
+    fn is_container(&self, name: &EnvironmentName) -> Result<bool> {
         let status = Command::new("docker")
             .args(["inspect", "--type", "container", name.as_ref()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
         Ok(status.success())
+    }
+
+    fn ps(&self) -> Result<Vec<EnvironmentName>> {
+        let output = Command::new("docker")
+            .args(["ps", "--all", "--format", "{{ .Names }}"])
+            .output()?;
+        let status = output.status;
+        if !status.success() {
+            return Err(anyhow!(
+                "Failed to list Docker containers: \
+                docker ps exited with status {:?} and output: {}",
+                status.code(),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        let mut envs = Vec::new();
+        for line in output.stdout.lines() {
+            if let Ok(env) = EnvironmentName::from_str(&line?) {
+                envs.push(env);
+            }
+        }
+        Ok(envs)
     }
 
     fn base_mtime(&self) -> Result<Option<SystemTime>> {
@@ -35,8 +85,8 @@ impl<'a> Docker<'a> {
                 return Ok(None);
             }
             return Err(anyhow!(
-                "failed to get last build time for cubicle-base Docker image: \
-                docker inspect exited with status {:#?} and output: {}",
+                "Failed to get last build time for cubicle-base Docker image: \
+                docker inspect exited with status {:?} and output: {}",
                 status.code(),
                 stderr
             ));
@@ -66,15 +116,15 @@ impl<'a> Docker<'a> {
             let mut stdin = child
                 .stdin
                 .take()
-                .ok_or_else(|| anyhow!("failed to open stdin"))?;
+                .ok_or_else(|| anyhow!("Failed to open stdin"))?;
             stdin.write_all(dockerfile.as_bytes())?;
         }
 
         let status = child.wait()?;
         if !status.success() {
             return Err(anyhow!(
-                "failed to build cubicle-base Docker image: \
-                docker build exited with status {:#?}",
+                "Failed to build cubicle-base Docker image: \
+                docker build exited with status {:?}",
                 status.code(),
             ));
         }
@@ -154,17 +204,75 @@ struct DockerSpawnArgs<'a> {
     host_work: &'a Path,
 }
 
-impl<'a> Runner for Docker<'a> {
-    fn kill(&self, name: &EnvironmentName) -> Result<()> {
-        if self.is_running(name)? {
+impl Runner for Docker {
+    fn copy_out_from_home(
+        &self,
+        name: &EnvironmentName,
+        path: &Path,
+        w: &mut dyn io::Write,
+    ) -> Result<()> {
+        let home_dir = cap_std::fs::Dir::open_ambient_dir(
+            &self.home_dirs.join(name),
+            cap_std::ambient_authority(),
+        )?;
+        let mut file = home_dir.open(path)?;
+        io::copy(&mut file, w)?;
+        Ok(())
+    }
+
+    fn copy_out_from_work(
+        &self,
+        name: &EnvironmentName,
+        path: &Path,
+        w: &mut dyn io::Write,
+    ) -> Result<()> {
+        let work_dir = cap_std::fs::Dir::open_ambient_dir(
+            &self.work_dirs.join(name),
+            cap_std::ambient_authority(),
+        )?;
+        let mut file = work_dir.open(path)?;
+        io::copy(&mut file, w)?;
+        Ok(())
+    }
+
+    fn create(&self, name: &EnvironmentName) -> Result<()> {
+        if self.is_container(name)? {
+            return Err(anyhow!("Docker container {name} already exists"));
+        }
+        std::fs::create_dir_all(&self.home_dirs)?;
+        std::fs::create_dir_all(&self.work_dirs)?;
+        let host_home = self.home_dirs.join(name);
+        let host_work = self.work_dirs.join(name);
+        std::fs::create_dir(&host_home)?;
+        std::fs::create_dir(&host_work)?;
+        Ok(())
+    }
+
+    fn exists(&self, name: &EnvironmentName) -> Result<EnvironmentExists> {
+        let is_container = self.is_container(name)?;
+        let has_home_dir = self.home_dirs.join(name).try_exists()?;
+        let has_work_dir = self.work_dirs.join(name).try_exists()?;
+
+        use EnvironmentExists::*;
+        Ok(if has_home_dir && has_work_dir {
+            FullyExists
+        } else if is_container || has_home_dir || has_work_dir {
+            PartiallyExists
+        } else {
+            NoEnvironment
+        })
+    }
+
+    fn stop(&self, name: &EnvironmentName) -> Result<()> {
+        if self.is_container(name)? {
             let status = Command::new("docker")
-                .args(["kill", name.as_ref()])
+                .args(["rm", "--force", name.as_ref()])
                 .stdout(Stdio::null())
                 .status()?;
             if !status.success() {
                 return Err(anyhow!(
-                    "failed to stop Docker container {}: \
-                    docker kill exited with status {:#?}",
+                    "Failed to stop Docker container {}: \
+                    docker rm exited with status {:?}",
                     name,
                     status.code(),
                 ));
@@ -173,39 +281,93 @@ impl<'a> Runner for Docker<'a> {
         Ok(())
     }
 
-    fn run(
-        &self,
-        name: &EnvironmentName,
-        RunnerRunArgs {
-            command: run_command,
-            host_home,
-            host_work,
-        }: &RunnerRunArgs,
-    ) -> Result<()> {
-        if !self.is_running(name)? {
+    fn list(&self) -> Result<Vec<EnvironmentName>> {
+        let mut envs = BTreeSet::from_iter(self.ps()?);
+
+        for name in try_iterdir(&self.home_dirs)? {
+            let env = name
+                .to_str()
+                .ok_or_else(|| anyhow!("Path not UTF-8: {:?}", self.home_dirs.join(&name)))
+                .and_then(EnvironmentName::from_str)?;
+            envs.insert(env);
+        }
+
+        for name in try_iterdir(&self.work_dirs)? {
+            let env = name
+                .to_str()
+                .ok_or_else(|| anyhow!("Path not UTF-8: {:?}", self.work_dirs.join(&name)))
+                .and_then(EnvironmentName::from_str)?;
+            envs.insert(env);
+        }
+
+        Ok(Vec::from_iter(envs))
+    }
+
+    fn files_summary(&self, name: &EnvironmentName) -> Result<EnvFilesSummary> {
+        let home_dir = self.home_dirs.join(name);
+        let home_dir_exists = home_dir.exists();
+        let home_dir_summary = if home_dir_exists {
+            summarize_dir(&home_dir)?
+        } else {
+            DirSummary::new_with_errors()
+        };
+
+        let work_dir = self.work_dirs.join(name);
+        let work_dir_exists = work_dir.exists();
+        let work_dir_summary = if work_dir_exists {
+            summarize_dir(&work_dir)?
+        } else {
+            DirSummary::new_with_errors()
+        };
+
+        Ok(EnvFilesSummary {
+            home_dir_path: home_dir_exists.then_some(home_dir),
+            home_dir: home_dir_summary,
+            work_dir_path: work_dir_exists.then_some(work_dir),
+            work_dir: work_dir_summary,
+        })
+    }
+
+    fn reset(&self, name: &EnvironmentName) -> Result<()> {
+        self.stop(name)?;
+        let host_home = self.home_dirs.join(name);
+        rmtree(&host_home)?;
+        std::fs::create_dir(&host_home)?;
+        Ok(())
+    }
+
+    fn purge(&self, name: &EnvironmentName) -> Result<()> {
+        self.stop(name)?;
+        rmtree(&self.home_dirs.join(name))?;
+        rmtree(&self.work_dirs.join(name))
+    }
+
+    fn run(&self, name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
+        let host_home = self.home_dirs.join(name);
+        let host_work = self.work_dirs.join(name);
+
+        if !self.is_container(name)? {
             self.build_base()?;
             self.spawn(
                 name,
                 &DockerSpawnArgs {
-                    host_home,
-                    host_work,
+                    host_home: &host_home,
+                    host_work: &host_work,
                 },
             )?;
         }
 
         if let RunnerCommand::Init { script, seeds } = run_command {
-            // TODO: this could probably write the script directly into
-            // docker exec's stdin instead.
             let status = Command::new("docker")
                 .arg("cp")
                 .arg("--archive")
                 .arg(script)
-                .arg(format!("{name}:/cubicle-init.sh"))
+                .arg(format!("{name}:/.cubicle-init"))
                 .status()?;
             if !status.success() {
                 return Err(anyhow!(
-                    "failed to copy init script into Docker container: \
-                    docker cp exited with status {:#?}",
+                    "Failed to copy init script into Docker container: \
+                    docker cp exited with status {:?}",
                     status.code(),
                 ));
             }
@@ -259,8 +421,8 @@ impl<'a> Runner for Docker<'a> {
                 let status = child.wait()?;
                 if !status.success() {
                     return Err(anyhow!(
-                        "failed to copy package seeds into Docker container: \
-                        docker exec (pv | tar) exited with status {:#?}",
+                        "Failed to copy package seeds into Docker container: \
+                        docker exec (pv | tar) exited with status {:?}",
                         status.code(),
                     ));
                 }
@@ -293,7 +455,7 @@ impl<'a> Runner for Docker<'a> {
         match run_command {
             RunnerCommand::Interactive => {}
             RunnerCommand::Init { .. } => {
-                command.args(["-c", "/cubicle-init.sh"]);
+                command.args(["-c", "/.cubicle-init"]);
             }
             RunnerCommand::Exec(exec) => {
                 command.arg("-c");

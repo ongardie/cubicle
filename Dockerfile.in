@@ -49,7 +49,8 @@ RUN adduser \
     --no-create-home \
     @@USER@@ && \
     adduser @@USER@@ sudo
-RUN sh -c 'echo "%sudo ALL=NOPASSWD: ALL" > /etc/sudoers.d/nopasswd'
+RUN sh -c 'echo "Defaults umask = 0027" > /etc/sudoers.d/umask' && \
+    sh -c 'echo "%sudo ALL=(ALL) CWD=* NOPASSWD: ALL" > /etc/sudoers.d/nopasswd'
 
 # for Python
 RUN apt-get install -y \
@@ -90,6 +91,8 @@ RUN apt-get install -y \
 
 # for Mold/Rust
 RUN apt-get install -y \
+    bsdmainutils \
+    cmake \
     clang
 
 ENV TMPDIR=/home/@@USER@@/tmp
