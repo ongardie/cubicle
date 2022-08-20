@@ -4,7 +4,9 @@
 name: CI
 
 on:
-  push: {}
+  push:
+    branches:
+      - "main"
   pull_request: {}
   # Run daily to catch breakages in new Rust versions as well as new cargo
   # audit findings.
