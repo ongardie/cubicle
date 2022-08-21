@@ -93,18 +93,15 @@ home directory is populated with physical copies of package files, so the home
 directories can be large (a few gigabytes) and can take a few seconds to
 initialize.
 
-Inside the home directory is a work directory. For an environment named `x`,
-this is at `~/x`. An environment variable named `$SANDBOX` is automatically set
-to the name of the environment and can be used to access the work directory
-conveniently from scripts (as `~/$SANDBOX/`). The work directory is where any
-important files should go. It persists across `cub reset`.
+Inside the home directory is a work directory at `~/w/`. The work directory is
+where any important files should go. It persists across `cub reset`.
 
 There are a couple of special files in the work directory:
 
-- An executable placed at `~/$SANDBOX/update.sh` will be run automatically at
-  the end of `cub reset`. This can be a useful hook to re-configure a new home
+- An executable placed at `~/w/update.sh` will be run automatically at the end
+  of `cub reset`. This can be a useful hook to re-configure a new home
   directory.
 
-- A file named `~/$SANDBOX/packages.txt` keeps track of which packages the
-  environment was initialized or last reset with. It is used next time the
-  environment is reset (unless the user overrides that on the command line).
+- A file named `~/w/packages.txt` keeps track of which packages the environment
+  was initialized or last reset with. It is used next time the environment is
+  reset (unless the user overrides that on the command line).

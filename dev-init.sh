@@ -8,7 +8,7 @@ if [ -f /dev/shm/seed.tar ]; then
     rm /dev/shm/seed.tar
 fi
 
-mkdir -p "$HOME/.dev-init" "$HOME/bin" "$HOME/opt" "$HOME/tmp"
+mkdir -p "$HOME/.dev-init" "$HOME/bin" "$HOME/opt" "$HOME/tmp" "$HOME/w"
 
 
 if [ -f "$HOME/.profile" ]; then
@@ -25,7 +25,7 @@ done
 
 # We want this to fail if `update.sh` isn't executable, so check with `-e`
 # instead of `-x`.
-if [ -e "$HOME/$SANDBOX/update.sh" ]; then
-    echo "Running $HOME/$SANDBOX/update.sh"
-    "$HOME/$SANDBOX/update.sh"
+if [ -e "$HOME/w/update.sh" ]; then
+    echo "Running $HOME/w/update.sh"
+    "$HOME/w/update.sh"
 fi

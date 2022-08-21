@@ -81,4 +81,4 @@ fi
 EOF
 chmod +x ~/.dev-init/vscodium.sh
 
-tar -c -C ~ --verbatim-files-from --files-from ~/$SANDBOX/provides.txt -f ~/provides.tar
+tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

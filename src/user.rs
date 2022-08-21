@@ -19,14 +19,11 @@ pub struct User {
     work_tars: PathBuf,
 }
 
-struct Username {
-    username: String,
-    for_environment: EnvironmentName,
-}
+struct Username(String);
 
 impl fmt::Display for Username {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.username.fmt(f)
+        self.0.fmt(f)
     }
 }
 
@@ -34,7 +31,7 @@ impl Deref for Username {
     type Target = str;
 
     fn deref(&self) -> &str {
-        &self.username
+        &self.0
     }
 }
 
@@ -54,10 +51,7 @@ impl User {
     }
 
     fn username_from_environment(&self, env: &EnvironmentName) -> Username {
-        Username {
-            username: format!("{}{}", self.username_prefix, env.0),
-            for_environment: env.clone(),
-        }
+        Username(format!("{}{}", self.username_prefix, env))
     }
 
     fn user_exists(&self, username: &Username) -> Result<bool> {
@@ -100,15 +94,14 @@ impl User {
             .args(["--user", username])
             .arg("--")
             .arg("mkdir")
-            .arg(&username.for_environment)
+            .arg("w")
             .env_clear()
             .status()?;
         if !status.success() {
             return Err(anyhow!(
-                "Failed to create user {} work directory ~/{}: \
+                "Failed to create user {} work directory ~/w/: \
                 sudo mkdir exited with status {:?}",
                 username,
-                username.for_environment,
                 status.code(),
             ));
         }
@@ -219,7 +212,7 @@ impl Runner for User {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
-        self.copy_out_from_home(env_name, &Path::new(env_name).join(path), w)
+        self.copy_out_from_home(env_name, &Path::new("w").join(path), w)
     }
 
     fn create(&self, env_name: &EnvironmentName) -> Result<()> {
@@ -282,7 +275,7 @@ impl Runner for User {
                 // but it'd need to be tolerant of different versions of `du`.
                 let summary =
                     summarize_dir(&home).unwrap_or_else(|_| DirSummary::new_with_errors());
-                let work_dir_path = Some(home.join(env_name));
+                let work_dir_path = Some(home.join("w"));
                 Ok(EnvFilesSummary {
                     home_dir_path: Some(home),
                     home_dir: summary,
@@ -322,7 +315,7 @@ impl Runner for User {
             .arg("--")
             .arg("tar")
             .arg("--create")
-            .arg(env_name)
+            .arg("w")
             .env_clear()
             .stdout(Stdio::piped())
             .scoped_spawn()?;
@@ -413,7 +406,7 @@ impl Runner for User {
         let mut command = Command::new("sudo");
         command
             .env_clear()
-            .env("SANDBOX", &username.for_environment)
+            .env("SANDBOX", &env_name)
             .env("SHELL", &self.program.shell);
         if let Ok(display) = std::env::var("DISPLAY") {
             command.env("DISPLAY", display);
@@ -425,7 +418,7 @@ impl Runner for User {
         command
             // The double-slash after `~` appears to be necessary for sudo
             // (1.9.5p2). It seems dubious, though.
-            .args(["--chdir", &format!("~//{}", username.for_environment)])
+            .args(["--chdir", "~//w"])
             .arg("--login")
             .args(["--user", &username])
             .arg("--preserve-env=SANDBOX,SHELL")

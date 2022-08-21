@@ -402,7 +402,7 @@ impl Cubicle {
                 &spec.dir,
                 tar_file.as_file(),
                 &TarOptions {
-                    prefix: Some(PathBuf::from(&env_name)),
+                    prefix: Some(PathBuf::from("w")),
                     ..TarOptions::default()
                 },
             )
@@ -467,7 +467,7 @@ impl Cubicle {
                     &spec.dir,
                     tar_file.as_file(),
                     &TarOptions {
-                        prefix: Some(PathBuf::from(&test_name)),
+                        prefix: Some(PathBuf::from("w")),
                         // `dev-init.sh` will run `update.sh` if it's present, but
                         // we don't want that
                         exclude: vec![PathBuf::from("update.sh")],
@@ -822,10 +822,7 @@ fn read_package_list(dir: &Path, path: &str) -> Result<Option<PackageNameSet>> {
     Ok(Some(package_set_from_names(names)?))
 }
 
-fn write_package_list_tar(
-    name: &EnvironmentName,
-    packages: &PackageNameSet,
-) -> Result<tempfile::NamedTempFile> {
+fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::NamedTempFile> {
     let file = tempfile::NamedTempFile::new()?;
     let metadata = file.as_file().metadata()?;
     let mut builder = tar::Builder::new(file.as_file());
@@ -846,7 +843,7 @@ fn write_package_list_tar(
     header.set_size(buf.len() as u64);
     builder.append_data(
         &mut header,
-        Path::new(name).join("packages.txt"),
+        Path::new("w").join("packages.txt"),
         buf.as_slice(),
     )?;
     builder.into_inner().and_then(|mut f| f.flush())?;
@@ -883,7 +880,7 @@ impl Cubicle {
             None => PackageNameSet::from([PackageName::from_str("default").unwrap()]),
         };
         self.update_packages(&packages, &self.scan_packages()?)?;
-        let packages_txt = write_package_list_tar(name, &packages)?;
+        let packages_txt = write_package_list_tar(&packages)?;
         self.run(
             name,
             &RunCommand::Init {
@@ -1092,7 +1089,7 @@ impl Cubicle {
         let mut extra_seeds = Vec::new();
         let packages_txt;
         if changed {
-            packages_txt = write_package_list_tar(name, &packages)?;
+            packages_txt = write_package_list_tar(&packages)?;
             extra_seeds.push(packages_txt.path());
         }
 

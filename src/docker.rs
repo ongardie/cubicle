@@ -172,7 +172,7 @@ impl Docker {
                     .ok_or_else(|| anyhow!("path not valid UTF-8: {:#?}", self.program.home))?,
             ),
         ]);
-        let container_work = self.program.home.join(name);
+        let container_work = self.program.home.join("w");
         let container_work_str = container_work
             .to_str()
             .ok_or_else(|| anyhow!("path not valid UTF-8: {:#?}", container_work))?;

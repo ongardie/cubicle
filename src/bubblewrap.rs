@@ -258,7 +258,7 @@ impl Runner for Bubblewrap {
         command
             .arg("--bind")
             .arg(host_work)
-            .arg(self.program.home.join(name));
+            .arg(self.program.home.join("w"));
         command.args(["--symlink", "/usr/lib", "/lib"]);
         command.args(["--symlink", "/usr/lib64", "/lib64"]);
         command.args(ro_bind_try("/opt"));
@@ -269,7 +269,7 @@ impl Runner for Bubblewrap {
         command.args(ro_bind_try("/var/lib/apt/lists"));
         command.args(ro_bind_try("/var/lib/dpkg"));
         command.arg("--seccomp").arg(get_fd_for_child(&seccomp)?);
-        command.arg("--chdir").arg(self.program.home.join(name));
+        command.arg("--chdir").arg(self.program.home.join("w"));
         command.arg("--");
         command.arg(&self.program.shell);
         command.arg("-l");
