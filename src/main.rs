@@ -24,6 +24,8 @@ use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::NamedTempFile;
 
+mod newtype;
+
 mod cli;
 
 mod config;
@@ -1054,7 +1056,10 @@ impl Cubicle {
 
         let (mut changed, mut packages) = match packages {
             Some(packages) => (true, packages.clone()),
-            None => match self.read_package_list_from_env(name)? {
+            None => match self
+                .read_package_list_from_env(name)
+                .with_context(|| format!("Failed to parse packages.txt from {name}"))?
+            {
                 None => (
                     true,
                     PackageNameSet::from([PackageName::from_str("default").unwrap()]),

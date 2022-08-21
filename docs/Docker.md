@@ -89,6 +89,32 @@ curl -L 'https://raw.githubusercontent.com/moby/moby/master/profiles/seccomp/def
 sed 's/"getpid",/"getpid", "clone", "unshare",/' < docker-seccomp.json > seccomp.json
 ```
 
+## Configuration
+
+Inside your `cubicle.toml`, set `runner` to `"docker"`. You can optionally
+create a table named `docker` with the following keys:
+
+### `bind_mounts`
+
+- Type: boolean
+- Default: `false`
+
+If false (default), the Docker runner will use volume mounts for the
+environments' home and work directories.
+
+If true, the runner will use bind mounts instead. Bind mounts are probably only
+advantageous on Linux; they can be more convenient because they can be owned by
+the normal user on the host.
+
+### `prefix`
+
+- Type: string
+- Default: `"cub-"`
+
+This string is prepended to all the Docker object names (container, image, and
+volume names) that the Cubicle runner creates. It defaults to "cub-". Using the
+empty string is also allowed.
+
 ## Uninstalling
 
 First, exit out of any running Cubicle environments.
@@ -120,29 +146,33 @@ rm -r ${XDG_DATA_HOME:-~/.local/share}/cubicle/
 
 Each Cubicle environment consists of three logical filesystem layers:
 
-| Layer   | Host Path (with default XDG base dirs) | Container Path   | Lifetime |
-| ------- | -------------------------------------- | ---------------- | -------- |
-| 1. OS   | cubicle-base Docker image              | `/` (read-write) | short    |
-| 2. home | `~/.cache/cubicle/home/ENV`            | `~/`             | short    |
-| 3. work | `~/.local/share/cubicle/work/ENV`      | `~/w/`           | long     |
+| Layer   | Storage (with default config) | Container Path   | Lifetime |
+| ------- | ----------------------------- | ---------------- | -------- |
+| 1. OS   | cub-cubicle-base Docker image | `/` (read-write) | short    |
+| 2. home | cub-ENV-home Docker volume    | `~/`             | short    |
+| 3. work | cub-ENV-work Docker volume    | `~/w/`           | long     |
 
-1. The base operating system. This is the "cubicle-base" Docker image that is
-   built automatically by Cubicle. It's currently based on Debian 11. See
+1. The base operating system. This is the "cub-cubicle-base" Docker image that
+   is built automatically by Cubicle. It's currently based on Debian 11. See
    `Dockerfile.in` for details.
 
 2. A home directory. Inside the environment, this is at the same path as the
    host's `$HOME`, but it's not shared with the host. It lives in
-   `${XDG_CACHE_HOME:-~/.cache}/cubicle/home/` on the host. The home directory
+   `${XDG_CACHE_HOME:-~/.cache}/cubicle/home/` on the host with bind mounts
+   or in a `cub-ENV-home` Docker volume with volume mounts.
+   The home directory
    should be treated as replaceable at any time. Cubicle populates the home
    directory with files from packages when you create the environment (with
    `cub new`) or reset it (with `cub reset`). Currently, the home directory is
    populated with physical copies of package files, so the home directories can
    be large (a few gigabytes) and can take a few seconds to initialize.
 
-3. A work directory. For an environment named `eee`, this is at `~/w/` inside
-   the environment and `${XDG_DATA_HOME:-~/.local/share}/cubicle/work/eee/` on
-   the host. The work directory is where any important files should go. It
-   persists across `cub reset`.
+3. A work directory. his is at `~/w/` inside the environment. For an
+   environment named `eee`, this is at
+   `${XDG_DATA_HOME:-~/.local/share}/cubicle/work/eee/` on the host with bind
+   mounts or in a `cub-eee-home` Docker volume with volume mounts. The work
+   directory is where any important files should go. It persists across
+   `cub reset`.
 
 There are a couple of special files in the work directory:
 

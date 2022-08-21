@@ -8,6 +8,32 @@ use super::RunnerKind;
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub(super) runner: RunnerKind,
+    #[serde(default)]
+    pub docker: Docker,
+}
+
+/// See <docs/Docker.md> for details.
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Docker {
+    #[serde(default)]
+    pub bind_mounts: bool,
+
+    #[serde(default = "cub_dash")]
+    pub prefix: String,
+}
+
+impl Default for Docker {
+    fn default() -> Self {
+        Self {
+            bind_mounts: Default::default(),
+            prefix: cub_dash(),
+        }
+    }
+}
+
+fn cub_dash() -> String {
+    String::from("cub-")
 }
 
 impl Config {
@@ -62,11 +88,45 @@ mod tests {
 
     #[test]
     fn config_from_str_ok() {
+        let expected = Config {
+            runner: RunnerKind::Docker,
+            docker: Docker {
+                bind_mounts: false,
+                prefix: String::from("cub-"),
+            },
+        };
+        assert_eq!(expected, Config::from_str("runner = 'docker'").unwrap());
+        assert_eq!(
+            expected,
+            Config::from_str(
+                "
+                    runner = 'docker'
+                    [docker]
+                "
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn config_from_str_full() {
         assert_eq!(
             Config {
                 runner: RunnerKind::Docker,
+                docker: Docker {
+                    bind_mounts: true,
+                    prefix: String::from("p"),
+                },
             },
-            toml::from_str("runner = 'docker'").unwrap()
+            Config::from_str(
+                "
+                runner = 'docker'
+                [docker]
+                bind_mounts = true
+                prefix = 'p'
+                "
+            )
+            .unwrap()
         );
     }
 }

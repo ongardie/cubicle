@@ -1,7 +1,5 @@
 use anyhow::{anyhow, Result};
-use std::fmt;
 use std::io::{self, BufRead, Write};
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
@@ -19,21 +17,11 @@ pub struct User {
     work_tars: PathBuf,
 }
 
-struct Username(String);
-
-impl fmt::Display for Username {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
+mod newtypes {
+    use super::super::newtype;
+    newtype::name!(Username);
 }
-
-impl Deref for Username {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
+use newtypes::Username;
 
 impl User {
     pub(super) fn new(program: Rc<CubicleShared>) -> Self {
@@ -51,7 +39,7 @@ impl User {
     }
 
     fn username_from_environment(&self, env: &EnvironmentName) -> Username {
-        Username(format!("{}{}", self.username_prefix, env))
+        Username::new(format!("{}{}", self.username_prefix, env))
     }
 
     fn user_exists(&self, username: &Username) -> Result<bool> {
@@ -78,7 +66,7 @@ impl User {
                 &format!("Cubicle environment for user {}", self.program.user),
             ])
             .args(["--shell", &self.program.shell])
-            .arg(username.deref())
+            .arg(username)
             .status()?;
         if !status.success() {
             return Err(anyhow!(
@@ -115,7 +103,7 @@ impl User {
             .arg("--")
             .arg("pkill")
             .args(["--signal", "KILL"])
-            .args(["--uid", username.deref()])
+            .args(["--uid", username])
             .status()?;
         Ok(())
     }
@@ -375,7 +363,7 @@ impl Runner for User {
             .arg("--")
             .arg("deluser")
             .arg("--remove-home")
-            .arg(username.deref())
+            .arg(&username)
             .status()?;
         if !status.success() {
             return Err(anyhow!(
