@@ -19,6 +19,8 @@ _cub() {
 
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" \
+'-c+[Path to configuration file]:CONFIG:_files' \
+'--config=[Path to configuration file]:CONFIG:_files' \
 '-h[Print help information. Use --help for more details]' \
 '--help[Print help information. Use --help for more details]' \
 ":: :_cub_commands" \

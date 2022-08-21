@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
 use std::io;
+use std::path::PathBuf;
 
 use super::{
     package_set_from_names, Clean, Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, Quiet,
@@ -15,6 +16,15 @@ use super::{
 // <https://github.com/clap-rs/clap/issues/1015>.
 #[clap(help_message("Print help information. Use --help for more details"))]
 pub struct Args {
+    /// Path to configuration file.
+    #[clap(
+        short,
+        long,
+        default_value_os_t = default_config_path(),
+        value_hint(clap::ValueHint::FilePath),
+    )]
+    pub config: PathBuf,
+
     #[clap(subcommand)]
     command: Commands,
 }
@@ -119,6 +129,16 @@ enum Commands {
 
 pub fn parse() -> Args {
     Args::parse()
+}
+
+fn default_config_path() -> PathBuf {
+    let xdg_config_home = if let Ok(path) = std::env::var("XDG_CONFIG_HOME") {
+        PathBuf::from(path)
+    } else {
+        let home = PathBuf::from(std::env::var("HOME").expect("Invalid $HOME"));
+        home.join(".config")
+    };
+    xdg_config_home.join("cubicle.toml")
 }
 
 fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {

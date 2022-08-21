@@ -1,4 +1,3 @@
 *.bpf
 *seccomp.json
-/.RUNNER
 /target

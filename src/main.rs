@@ -10,6 +10,7 @@
 use anyhow::{anyhow, Context, Result};
 use clap::ValueEnum;
 use rand::seq::SliceRandom;
+use serde::Deserialize;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -24,6 +25,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::NamedTempFile;
 
 mod cli;
+
+mod config;
+use config::Config;
 
 mod runner;
 use runner::{CheckedRunner, EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
@@ -66,6 +70,7 @@ struct Cubicle {
 }
 
 struct CubicleShared {
+    config: Config,
     shell: String,
     script_name: String,
     script_path: PathBuf,
@@ -93,7 +98,7 @@ fn get_hostname() -> Option<String> {
 }
 
 impl Cubicle {
-    fn new() -> Result<Self> {
+    fn new(config: Config) -> Result<Self> {
         let hostname = get_hostname();
         let home = PathBuf::from(std::env::var("HOME").context("Invalid $HOME")?);
         let user = std::env::var("USER").context("Invalid $USER")?;
@@ -146,9 +151,8 @@ impl Cubicle {
 
         let eff_word_list_dir = xdg_cache_home.join("cubicle");
 
-        let runner = get_runner(&script_path)?;
-
         let shared = Rc::new(CubicleShared {
+            config,
             shell,
             script_name,
             script_path,
@@ -162,7 +166,7 @@ impl Cubicle {
             eff_word_list_dir,
         });
 
-        let runner = CheckedRunner::new(match runner {
+        let runner = CheckedRunner::new(match shared.config.runner {
             #[cfg(target_os = "linux")]
             RunnerKind::Bubblewrap => Box::new(Bubblewrap::new(shared.clone())),
             RunnerKind::Docker => Box::new(Docker::new(shared.clone())),
@@ -1300,38 +1304,23 @@ enum ListPackagesFormat {
     Names,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 enum RunnerKind {
     #[cfg(target_os = "linux")]
+    #[serde(alias = "bubblewrap")]
+    #[serde(alias = "bwrap")]
     Bubblewrap,
+    #[serde(alias = "docker")]
     Docker,
+    #[serde(alias = "user")]
+    #[serde(alias = "Users")]
+    #[serde(alias = "users")]
     User,
 }
 
-fn get_runner(script_path: &Path) -> Result<RunnerKind> {
-    let runner_path = script_path.join(".RUNNER");
-    let runners = "'bubblewrap' (on Linux only) or 'docker' or 'user'";
-    match std::fs::read_to_string(&runner_path)
-        .with_context(|| format!("Could not read {:?}. Expected {}.", runner_path, runners))?
-        .trim()
-    {
-        #[cfg(target_os = "linux")]
-        "bubblewrap" => Ok(RunnerKind::Bubblewrap),
-        #[cfg(not(target_os = "linux"))]
-        "bubblewrap" => Err(anyhow!("Bubblewrap is only supported on Linux")),
-        "docker" => Ok(RunnerKind::Docker),
-        "user" => Ok(RunnerKind::User),
-        r => Err(anyhow!(
-            "Unknown runner in {:?}: {:?}. Expected {}.",
-            runner_path,
-            r,
-            runners
-        )),
-    }
-}
-
 fn main() -> Result<()> {
-    let program = Cubicle::new()?;
     let args = cli::parse();
+    let config = Config::read_from_file(&args.config)?;
+    let program = Cubicle::new(config)?;
     cli::run(args, &program)
 }

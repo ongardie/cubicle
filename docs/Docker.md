@@ -44,10 +44,10 @@ Assuming you'd like to install into `~/opt/cubicle` and already have `~/bin` in
 your `$PATH`:
 
 ```sh
+echo 'runner = "docker"' > ~/.config/cubicle.toml
 cd ~/opt/
 git clone https://github.com/ongardie/cubicle/
 cd cubicle
-echo docker > .RUNNER
 ln -s $(pwd)/target/release/cubicle ~/bin/cub
 ```
 

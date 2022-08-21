@@ -90,10 +90,10 @@ Assuming you'd like to install into `~/opt/cubicle` and already have `~/bin` in
 your `$PATH`:
 
 ```sh
+echo 'runner = "bubblewrap"' > ~/.config/cubicle.toml
 cd ~/opt/
 git clone https://github.com/ongardie/cubicle/
 cd cubicle
-echo bubblewrap > .RUNNER
 cargo build --release
 ln -s $(pwd)/target/release/cubicle ~/bin/cub
 ```

@@ -6,10 +6,12 @@ cubicle
 Manage sandboxed development environments
 
 USAGE:
-    cub <SUBCOMMAND>
+    cub [OPTIONS] <SUBCOMMAND>
 
 OPTIONS:
-    -h, --help    Print help information. Use --help for more details
+    -c, --config <CONFIG>    Path to configuration file [default:
+                             /home/ongardie/.config/cubicle.toml]
+    -h, --help               Print help information. Use --help for more details
 
 SUBCOMMANDS:
     completions    Generate tab-completions for your shell
