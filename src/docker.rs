@@ -3,27 +3,29 @@ use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::fs_util::{rmtree, summarize_dir, try_iterdir, DirSummary};
+use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
+use super::newtype::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
-use super::{CubicleShared, EnvironmentName, ExitStatusError};
+use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
     mounts: Mounts,
     base_image: ImageName,
+    container_home: EnvPath,
 }
 
 enum Mounts {
     BindMounts {
-        home_dirs: PathBuf,
-        work_dirs: PathBuf,
+        home_dirs: HostPath,
+        work_dirs: HostPath,
     },
     Volumes,
 }
@@ -39,16 +41,16 @@ mod newtypes {
 use newtypes::{ContainerName, ImageName, VolumeName};
 
 impl Docker {
-    pub(super) fn new(program: Rc<CubicleShared>) -> Self {
+    pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
         let mounts = if program.config.docker.bind_mounts {
             let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
-                Ok(path) => PathBuf::from(path),
+                Ok(path) => HostPath::try_from(path)?,
                 Err(_) => program.home.join(".cache"),
             };
             let home_dirs = xdg_cache_home.join("cubicle").join("home");
 
             let xdg_data_home = match std::env::var("XDG_DATA_HOME") {
-                Ok(path) => PathBuf::from(path),
+                Ok(path) => HostPath::try_from(path)?,
                 Err(_) => program.home.join(".local").join("share"),
             };
             let work_dirs = xdg_data_home.join("cubicle").join("work");
@@ -62,11 +64,16 @@ impl Docker {
 
         let base_image = ImageName::new(format!("{}cubicle-base", program.config.docker.prefix));
 
-        Self {
+        let container_home = EnvPath::try_from(String::from("/home"))
+            .unwrap()
+            .join(&program.user);
+
+        Ok(Self {
             program,
             mounts,
             base_image,
-        }
+            container_home,
+        })
     }
 
     fn container_from_environment(&self, env: &EnvironmentName) -> ContainerName {
@@ -149,11 +156,11 @@ impl Docker {
         let base_mtime = self.base_mtime()?.unwrap_or(UNIX_EPOCH);
         let image_fresh =
             base_mtime.elapsed().unwrap_or(Duration::ZERO) < Duration::from_secs(60 * 60 * 12);
-        let dockerfile_mtime = std::fs::metadata(&dockerfile_path)?.modified()?;
+        let dockerfile_mtime = std::fs::metadata(&dockerfile_path.as_host_raw())?.modified()?;
         if image_fresh && dockerfile_mtime < base_mtime {
             return Ok(());
         }
-        let dockerfile = std::fs::read_to_string(dockerfile_path)?
+        let dockerfile = std::fs::read_to_string(dockerfile_path.as_host_raw())?
             .replace("@@TIMEZONE@@", &self.program.timezone)
             .replace("@@USER@@", &self.program.user);
         let mut child = Command::new("docker")
@@ -195,10 +202,10 @@ impl Docker {
         command.arg("--init");
         command.args(["--name", &container_name]);
         command.arg("--rm");
-        if seccomp_json.exists() {
+        if try_exists(&seccomp_json)? {
             command.args([
                 "--security-opt",
-                &format!("seccomp={}", seccomp_json.display()),
+                &format!("seccomp={}", seccomp_json.as_host_raw().display()),
             ]);
         }
         // The default `/dev/shm` is limited to only 64 MiB under
@@ -210,8 +217,15 @@ impl Docker {
 
         command.args(["--volume", "/tmp/.X11-unix:/tmp/.X11-unix:ro"]);
 
-        let container_work = self.program.home.join("w");
+        let container_home_str = self
+            .container_home
+            .as_env_raw()
+            .to_str()
+            .ok_or_else(|| anyhow!("path not valid UTF-8: {:#?}", self.program.home))?;
+
+        let container_work = self.container_home.join("w");
         let container_work_str = container_work
+            .as_env_raw()
             .to_str()
             .ok_or_else(|| anyhow!("path not valid UTF-8: {:#?}", container_work))?;
 
@@ -228,12 +242,10 @@ impl Docker {
                     &format!(
                         r#""type=bind","source={}","target={}""#,
                         host_home
+                            .as_host_raw()
                             .to_str()
                             .ok_or_else(|| anyhow!("path not valid UTF-8: {:#?}", host_home))?,
-                        &self.program.home.to_str().ok_or_else(|| anyhow!(
-                            "path not valid UTF-8: {:#?}",
-                            self.program.home
-                        ))?,
+                        container_home_str,
                     ),
                 ]);
                 command.args([
@@ -241,6 +253,7 @@ impl Docker {
                     &format!(
                         r#""type=bind","source={}","target={}""#,
                         host_work
+                            .as_host_raw()
                             .to_str()
                             .ok_or_else(|| anyhow!("path not valid UTF-8: {:#?}", host_work))?,
                         container_work_str,
@@ -254,10 +267,7 @@ impl Docker {
                     &format!(
                         r#""type=volume","source={}","target={}""#,
                         self.home_volume(env_name),
-                        &self.program.home.to_str().ok_or_else(|| anyhow!(
-                            "path not valid UTF-8: {:#?}",
-                            self.program.home
-                        ))?,
+                        container_home_str,
                     ),
                 ]);
                 command.args([
@@ -271,7 +281,7 @@ impl Docker {
             }
         }
 
-        command.args(["--workdir", container_work_str]);
+        command.arg("--workdir").arg(&container_work.as_env_raw());
         command.arg(&self.base_image);
         command.args(["sleep", "90d"]);
         command.stdout(Stdio::null());
@@ -308,7 +318,7 @@ impl Docker {
         self.volume_mountpoint(name).map(|o| o.is_some())
     }
 
-    fn volume_mountpoint(&self, name: &VolumeName) -> Result<Option<PathBuf>> {
+    fn volume_mountpoint(&self, name: &VolumeName) -> Result<Option<HostPath>> {
         let output = Command::new("docker")
             .arg("volume")
             .arg("inspect")
@@ -329,8 +339,8 @@ impl Docker {
                 stderr
             ));
         }
-        let stdout = String::from_utf8(output.stdout)?;
-        Ok(Some(PathBuf::from(stdout.trim())))
+        let stdout = String::from_utf8(output.stdout)?.trim().to_owned();
+        Ok(Some(HostPath::try_from(stdout)?))
     }
 
     fn volume_du(&self, name: &VolumeName) -> Result<DirSummary> {
@@ -428,7 +438,7 @@ impl Docker {
     fn docker_cp_out_from_root(
         &self,
         env_name: &EnvironmentName,
-        abs_path: &Path,
+        abs_path: &EnvPath,
         w: &mut dyn io::Write,
     ) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
@@ -438,6 +448,7 @@ impl Docker {
         }
 
         let abs_path_str = abs_path
+            .as_env_raw()
             .to_str()
             .ok_or_else(|| anyhow!("path not valid UTF-8: {abs_path:?}"))?;
         let mut child = Command::new("docker")
@@ -486,7 +497,7 @@ impl Runner for Docker {
         match &self.mounts {
             BindMounts { home_dirs, .. } => {
                 let home_dir = cap_std::fs::Dir::open_ambient_dir(
-                    &home_dirs.join(env_name),
+                    &home_dirs.join(env_name).as_host_raw(),
                     cap_std::ambient_authority(),
                 )?;
                 let mut file = home_dir.open(path)?;
@@ -494,7 +505,7 @@ impl Runner for Docker {
                 Ok(())
             }
             Volumes => {
-                let abs_path = self.program.home.join(path);
+                let abs_path = self.container_home.join(path);
                 self.docker_cp_out_from_root(env_name, &abs_path, w)
             }
         }
@@ -509,7 +520,7 @@ impl Runner for Docker {
         match &self.mounts {
             BindMounts { work_dirs, .. } => {
                 let work_dir = cap_std::fs::Dir::open_ambient_dir(
-                    &work_dirs.join(env_name),
+                    &work_dirs.join(env_name).as_host_raw(),
                     cap_std::ambient_authority(),
                 )?;
                 let mut file = work_dir.open(path)?;
@@ -517,7 +528,7 @@ impl Runner for Docker {
                 Ok(())
             }
             Volumes => {
-                let abs_path = self.program.home.join("w").join(path);
+                let abs_path = self.container_home.join("w").join(path);
                 self.docker_cp_out_from_root(env_name, &abs_path, w)
             }
         }
@@ -533,12 +544,12 @@ impl Runner for Docker {
                 home_dirs,
                 work_dirs,
             } => {
-                std::fs::create_dir_all(&home_dirs)?;
-                std::fs::create_dir_all(&work_dirs)?;
+                std::fs::create_dir_all(&home_dirs.as_host_raw())?;
+                std::fs::create_dir_all(&work_dirs.as_host_raw())?;
                 let host_home = home_dirs.join(env_name);
                 let host_work = work_dirs.join(env_name);
-                std::fs::create_dir(&host_home)?;
-                std::fs::create_dir(&host_work)?;
+                std::fs::create_dir(&host_home.as_host_raw())?;
+                std::fs::create_dir(&host_work.as_host_raw())?;
                 Ok(())
             }
             Volumes => {
@@ -559,8 +570,8 @@ impl Runner for Docker {
                 home_dirs,
                 work_dirs,
             } => {
-                has_home_dir = home_dirs.join(env_name).try_exists()?;
-                has_work_dir = work_dirs.join(env_name).try_exists()?;
+                has_home_dir = try_exists(&home_dirs.join(env_name))?;
+                has_work_dir = try_exists(&work_dirs.join(env_name))?;
             }
             Volumes => {
                 has_home_dir = self.volume_exists(&self.home_volume(env_name))?;
@@ -645,7 +656,7 @@ impl Runner for Docker {
                 work_dirs,
             } => {
                 let home_dir = home_dirs.join(name);
-                let home_dir_exists = home_dir.exists();
+                let home_dir_exists = try_exists(&home_dir)?;
                 let home_dir_summary = if home_dir_exists {
                     summarize_dir(&home_dir)?
                 } else {
@@ -653,7 +664,7 @@ impl Runner for Docker {
                 };
 
                 let work_dir = work_dirs.join(name);
-                let work_dir_exists = work_dir.exists();
+                let work_dir_exists = try_exists(&work_dir)?;
                 let work_dir_summary = if work_dir_exists {
                     summarize_dir(&work_dir)?
                 } else {
@@ -687,7 +698,7 @@ impl Runner for Docker {
             BindMounts { home_dirs, .. } => {
                 let host_home = home_dirs.join(name);
                 rmtree(&host_home)?;
-                std::fs::create_dir(&host_home)?;
+                std::fs::create_dir(&host_home.as_host_raw())?;
             }
             Volumes => {
                 let home_volume = self.home_volume(name);
@@ -722,12 +733,18 @@ impl Runner for Docker {
             self.spawn(env_name)?;
         }
 
+        let script_path = EnvPath::try_from(String::from("/.cubicle-init")).unwrap();
+
         if let RunnerCommand::Init { script, seeds } = run_command {
             let status = Command::new("docker")
                 .arg("cp")
                 .arg("--archive")
-                .arg(script)
-                .arg(format!("{container_name}:/.cubicle-init"))
+                .arg(script.as_host_raw())
+                .arg(format!(
+                    "{}:{}",
+                    container_name,
+                    script_path.as_env_raw().to_str().unwrap()
+                ))
                 .status()?;
             if !status.success() {
                 return Err(anyhow!(
@@ -749,7 +766,7 @@ impl Runner for Docker {
                     let mut size: u64 = 0;
                     for path in seeds {
                         use std::os::unix::fs::MetadataExt;
-                        let metadata = std::fs::metadata(path)?;
+                        let metadata = std::fs::metadata(path.as_host_raw())?;
                         size += metadata.size();
                     }
                     size
@@ -779,7 +796,7 @@ impl Runner for Docker {
                         .take()
                         .ok_or_else(|| anyhow!("failed to open stdin"))?;
                     for path in seeds {
-                        let mut file = std::fs::File::open(path)?;
+                        let mut file = std::fs::File::open(path.as_host_raw())?;
                         io::copy(&mut file, &mut stdin)?;
                     }
                 }
@@ -796,7 +813,7 @@ impl Runner for Docker {
         }
 
         let fallback_path = std::env::join_paths(&[
-            self.program.home.join("bin").as_path(),
+            self.container_home.join("bin").as_env_raw(),
             // The debian:11 image hasn't gone through usrmerge, so
             // /usr/bin and /bin are distinct there.
             Path::new("/bin"),
@@ -821,7 +838,7 @@ impl Runner for Docker {
         match run_command {
             RunnerCommand::Interactive => {}
             RunnerCommand::Init { .. } => {
-                command.args(["-c", "/.cubicle-init"]);
+                command.arg("-c").arg(script_path.as_env_raw());
             }
             RunnerCommand::Exec(exec) => {
                 command.arg("-c");

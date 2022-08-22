@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
@@ -9,12 +9,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::fs_util::{summarize_dir, DirSummary};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
-use super::{CubicleShared, EnvironmentName, ExitStatusError};
+use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 
 pub struct User {
     pub(super) program: Rc<CubicleShared>,
     username_prefix: &'static str,
-    work_tars: PathBuf,
+    work_tars: HostPath,
 }
 
 mod newtypes {
@@ -24,18 +24,18 @@ mod newtypes {
 use newtypes::Username;
 
 impl User {
-    pub(super) fn new(program: Rc<CubicleShared>) -> Self {
+    pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
         let xdg_data_home = match std::env::var("XDG_DATA_HOME") {
-            Ok(path) => PathBuf::from(path),
+            Ok(path) => HostPath::try_from(path)?,
             Err(_) => program.home.join(".local").join("share"),
         };
         let work_tars = xdg_data_home.join("cubicle").join("work");
 
-        Self {
+        Ok(Self {
             program,
             username_prefix: "cub-",
             work_tars,
-        }
+        })
     }
 
     fn username_from_environment(&self, env: &EnvironmentName) -> Username {
@@ -108,7 +108,7 @@ impl User {
         Ok(())
     }
 
-    fn copy_in_seeds(&self, username: &Username, seeds: &[&Path]) -> Result<()> {
+    fn copy_in_seeds(&self, username: &Username, seeds: &[&HostPath]) -> Result<()> {
         if seeds.is_empty() {
             return Ok(());
         }
@@ -116,7 +116,7 @@ impl User {
         println!("Copying seed tarball");
         let mut source = Command::new("pv")
             .args(["-i", "0.1"])
-            .args(seeds)
+            .args(seeds.iter().map(|s| s.as_host_raw()))
             .stdout(Stdio::piped())
             .scoped_spawn()?;
         let mut source_stdout = source.stdout.take().unwrap();
@@ -240,7 +240,7 @@ impl Runner for User {
 
     fn files_summary(&self, env_name: &EnvironmentName) -> Result<EnvFilesSummary> {
         let username = self.username_from_environment(env_name);
-        let home = {
+        let home: Option<HostPath> = {
             let file = std::fs::File::open("/etc/passwd")?;
             let reader = io::BufReader::new(file);
             let mut home = None;
@@ -250,7 +250,9 @@ impl Runner for User {
                 if fields.next() != Some(&username) {
                     continue;
                 }
-                home = fields.nth(4).map(PathBuf::from);
+                if let Some(h) = fields.nth(4) {
+                    home = Some(HostPath::try_from(h.to_owned())?);
+                }
                 break;
             }
             home
@@ -289,7 +291,7 @@ impl Runner for User {
         let username = self.username_from_environment(env_name);
         self.kill_username(&username)?;
 
-        std::fs::create_dir_all(&self.work_tars)?;
+        std::fs::create_dir_all(&self.work_tars.as_host_raw())?;
         let work_tar = self.work_tars.join(format!(
             "{}-{}.tar",
             env_name,
@@ -313,7 +315,7 @@ impl Runner for User {
             let mut f = std::fs::OpenOptions::new()
                 .create_new(true)
                 .write(true)
-                .open(&work_tar)?;
+                .open(&work_tar.as_host_raw())?;
             io::copy(&mut stdout, &mut f)?;
             f.flush()?;
         }
@@ -342,7 +344,7 @@ impl Runner for User {
 
         match purge_and_restore() {
             Ok(()) => {
-                std::fs::remove_file(work_tar)?;
+                std::fs::remove_file(work_tar.as_host_raw())?;
                 Ok(())
             }
             Err(e) => {
@@ -382,12 +384,13 @@ impl Runner for User {
         if let RunnerCommand::Init { seeds, script } = run_command {
             let script_tar = tempfile::NamedTempFile::new()?;
             let mut builder = tar::Builder::new(script_tar.as_file());
-            let mut script_file = std::fs::File::open(script)?;
+            let mut script_file = std::fs::File::open(script.as_host_raw())?;
             builder.append_file(".cubicle-init-script", &mut script_file)?;
             builder.into_inner().and_then(|mut f| f.flush())?;
 
-            let mut seeds: Vec<&Path> = seeds.iter().map(|p| p.as_path()).collect();
-            seeds.push(script_tar.path());
+            let mut seeds: Vec<&HostPath> = seeds.iter().collect();
+            let script_tar_path = HostPath::try_from(script_tar.path().to_owned())?;
+            seeds.push(&script_tar_path);
             self.copy_in_seeds(&username, &seeds)?;
         }
 

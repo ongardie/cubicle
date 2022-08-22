@@ -1,42 +1,42 @@
 use anyhow::{anyhow, Context, Result};
 use std::collections::BTreeSet;
-use std::ffi::OsString;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{ChildStdout, Command, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 
-use super::fs_util::{rmtree, summarize_dir, try_iterdir, DirSummary};
+use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
+use super::newtype::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::{ScopedChild, ScopedSpawn};
-use super::{CubicleShared, EnvironmentName, ExitStatusError};
+use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 
 pub struct Bubblewrap {
     pub(super) program: Rc<CubicleShared>,
-    home_dirs: PathBuf,
-    work_dirs: PathBuf,
+    home_dirs: HostPath,
+    work_dirs: HostPath,
 }
 
 impl Bubblewrap {
-    pub(super) fn new(program: Rc<CubicleShared>) -> Self {
+    pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
         let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
-            Ok(path) => PathBuf::from(path),
+            Ok(path) => HostPath::try_from(path)?,
             Err(_) => program.home.join(".cache"),
         };
         let home_dirs = xdg_cache_home.join("cubicle").join("home");
 
         let xdg_data_home = match std::env::var("XDG_DATA_HOME") {
-            Ok(path) => PathBuf::from(path),
+            Ok(path) => HostPath::try_from(path)?,
             Err(_) => program.home.join(".local").join("share"),
         };
         let work_dirs = xdg_data_home.join("cubicle").join("work");
 
-        Self {
+        Ok(Self {
             program,
             home_dirs,
             work_dirs,
-        }
+        })
     }
 }
 
@@ -51,12 +51,8 @@ where
     Ok(file.as_raw_fd().to_string())
 }
 
-fn ro_bind_try<P: AsRef<Path>>(path: P) -> [OsString; 3] {
-    return [
-        OsString::from("--ro-bind-try"),
-        path.as_ref().as_os_str().to_owned(),
-        path.as_ref().as_os_str().to_owned(),
-    ];
+fn ro_bind_try(path: &str) -> [&str; 3] {
+    ["--ro-bind-try", path, path]
 }
 
 impl Runner for Bubblewrap {
@@ -67,7 +63,7 @@ impl Runner for Bubblewrap {
         w: &mut dyn io::Write,
     ) -> Result<()> {
         let home_dir = cap_std::fs::Dir::open_ambient_dir(
-            &self.home_dirs.join(name),
+            &self.home_dirs.join(name).as_host_raw(),
             cap_std::ambient_authority(),
         )?;
         let mut file = home_dir.open(path)?;
@@ -82,7 +78,7 @@ impl Runner for Bubblewrap {
         w: &mut dyn io::Write,
     ) -> Result<()> {
         let work_dir = cap_std::fs::Dir::open_ambient_dir(
-            &self.work_dirs.join(name),
+            &self.work_dirs.join(name).as_host_raw(),
             cap_std::ambient_authority(),
         )?;
         let mut file = work_dir.open(path)?;
@@ -91,18 +87,18 @@ impl Runner for Bubblewrap {
     }
 
     fn create(&self, name: &EnvironmentName) -> Result<()> {
-        std::fs::create_dir_all(&self.home_dirs)?;
-        std::fs::create_dir_all(&self.work_dirs)?;
+        std::fs::create_dir_all(&self.home_dirs.as_host_raw())?;
+        std::fs::create_dir_all(&self.work_dirs.as_host_raw())?;
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
-        std::fs::create_dir(&host_home)?;
-        std::fs::create_dir(&host_work)?;
+        std::fs::create_dir(&host_home.as_host_raw())?;
+        std::fs::create_dir(&host_work.as_host_raw())?;
         Ok(())
     }
 
     fn exists(&self, name: &EnvironmentName) -> Result<EnvironmentExists> {
-        let has_home_dir = self.home_dirs.join(name).try_exists()?;
-        let has_work_dir = self.work_dirs.join(name).try_exists()?;
+        let has_home_dir = try_exists(&self.home_dirs.join(name))?;
+        let has_work_dir = try_exists(&self.work_dirs.join(name))?;
 
         use EnvironmentExists::*;
         Ok(if has_home_dir && has_work_dir {
@@ -143,7 +139,7 @@ impl Runner for Bubblewrap {
 
     fn files_summary(&self, name: &EnvironmentName) -> Result<EnvFilesSummary> {
         let home_dir = self.home_dirs.join(name);
-        let home_dir_exists = home_dir.exists();
+        let home_dir_exists = try_exists(&home_dir)?;
         let home_dir_summary = if home_dir_exists {
             summarize_dir(&home_dir)?
         } else {
@@ -151,7 +147,7 @@ impl Runner for Bubblewrap {
         };
 
         let work_dir = self.work_dirs.join(name);
-        let work_dir_exists = work_dir.exists();
+        let work_dir_exists = try_exists(&work_dir)?;
         let work_dir_summary = if work_dir_exists {
             summarize_dir(&home_dir)?
         } else {
@@ -170,8 +166,8 @@ impl Runner for Bubblewrap {
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
         rmtree(&host_home)?;
-        std::fs::create_dir_all(host_home)?;
-        std::fs::create_dir_all(host_work)?;
+        std::fs::create_dir_all(host_home.as_host_raw())?;
+        std::fs::create_dir_all(host_work.as_host_raw())?;
         Ok(())
     }
 
@@ -193,7 +189,7 @@ impl Runner for Bubblewrap {
                 println!("Packing seed tarball");
                 let mut child = Command::new("pv")
                     .args(["-i", "0.1"])
-                    .args(seeds)
+                    .args(seeds.iter().map(|s| s.as_host_raw()))
                     .stdout(Stdio::piped())
                     .scoped_spawn()?;
                 let stdout = child.stdout.take().unwrap();
@@ -205,21 +201,26 @@ impl Runner for Bubblewrap {
             _ => None,
         };
 
-        let seccomp = std::fs::File::open(self.program.script_path.join("seccomp.bpf"))?;
+        let seccomp =
+            std::fs::File::open(self.program.script_path.join("seccomp.bpf").as_host_raw())?;
 
         let mut command = Command::new("bwrap");
+
+        let env_home = EnvPath::try_from(self.program.home.as_host_raw().to_owned())?;
+        let init_script = EnvPath::try_from(String::from("/cubicle-init.sh"))?;
 
         command.env_clear();
         command.env(
             "PATH",
-            match self.program.home.to_str() {
+            match self.program.home.as_host_raw().to_str() {
                 Some(home) => format!("{home}/bin:/bin:/usr/bin:/sbin:/usr/sbin"),
                 None => String::from("/bin:/usr/bin:/sbin:/usr/sbin"),
             },
         );
+        command.env("HOME", env_home.as_env_raw());
         command.env("SANDBOX", name);
-        command.env("TMPDIR", self.program.home.join("tmp"));
-        for key in ["DISPLAY", "HOME", "SHELL", "TERM", "USER"] {
+        command.env("TMPDIR", env_home.join("tmp").as_env_raw());
+        for key in ["DISPLAY", "SHELL", "TERM", "USER"] {
             if let Ok(value) = std::env::var(key) {
                 command.env(key, value);
             }
@@ -243,8 +244,8 @@ impl Runner for Bubblewrap {
         if let RunnerCommand::Init { script, .. } = run_command {
             command
                 .arg("--ro-bind-try")
-                .arg(script)
-                .arg("/cubicle-init.sh");
+                .arg(script.as_host_raw())
+                .arg(init_script.as_env_raw());
         }
 
         if let Some(Seed { stdout, .. }) = &seed {
@@ -254,11 +255,14 @@ impl Runner for Bubblewrap {
                 .arg("/dev/shm/seed.tar");
         }
         command.args(ro_bind_try("/etc"));
-        command.arg("--bind").arg(host_home).arg(&self.program.home);
         command
             .arg("--bind")
-            .arg(host_work)
-            .arg(self.program.home.join("w"));
+            .arg(host_home.as_host_raw())
+            .arg(env_home.as_env_raw());
+        command
+            .arg("--bind")
+            .arg(host_work.as_host_raw())
+            .arg(env_home.join("w").as_env_raw());
         command.args(["--symlink", "/usr/lib", "/lib"]);
         command.args(["--symlink", "/usr/lib64", "/lib64"]);
         command.args(ro_bind_try("/opt"));
@@ -269,7 +273,7 @@ impl Runner for Bubblewrap {
         command.args(ro_bind_try("/var/lib/apt/lists"));
         command.args(ro_bind_try("/var/lib/dpkg"));
         command.arg("--seccomp").arg(get_fd_for_child(&seccomp)?);
-        command.arg("--chdir").arg(self.program.home.join("w"));
+        command.arg("--chdir").arg(env_home.join("w").as_env_raw());
         command.arg("--");
         command.arg(&self.program.shell);
         command.arg("-l");
@@ -277,7 +281,7 @@ impl Runner for Bubblewrap {
         match run_command {
             RunnerCommand::Interactive => {}
             RunnerCommand::Init { .. } => {
-                command.args(["-c", "/cubicle-init.sh"]);
+                command.arg("-c").arg(init_script.as_env_raw());
             }
             RunnerCommand::Exec(exec) => {
                 command.arg("-c");

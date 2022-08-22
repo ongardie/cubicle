@@ -1,9 +1,9 @@
 use anyhow::Result;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::fs_util::DirSummary;
-use super::EnvironmentName;
+use super::{EnvironmentName, HostPath};
 
 /// Manages isolated operating system environments.
 pub trait Runner {
@@ -92,17 +92,17 @@ pub enum EnvironmentExists {
 }
 
 pub struct EnvFilesSummary {
-    pub home_dir_path: Option<PathBuf>,
+    pub home_dir_path: Option<HostPath>,
     pub home_dir: DirSummary,
-    pub work_dir_path: Option<PathBuf>,
+    pub work_dir_path: Option<HostPath>,
     pub work_dir: DirSummary,
 }
 
 pub enum RunnerCommand<'a> {
     Interactive,
     Init {
-        seeds: Vec<PathBuf>,
-        script: PathBuf,
+        seeds: Vec<HostPath>,
+        script: HostPath,
     },
     Exec(&'a [String]),
 }
