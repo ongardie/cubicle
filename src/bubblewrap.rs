@@ -149,7 +149,7 @@ impl Runner for Bubblewrap {
         let work_dir = self.work_dirs.join(name);
         let work_dir_exists = try_exists(&work_dir)?;
         let work_dir_summary = if work_dir_exists {
-            summarize_dir(&home_dir)?
+            summarize_dir(&work_dir)?
         } else {
             DirSummary::new_with_errors()
         };
