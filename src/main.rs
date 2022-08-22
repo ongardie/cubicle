@@ -9,13 +9,11 @@
 
 use anyhow::{anyhow, Context, Result};
 use clap::ValueEnum;
-use rand::seq::SliceRandom;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fmt;
-use std::io::{self, BufRead};
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
@@ -30,6 +28,9 @@ mod cli;
 
 mod config;
 use config::Config;
+
+mod randname;
+use randname::RandomNameGenerator;
 
 mod runner;
 use runner::{CheckedRunner, EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
@@ -75,7 +76,7 @@ struct CubicleShared {
     package_cache: HostPath,
     code_package_dir: HostPath,
     user_package_dir: HostPath,
-    eff_word_list_dir: HostPath,
+    random_name_gen: RandomNameGenerator,
 }
 
 fn get_hostname() -> Option<String> {
@@ -144,6 +145,7 @@ impl Cubicle {
         let user_package_dir = xdg_data_home.join("cubicle").join("packages");
 
         let eff_word_list_dir = xdg_cache_home.join("cubicle");
+        let random_name_gen = RandomNameGenerator::new(eff_word_list_dir);
 
         let shared = Rc::new(CubicleShared {
             config,
@@ -157,7 +159,7 @@ impl Cubicle {
             package_cache,
             code_package_dir,
             user_package_dir,
-            eff_word_list_dir,
+            random_name_gen,
         });
 
         let runner = CheckedRunner::new(match shared.config.runner {
@@ -396,105 +398,11 @@ impl Cubicle {
         .with_context(|| format!("Failed to initialize new environment {name}"))
     }
 
-    fn random_name<F>(&self, filter: F) -> Result<String>
-    where
-        F: Fn(&str) -> Result<bool>,
-    {
-        fn from_file<F>(file: std::fs::File, filter: F) -> Result<String>
-        where
-            F: Fn(&str) -> Result<bool>,
-        {
-            let mut rng = rand::thread_rng();
-            let reader = io::BufReader::new(file);
-            let lines = reader.lines().collect::<Result<Vec<String>, _>>()?;
-            for _ in 0..200 {
-                if let Some(line) = lines.choose(&mut rng) {
-                    for word in line.split_ascii_whitespace() {
-                        if word.chars().all(char::is_numeric) {
-                            // probably diceware numbers
-                            continue;
-                        }
-                        if filter(word)? {
-                            return Ok(word.to_owned());
-                        }
-                    }
-                }
-            }
-            Err(anyhow!("found no suitable word"))
-        }
-
-        // 1. Prefer the EFF short word list. See https://www.eff.org/dice for
-        // more info.
-        let eff = || -> Result<String> {
-            let eff_word_list = self
-                .shared
-                .eff_word_list_dir
-                .join("eff_short_wordlist_1.txt");
-            let file = match std::fs::File::open(&eff_word_list.as_host_raw()) {
-                Ok(file) => file,
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    println!("Downloading EFF short wordlist");
-                    let url = "https://www.eff.org/files/2016/09/08/eff_short_wordlist_1.txt";
-                    let body = reqwest::blocking::get(url)?.text()?;
-                    std::fs::write(&eff_word_list.as_host_raw(), body)?;
-                    std::fs::File::open(&eff_word_list.as_host_raw())?
-                }
-                Err(e) => return Err(e.into()),
-            };
-            from_file(file, |w| Ok(w.len() < 10 && filter(w)?))
-        };
-
-        // 2. /usr/share/dict/words
-        let dict = || -> Result<String> {
-            let file = std::fs::File::open("/usr/share/dict/words")?;
-            from_file(file, |w| Ok(w.len() < 6 && filter(w)?))
-        };
-
-        match eff() {
-            Ok(word) => return Ok(word),
-            Err(e) => {
-                println!("Warning: failed to extract word from EFF list: {e}");
-            }
-        }
-        match dict() {
-            Ok(word) => return Ok(word),
-            Err(e) => {
-                println!("Warning: failed to extract word from /usr/share/dict/words: {e}");
-            }
-        }
-
-        // 3. Random 6 letters
-        let mut rng = rand::thread_rng();
-        let alphabet = [
-            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
-            'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-        ];
-        for _ in 0..20 {
-            let word = std::iter::repeat_with(|| alphabet.choose(&mut rng).unwrap())
-                .take(6)
-                .collect::<String>();
-            if filter(&word)? {
-                return Ok(word);
-            }
-        }
-
-        // 4. Random 32 letters
-        let word = std::iter::repeat_with(|| alphabet.choose(&mut rng).unwrap())
-            .take(32)
-            .collect::<String>();
-        if filter(&word)? {
-            return Ok(word);
-        }
-
-        // 5. Give up.
-        Err(anyhow!(
-            "Failed to generate suitable random word with any strategy"
-        ))
-    }
-
     fn create_enter_tmp_environment(&self, packages: Option<PackageNameSet>) -> Result<()> {
         let name = {
             let name = self
+                .shared
+                .random_name_gen
                 .random_name(|name| {
                     if name.starts_with("cub") {
                         // that'd be confusing
