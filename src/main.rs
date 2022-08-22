@@ -1334,7 +1334,7 @@ enum RunnerKind {
 
 fn main() -> Result<()> {
     let args = cli::parse();
-    let config = Config::read_from_file(&args.config)?;
+    let config = Config::read_from_file(args.config.as_ref())?;
     let program = Cubicle::new(config)?;
     cli::run(args, &program)
 }

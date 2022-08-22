@@ -9,8 +9,7 @@ USAGE:
     cub [OPTIONS] <SUBCOMMAND>
 
 OPTIONS:
-    -c, --config <CONFIG>    Path to configuration file [default:
-                             /home/ongardie/.config/cubicle.toml]
+    -c, --config <CONFIG>    Path to configuration file [default: $HOME/.config/cubicle.toml]
     -h, --help               Print help information. Use --help for more details
 
 SUBCOMMANDS:
