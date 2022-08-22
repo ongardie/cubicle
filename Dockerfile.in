@@ -52,7 +52,7 @@ RUN adduser \
 # For a Docker volume to be owned/writable by a regular user, a directory needs
 # to exist there before the volume is mounted. See
 # <https://github.com/moby/moby/issues/2259>.
-RUN mkdir /home/@@USER@@/w &&
+RUN mkdir /home/@@USER@@/w && \
     chown @@USER@@:@@USER@@ /home/@@USER@@/w
 
 RUN sh -c 'echo "Defaults umask = 0027" > /etc/sudoers.d/umask' && \
