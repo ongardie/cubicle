@@ -79,6 +79,12 @@ struct CubicleShared {
     random_name_gen: RandomNameGenerator,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+struct Quiet(bool);
+
+#[derive(Clone, Copy, PartialEq)]
+struct Clean(bool);
+
 fn get_hostname() -> Option<String> {
     #[cfg(unix)]
     {
@@ -195,55 +201,7 @@ impl Cubicle {
             FullyExists => self.run(name, &RunCommand::Exec(command)),
         }
     }
-}
 
-fn time_serialize<S>(time: &SystemTime, ser: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    let time = time.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
-    ser.serialize_f64(time)
-}
-
-fn time_serialize_opt<S>(time: &Option<SystemTime>, ser: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    match time {
-        Some(time) => {
-            let time = time.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
-            ser.serialize_some(&time)
-        }
-        None => ser.serialize_none(),
-    }
-}
-
-fn rel_time(duration: Option<Duration>) -> String {
-    let mut duration = match duration {
-        Some(duration) => duration.as_secs_f64(),
-        None => return String::from("N/A"),
-    };
-    duration /= 60.0;
-    if duration < 59.5 {
-        return format!("{duration:.0} minutes");
-    }
-    duration /= 60.0;
-    if duration < 23.5 {
-        return format!("{duration:.0} hours");
-    }
-    duration /= 24.0;
-    format!("{duration:.0} days")
-}
-
-fn nonzero_time(t: SystemTime) -> Option<SystemTime> {
-    if t == UNIX_EPOCH {
-        None
-    } else {
-        Some(t)
-    }
-}
-
-impl Cubicle {
     fn list_environments(&self, format: ListFormat) -> Result<()> {
         let names = {
             let mut names = self.runner.list()?;
@@ -355,9 +313,7 @@ impl Cubicle {
 
         Ok(())
     }
-}
 
-impl Cubicle {
     fn new_environment(
         &self,
         name: &EnvironmentName,
@@ -422,12 +378,7 @@ impl Cubicle {
         self.new_environment(&name, packages)?;
         self.run(&name, &RunCommand::Interactive)
     }
-}
 
-#[derive(Clone, Copy, PartialEq)]
-struct Quiet(bool);
-
-impl Cubicle {
     fn purge_environment(&self, name: &EnvironmentName, quiet: Quiet) -> Result<()> {
         if !quiet.0 && self.runner.exists(name)? == EnvironmentExists::NoEnvironment {
             println!("Warning: environment {name} does not exist (nothing to purge)");
@@ -442,12 +393,7 @@ impl Cubicle {
         );
         Ok(())
     }
-}
 
-#[derive(Clone, Copy, PartialEq)]
-struct Clean(bool);
-
-impl Cubicle {
     fn reset_environment(
         &self,
         name: &EnvironmentName,
@@ -668,6 +614,52 @@ enum RunnerKind {
     #[serde(alias = "Users")]
     #[serde(alias = "users")]
     User,
+}
+
+fn time_serialize<S>(time: &SystemTime, ser: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let time = time.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
+    ser.serialize_f64(time)
+}
+
+fn time_serialize_opt<S>(time: &Option<SystemTime>, ser: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match time {
+        Some(time) => {
+            let time = time.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
+            ser.serialize_some(&time)
+        }
+        None => ser.serialize_none(),
+    }
+}
+
+fn rel_time(duration: Option<Duration>) -> String {
+    let mut duration = match duration {
+        Some(duration) => duration.as_secs_f64(),
+        None => return String::from("N/A"),
+    };
+    duration /= 60.0;
+    if duration < 59.5 {
+        return format!("{duration:.0} minutes");
+    }
+    duration /= 60.0;
+    if duration < 23.5 {
+        return format!("{duration:.0} hours");
+    }
+    duration /= 24.0;
+    format!("{duration:.0} days")
+}
+
+fn nonzero_time(t: SystemTime) -> Option<SystemTime> {
+    if t == UNIX_EPOCH {
+        None
+    } else {
+        Some(t)
+    }
 }
 
 fn main() -> Result<()> {
