@@ -69,19 +69,10 @@ mod private_paths {
                     assert!(
                         end.is_relative(),
                         "{} cannot be joined to absolute path, got {:?}",
-                        Self::type_name(),
+                        stringify!($name),
                         end,
                     );
                     Self(self.0.join(end))
-                }
-
-                /// Returns `$name` as a string for use in error messages.
-                fn type_name() -> &'static str {
-                    let name = std::any::type_name::<$name>();
-                    match name.rsplit_once("::") {
-                        None => name,
-                        Some((_, end)) => end,
-                    }
                 }
             }
 
@@ -93,7 +84,7 @@ mod private_paths {
                     } else {
                         Err(anyhow!(
                             "{} must be absolute path, got {p:?}",
-                            Self::type_name()
+                            stringify!($name),
                         ))
                     }
                 }
