@@ -6,6 +6,15 @@ accounts, the operating system prevents (or not) the environments from
 reading/writing the root partition and other user's files with classical file
 permissions.
 
+One challenge with the user account runner is that packages are built at one
+path, such as `/home/cub-package-python/opt/python`, but then unpacked and used
+at another path, such as `/home/cub-dev/opt/python`. Not all packages are
+portable or relocatable like this.
+
+Another challenge is that, in principle, this runner could work on a variety of
+operating systems. In practice, packages may not be compatible with operating
+systems that differ too much from Debian stable.
+
 ## Security
 
 Cubicle relies on the Linux kernel for isolation, which isn't perfect. Users
