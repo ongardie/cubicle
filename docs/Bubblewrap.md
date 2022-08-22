@@ -90,10 +90,10 @@ Assuming you'd like to install into `~/opt/cubicle` and already have `~/bin` in
 your `$PATH`:
 
 ```sh
+echo 'runner = "bubblewrap"' > ~/.config/cubicle.toml
 cd ~/opt/
 git clone https://github.com/ongardie/cubicle/
 cd cubicle
-echo bubblewrap > .RUNNER
 cargo build --release
 ln -s $(pwd)/target/release/cubicle ~/bin/cub
 ```
@@ -138,7 +138,7 @@ Each Cubicle environment consists of three logical filesystem layers:
 | ------- | -------------------------------------- | --------------- | -------- |
 | 1. OS   | `/`                                    | `/` (read-only) | long     |
 | 2. home | `~/.cache/cubicle/home/ENV`            | `~/`            | short    |
-| 3. work | `~/.local/share/cubicle/work/ENV`      | `~/ENV/`        | long     |
+| 3. work | `~/.local/share/cubicle/work/ENV`      | `~/w/`          | long     |
 
 1. The base operating system. This is currently shared with the host's `/` and
    read-only inside the container.
@@ -152,19 +152,17 @@ Each Cubicle environment consists of three logical filesystem layers:
    populated with physical copies of package files, so the home directories can
    be large (a few gigabytes) and can take a few seconds to initialize.
 
-3. A work directory. For an environment named `x`, this is at `~/x` inside the
-   environment and `${XDG_DATA_HOME:-~/.local/share}/cubicle/work/x/` on the
-   host. An environment variable named `$SANDBOX` is automatically set to the
-   name of the environment and can be used to access the work directory
-   conveniently from scripts (as `~/$SANDBOX/`). The work directory is where
-   any important files should go. It persists across `cub reset`.
+3. A work directory. For an environment named `eee`, this is at `~/w/` inside
+   the environment and `${XDG_DATA_HOME:-~/.local/share}/cubicle/work/eee/` on
+   the host. The work directory is where any important files should go. It
+   persists across `cub reset`.
 
 There are a couple of special files in the work directory:
 
-- An executable placed at `~/$SANDBOX/update.sh` will be run automatically at
-  the end of `cub reset`. This can be a useful hook to re-configure a new home
+- An executable placed at `~/w/update.sh` will be run automatically at the end
+  of `cub reset`. This can be a useful hook to re-configure a new home
   directory.
 
-- A file named `~/$SANDBOX/packages.txt` keeps track of which packages the
-  environment was initialized or last reset with. It is used next time the
-  environment is reset (unless the user overrides that on the command line).
+- A file named `~/w/packages.txt` keeps track of which packages the environment
+  was initialized or last reset with. It is used next time the environment is
+  reset (unless the user overrides that on the command line).

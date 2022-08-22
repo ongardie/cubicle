@@ -70,4 +70,4 @@ cat > ~/.pylama.ini <<EOF
 linters=eradicate,isort,mccabe,mypy,pycodestyle,pydocstyle,pyflakes,pylint,radon,vulture
 EOF
 
-tar -c -C ~ --verbatim-files-from --files-from ~/$SANDBOX/provides.txt -f ~/provides.tar
+tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

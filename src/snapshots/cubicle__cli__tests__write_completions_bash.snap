@@ -53,12 +53,20 @@ _cub() {
 
     case "${cmd}" in
         cub)
-            opts="-h --help completions enter exec list packages new purge reset tmp help"
+            opts="-c -h --config --help completions enter exec list packages new purge reset tmp help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --config)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -c)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;

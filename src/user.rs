@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Result};
-use std::fmt;
 use std::io::{self, BufRead, Write};
-use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
@@ -11,53 +9,37 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::fs_util::{summarize_dir, DirSummary};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
-use super::{CubicleShared, EnvironmentName, ExitStatusError};
+use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 
 pub struct User {
     pub(super) program: Rc<CubicleShared>,
     username_prefix: &'static str,
-    work_tars: PathBuf,
+    work_tars: HostPath,
 }
 
-struct Username {
-    username: String,
-    for_environment: EnvironmentName,
+mod newtypes {
+    use super::super::newtype;
+    newtype::name!(Username);
 }
-
-impl fmt::Display for Username {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.username.fmt(f)
-    }
-}
-
-impl Deref for Username {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.username
-    }
-}
+use newtypes::Username;
 
 impl User {
-    pub(super) fn new(program: Rc<CubicleShared>) -> Self {
+    pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
         let xdg_data_home = match std::env::var("XDG_DATA_HOME") {
-            Ok(path) => PathBuf::from(path),
+            Ok(path) => HostPath::try_from(path)?,
             Err(_) => program.home.join(".local").join("share"),
         };
         let work_tars = xdg_data_home.join("cubicle").join("work");
 
-        Self {
+        Ok(Self {
             program,
             username_prefix: "cub-",
             work_tars,
-        }
+        })
     }
 
     fn username_from_environment(&self, env: &EnvironmentName) -> Username {
-        Username {
-            username: format!("{}{}", self.username_prefix, env.0),
-            for_environment: env.clone(),
-        }
+        Username::new(format!("{}{}", self.username_prefix, env))
     }
 
     fn user_exists(&self, username: &Username) -> Result<bool> {
@@ -84,7 +66,7 @@ impl User {
                 &format!("Cubicle environment for user {}", self.program.user),
             ])
             .args(["--shell", &self.program.shell])
-            .arg(username.deref())
+            .arg(username)
             .status()?;
         if !status.success() {
             return Err(anyhow!(
@@ -100,15 +82,14 @@ impl User {
             .args(["--user", username])
             .arg("--")
             .arg("mkdir")
-            .arg(&username.for_environment)
+            .arg("w")
             .env_clear()
             .status()?;
         if !status.success() {
             return Err(anyhow!(
-                "Failed to create user {} work directory ~/{}: \
+                "Failed to create user {} work directory ~/w/: \
                 sudo mkdir exited with status {:?}",
                 username,
-                username.for_environment,
                 status.code(),
             ));
         }
@@ -122,12 +103,12 @@ impl User {
             .arg("--")
             .arg("pkill")
             .args(["--signal", "KILL"])
-            .args(["--uid", username.deref()])
+            .args(["--uid", username])
             .status()?;
         Ok(())
     }
 
-    fn copy_in_seeds(&self, username: &Username, seeds: &[&Path]) -> Result<()> {
+    fn copy_in_seeds(&self, username: &Username, seeds: &[&HostPath]) -> Result<()> {
         if seeds.is_empty() {
             return Ok(());
         }
@@ -135,7 +116,7 @@ impl User {
         println!("Copying seed tarball");
         let mut source = Command::new("pv")
             .args(["-i", "0.1"])
-            .args(seeds)
+            .args(seeds.iter().map(|s| s.as_host_raw()))
             .stdout(Stdio::piped())
             .scoped_spawn()?;
         let mut source_stdout = source.stdout.take().unwrap();
@@ -219,7 +200,7 @@ impl Runner for User {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
-        self.copy_out_from_home(env_name, &Path::new(env_name).join(path), w)
+        self.copy_out_from_home(env_name, &Path::new("w").join(path), w)
     }
 
     fn create(&self, env_name: &EnvironmentName) -> Result<()> {
@@ -259,7 +240,7 @@ impl Runner for User {
 
     fn files_summary(&self, env_name: &EnvironmentName) -> Result<EnvFilesSummary> {
         let username = self.username_from_environment(env_name);
-        let home = {
+        let home: Option<HostPath> = {
             let file = std::fs::File::open("/etc/passwd")?;
             let reader = io::BufReader::new(file);
             let mut home = None;
@@ -269,7 +250,9 @@ impl Runner for User {
                 if fields.next() != Some(&username) {
                     continue;
                 }
-                home = fields.nth(4).map(PathBuf::from);
+                if let Some(h) = fields.nth(4) {
+                    home = Some(HostPath::try_from(h.to_owned())?);
+                }
                 break;
             }
             home
@@ -282,7 +265,7 @@ impl Runner for User {
                 // but it'd need to be tolerant of different versions of `du`.
                 let summary =
                     summarize_dir(&home).unwrap_or_else(|_| DirSummary::new_with_errors());
-                let work_dir_path = Some(home.join(env_name));
+                let work_dir_path = Some(home.join("w"));
                 Ok(EnvFilesSummary {
                     home_dir_path: Some(home),
                     home_dir: summary,
@@ -308,7 +291,7 @@ impl Runner for User {
         let username = self.username_from_environment(env_name);
         self.kill_username(&username)?;
 
-        std::fs::create_dir_all(&self.work_tars)?;
+        std::fs::create_dir_all(&self.work_tars.as_host_raw())?;
         let work_tar = self.work_tars.join(format!(
             "{}-{}.tar",
             env_name,
@@ -322,7 +305,7 @@ impl Runner for User {
             .arg("--")
             .arg("tar")
             .arg("--create")
-            .arg(env_name)
+            .arg("w")
             .env_clear()
             .stdout(Stdio::piped())
             .scoped_spawn()?;
@@ -332,7 +315,7 @@ impl Runner for User {
             let mut f = std::fs::OpenOptions::new()
                 .create_new(true)
                 .write(true)
-                .open(&work_tar)?;
+                .open(&work_tar.as_host_raw())?;
             io::copy(&mut stdout, &mut f)?;
             f.flush()?;
         }
@@ -361,7 +344,7 @@ impl Runner for User {
 
         match purge_and_restore() {
             Ok(()) => {
-                std::fs::remove_file(work_tar)?;
+                std::fs::remove_file(work_tar.as_host_raw())?;
                 Ok(())
             }
             Err(e) => {
@@ -382,7 +365,7 @@ impl Runner for User {
             .arg("--")
             .arg("deluser")
             .arg("--remove-home")
-            .arg(username.deref())
+            .arg(&username)
             .status()?;
         if !status.success() {
             return Err(anyhow!(
@@ -401,19 +384,20 @@ impl Runner for User {
         if let RunnerCommand::Init { seeds, script } = run_command {
             let script_tar = tempfile::NamedTempFile::new()?;
             let mut builder = tar::Builder::new(script_tar.as_file());
-            let mut script_file = std::fs::File::open(script)?;
+            let mut script_file = std::fs::File::open(script.as_host_raw())?;
             builder.append_file(".cubicle-init-script", &mut script_file)?;
             builder.into_inner().and_then(|mut f| f.flush())?;
 
-            let mut seeds: Vec<&Path> = seeds.iter().map(|p| p.as_path()).collect();
-            seeds.push(script_tar.path());
+            let mut seeds: Vec<&HostPath> = seeds.iter().collect();
+            let script_tar_path = HostPath::try_from(script_tar.path().to_owned())?;
+            seeds.push(&script_tar_path);
             self.copy_in_seeds(&username, &seeds)?;
         }
 
         let mut command = Command::new("sudo");
         command
             .env_clear()
-            .env("SANDBOX", &username.for_environment)
+            .env("SANDBOX", &env_name)
             .env("SHELL", &self.program.shell);
         if let Ok(display) = std::env::var("DISPLAY") {
             command.env("DISPLAY", display);
@@ -425,7 +409,7 @@ impl Runner for User {
         command
             // The double-slash after `~` appears to be necessary for sudo
             // (1.9.5p2). It seems dubious, though.
-            .args(["--chdir", &format!("~//{}", username.for_environment)])
+            .args(["--chdir", "~//w"])
             .arg("--login")
             .args(["--user", &username])
             .arg("--preserve-env=SANDBOX,SHELL")

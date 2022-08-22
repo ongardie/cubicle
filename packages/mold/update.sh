@@ -28,4 +28,4 @@ rustflags = ["-C", "link-arg=-fuse-ld=$HOME/bin/mold"]
 EOF
 fi
 
-tar -c -C ~ --verbatim-files-from --files-from ~/$SANDBOX/provides.txt -f ~/provides.tar
+tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

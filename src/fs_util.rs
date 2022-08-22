@@ -1,15 +1,17 @@
 use anyhow::{anyhow, Context, Result};
 use std::ffi::OsString;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub fn rmtree(path: &Path) -> Result<()> {
+use super::HostPath;
+
+pub fn rmtree(path: &HostPath) -> Result<()> {
     rmtree_(path).with_context(|| format!("Failed to recursively remove directory: {:?}", path))
 }
 
-fn rmtree_(path: &Path) -> Result<()> {
+fn rmtree_(path: &HostPath) -> Result<()> {
     // This is a bit challenging for a few reasons:
     //
     // 1. Symlinks leading out of the `path` directory must not cause this
@@ -24,7 +26,10 @@ fn rmtree_(path: &Path) -> Result<()> {
     //    container's work directory within its home directory. These are
     //    removable but their permissions can't be altered.
 
-    let dir = match cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority()) {
+    let dir = match cap_std::fs::Dir::open_ambient_dir(
+        path.as_host_raw(),
+        cap_std::ambient_authority(),
+    ) {
         Ok(dir) => dir,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e.into()),
@@ -61,7 +66,7 @@ fn rmtree_(path: &Path) -> Result<()> {
         Ok(())
     }
 
-    let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
+    let dir = cap_std::fs::Dir::open_ambient_dir(path.as_host_raw(), cap_std::ambient_authority())?;
     let _ = rm_contents(&dir); // ignore this error
     dir.remove_open_dir_all()?; // prefer this one
     Ok(())
@@ -113,7 +118,7 @@ impl DirSummary {
     }
 }
 
-pub fn summarize_dir(path: &Path) -> Result<DirSummary> {
+pub fn summarize_dir(path: &HostPath) -> Result<DirSummary> {
     fn handle_entry(summary: &mut DirSummary, entry: Result<WalkDirEntry>) {
         match entry {
             Ok(WalkDirEntry { entry, .. }) => {
@@ -156,8 +161,8 @@ pub fn summarize_dir(path: &Path) -> Result<DirSummary> {
     Ok(summary)
 }
 
-pub fn try_iterdir(path: &Path) -> Result<Vec<OsString>> {
-    let readdir = std::fs::read_dir(path);
+pub fn try_iterdir(path: &HostPath) -> Result<Vec<OsString>> {
+    let readdir = std::fs::read_dir(path.as_host_raw());
     if matches!(&readdir, Err(e) if e.kind() == io::ErrorKind::NotFound) {
         return Ok(Vec::new());
     };
@@ -186,8 +191,9 @@ pub struct WalkDir {
 }
 
 impl WalkDir {
-    pub fn new(path: &Path) -> Result<WalkDir> {
-        let dir = cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())?;
+    pub fn new(path: &HostPath) -> Result<WalkDir> {
+        let dir =
+            cap_std::fs::Dir::open_ambient_dir(path.as_host_raw(), cap_std::ambient_authority())?;
         let entries = dir.entries()?;
         Ok(WalkDir {
             stack: vec![WalkDirCursor {
@@ -264,7 +270,7 @@ pub struct TarOptions {
     pub exclude: Vec<PathBuf>,
 }
 
-pub fn create_tar_from_dir<W: io::Write>(dir: &Path, w: W, opts: &TarOptions) -> Result<()> {
+pub fn create_tar_from_dir<W: io::Write>(dir: &HostPath, w: W, opts: &TarOptions) -> Result<()> {
     let mut builder = tar::Builder::new(w);
     for entry in WalkDir::new(dir)? {
         let WalkDirEntry {
@@ -312,4 +318,15 @@ pub fn create_tar_from_dir<W: io::Write>(dir: &Path, w: W, opts: &TarOptions) ->
     }
     builder.into_inner().and_then(|mut f| f.flush())?;
     Ok(())
+}
+
+pub fn try_exists(path: &HostPath) -> io::Result<bool> {
+    // Adapted from rust `library/std/src/sys_common/fs.rs`
+    // since `std::fs::try_exists` is unstable
+    // and `Path::try_exists` feels dirty.
+    match std::fs::metadata(path.as_host_raw()) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
 }

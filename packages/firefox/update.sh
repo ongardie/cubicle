@@ -48,4 +48,4 @@ xdg-mime default firefox.desktop x-scheme-handler/https x-scheme-handler/http
 EOF
 chmod +x ~/.dev-init/firefox.sh
 
-tar -c -C ~ --verbatim-files-from --files-from ~/$SANDBOX/provides.txt -f ~/provides.tar
+tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

@@ -44,10 +44,10 @@ Assuming you'd like to install into `~/opt/cubicle` and already have `~/bin` in
 your `$PATH`:
 
 ```sh
+echo 'runner = "docker"' > ~/.config/cubicle.toml
 cd ~/opt/
 git clone https://github.com/ongardie/cubicle/
 cd cubicle
-echo docker > .RUNNER
 ln -s $(pwd)/target/release/cubicle ~/bin/cub
 ```
 
@@ -89,6 +89,32 @@ curl -L 'https://raw.githubusercontent.com/moby/moby/master/profiles/seccomp/def
 sed 's/"getpid",/"getpid", "clone", "unshare",/' < docker-seccomp.json > seccomp.json
 ```
 
+## Configuration
+
+Inside your `cubicle.toml`, set `runner` to `"docker"`. You can optionally
+create a table named `docker` with the following keys:
+
+### `bind_mounts`
+
+- Type: boolean
+- Default: `false`
+
+If false (default), the Docker runner will use volume mounts for the
+environments' home and work directories.
+
+If true, the runner will use bind mounts instead. Bind mounts are probably only
+advantageous on Linux; they can be more convenient because they can be owned by
+the normal user on the host.
+
+### `prefix`
+
+- Type: string
+- Default: `"cub-"`
+
+This string is prepended to all the Docker object names (container, image, and
+volume names) that the Cubicle runner creates. It defaults to "cub-". Using the
+empty string is also allowed.
+
 ## Uninstalling
 
 First, exit out of any running Cubicle environments.
@@ -120,38 +146,40 @@ rm -r ${XDG_DATA_HOME:-~/.local/share}/cubicle/
 
 Each Cubicle environment consists of three logical filesystem layers:
 
-| Layer   | Host Path (with default XDG base dirs) | Container Path   | Lifetime |
-| ------- | -------------------------------------- | ---------------- | -------- |
-| 1. OS   | cubicle-base Docker image              | `/` (read-write) | short    |
-| 2. home | `~/.cache/cubicle/home/ENV`            | `~/`             | short    |
-| 3. work | `~/.local/share/cubicle/work/ENV`      | `~/ENV/`         | long     |
+| Layer   | Storage (with default config) | Container Path   | Lifetime |
+| ------- | ----------------------------- | ---------------- | -------- |
+| 1. OS   | cub-cubicle-base Docker image | `/` (read-write) | short    |
+| 2. home | cub-ENV-home Docker volume    | `~/`             | short    |
+| 3. work | cub-ENV-work Docker volume    | `~/w/`           | long     |
 
-1. The base operating system. This is the "cubicle-base" Docker image that is
-   built automatically by Cubicle. It's currently based on Debian 11. See
+1. The base operating system. This is the "cub-cubicle-base" Docker image that
+   is built automatically by Cubicle. It's currently based on Debian 11. See
    `Dockerfile.in` for details.
 
 2. A home directory. Inside the environment, this is at the same path as the
    host's `$HOME`, but it's not shared with the host. It lives in
-   `${XDG_CACHE_HOME:-~/.cache}/cubicle/home/` on the host. The home directory
+   `${XDG_CACHE_HOME:-~/.cache}/cubicle/home/` on the host with bind mounts
+   or in a `cub-ENV-home` Docker volume with volume mounts.
+   The home directory
    should be treated as replaceable at any time. Cubicle populates the home
    directory with files from packages when you create the environment (with
    `cub new`) or reset it (with `cub reset`). Currently, the home directory is
    populated with physical copies of package files, so the home directories can
    be large (a few gigabytes) and can take a few seconds to initialize.
 
-3. A work directory. For an environment named `x`, this is at `~/x` inside the
-   environment and `${XDG_DATA_HOME:-~/.local/share}/cubicle/work/x/` on the
-   host. An environment variable named `$SANDBOX` is automatically set to the
-   name of the environment and can be used to access the work directory
-   conveniently from scripts (as `~/$SANDBOX/`). The work directory is where
-   any important files should go. It persists across `cub reset`.
+3. A work directory. his is at `~/w/` inside the environment. For an
+   environment named `eee`, this is at
+   `${XDG_DATA_HOME:-~/.local/share}/cubicle/work/eee/` on the host with bind
+   mounts or in a `cub-eee-home` Docker volume with volume mounts. The work
+   directory is where any important files should go. It persists across
+   `cub reset`.
 
 There are a couple of special files in the work directory:
 
-- An executable placed at `~/$SANDBOX/update.sh` will be run automatically at
-  the end of `cub reset`. This can be a useful hook to re-configure a new home
+- An executable placed at `~/w/update.sh` will be run automatically at the end
+  of `cub reset`. This can be a useful hook to re-configure a new home
   directory.
 
-- A file named `~/$SANDBOX/packages.txt` keeps track of which packages the
-  environment was initialized or last reset with. It is used next time the
-  environment is reset (unless the user overrides that on the command line).
+- A file named `~/w/packages.txt` keeps track of which packages the environment
+  was initialized or last reset with. It is used next time the environment is
+  reset (unless the user overrides that on the command line).

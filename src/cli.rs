@@ -1,7 +1,10 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
+use std::fmt::Display;
 use std::io;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use super::{
     package_set_from_names, Clean, Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, Quiet,
@@ -15,6 +18,15 @@ use super::{
 // <https://github.com/clap-rs/clap/issues/1015>.
 #[clap(help_message("Print help information. Use --help for more details"))]
 pub struct Args {
+    /// Path to configuration file.
+    #[clap(
+        short,
+        long,
+        default_value_t = default_config_path(),
+        value_hint(clap::ValueHint::FilePath),
+    )]
+    pub config: PathWithVarExpansion,
+
     #[clap(subcommand)]
     command: Commands,
 }
@@ -119,6 +131,87 @@ enum Commands {
 
 pub fn parse() -> Args {
     Args::parse()
+}
+
+/// This type wrapper stores a normal path but understands "$HOME".
+///
+/// In particular, it expands the variable "$HOME" when converting from a
+/// string and displays the path with "$HOME" when possible.
+///
+/// The main reason for this is to get the user's home directory out of the
+/// usage message and therefore out of the unit test snapshots.
+///
+/// # Historical Note
+///
+/// Previous to this, I (Diego) attempted to redact the home directory path
+/// from the usage message in the unit test before snapshotting. This didn't
+/// work because a difference in length of the path can cause the line to wrap
+/// for some users and not others.
+///
+/// After that, I tried to only substitute in "$HOME" during Display but never
+/// expand "$HOME". This didn't work either because clap always converts the
+/// default value to a string, then parses that string.
+#[derive(Debug)]
+pub struct PathWithVarExpansion(PathBuf);
+
+impl PathWithVarExpansion {
+    /// Helper for Display. Split out for unit testing.
+    fn sub_home_prefix(&self, home: &Path) -> String {
+        if let Ok(rest) = self.0.strip_prefix(&home) {
+            format!("$HOME{}{}", std::path::MAIN_SEPARATOR, rest.display())
+        } else {
+            format!("{}", self.0.display())
+        }
+    }
+
+    /// Helper for `from_str`. Split out for unit testing.
+    fn expand_home_prefix(path_str: &str, home: PathBuf) -> Self {
+        let path = if path_str == "$HOME" {
+            home
+        } else if let Some(rest) =
+            path_str.strip_prefix(&format!("$HOME{}", std::path::MAIN_SEPARATOR))
+        {
+            home.join(rest)
+        } else {
+            PathBuf::from(path_str)
+        };
+        Self(path)
+    }
+}
+
+impl AsRef<Path> for PathWithVarExpansion {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Display for PathWithVarExpansion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Ok(home) = std::env::var("HOME") {
+            self.sub_home_prefix(Path::new(&home)).fmt(f)
+        } else {
+            self.0.display().fmt(f)
+        }
+    }
+}
+
+impl FromStr for PathWithVarExpansion {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let home = PathBuf::from(std::env::var("HOME")?);
+        Ok(Self::expand_home_prefix(s, home))
+    }
+}
+
+fn default_config_path() -> PathWithVarExpansion {
+    let xdg_config_home = if let Ok(path) = std::env::var("XDG_CONFIG_HOME") {
+        PathBuf::from(path)
+    } else {
+        let home = PathBuf::from(std::env::var("HOME").expect("Invalid $HOME"));
+        home.join(".config")
+    };
+    PathWithVarExpansion(xdg_config_home.join("cubicle.toml"))
 }
 
 fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
@@ -229,6 +322,48 @@ pub(super) fn run(args: Args, program: &Cubicle) -> Result<()> {
 mod tests {
     use super::*;
     use insta::{assert_display_snapshot, assert_snapshot};
+
+    #[test]
+    fn sub_home_prefix() {
+        let p = PathWithVarExpansion(PathBuf::from("/home/foo/bar"));
+        assert_eq!("$HOME/bar", p.sub_home_prefix(Path::new("/home/foo")));
+        assert_eq!("$HOME/bar", p.sub_home_prefix(Path::new("/home/foo/")));
+        assert_eq!("/home/foo/bar", p.sub_home_prefix(Path::new("/home/fo")));
+    }
+
+    #[test]
+    fn expand_home_prefix() {
+        assert_eq!(
+            "/home/foo/bar",
+            PathWithVarExpansion::expand_home_prefix("$HOME/bar", PathBuf::from("/home/foo"))
+                .to_string()
+        );
+        assert_eq!(
+            "/home/foo/bar",
+            PathWithVarExpansion::expand_home_prefix("$HOME/bar", PathBuf::from("/home/foo/"))
+                .to_string()
+        );
+        assert_eq!(
+            "/home/foo",
+            PathWithVarExpansion::expand_home_prefix("$HOME", PathBuf::from("/home/foo"))
+                .to_string()
+        );
+        assert_eq!(
+            "$HOMER",
+            PathWithVarExpansion::expand_home_prefix("$HOMER", PathBuf::from("/home/foo"))
+                .to_string()
+        );
+        assert_eq!(
+            "/abc/$HOME",
+            PathWithVarExpansion::expand_home_prefix("/abc/$HOME", PathBuf::from("/home/foo"))
+                .to_string()
+        );
+        assert_eq!(
+            "/abc/def",
+            PathWithVarExpansion::expand_home_prefix("/abc/def", PathBuf::from("/home/foo"))
+                .to_string()
+        );
+    }
 
     #[test]
     fn usage() {
