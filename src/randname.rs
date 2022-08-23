@@ -50,6 +50,7 @@ impl RandomNameGenerator {
                     println!("Downloading EFF short wordlist");
                     let url = "https://www.eff.org/files/2016/09/08/eff_short_wordlist_1.txt";
                     let body = reqwest::blocking::get(url)?.text()?;
+                    std::fs::create_dir_all(self.cache_dir.as_host_raw())?;
                     std::fs::write(&eff_word_list.as_host_raw(), body)?;
                     std::fs::File::open(&eff_word_list.as_host_raw())?
                 }
