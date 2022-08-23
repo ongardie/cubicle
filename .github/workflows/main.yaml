@@ -47,6 +47,18 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+        # See https://github.com/actions/cache/blob/main/examples.md#rust---cargo
+      - name: Use Rust/Cargo cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: cargo-${{ matrix.os }}-${{ matrix.rust }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.os }}-${{ matrix.rust }}-
+
       - name: Run cargo build
         uses: actions-rs/cargo@v1
         with:
