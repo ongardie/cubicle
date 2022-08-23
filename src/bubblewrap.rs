@@ -149,7 +149,7 @@ impl Runner for Bubblewrap {
         let work_dir = self.work_dirs.join(name);
         let work_dir_exists = try_exists(&work_dir)?;
         let work_dir_summary = if work_dir_exists {
-            summarize_dir(&home_dir)?
+            summarize_dir(&work_dir)?
         } else {
             DirSummary::new_with_errors()
         };
@@ -285,14 +285,7 @@ impl Runner for Bubblewrap {
             }
             RunnerCommand::Exec(exec) => {
                 command.arg("-c");
-                // `shlex.join` doesn't work directly since `exec` has
-                // `String`s, not `str`s.
-                command.arg(
-                    exec.iter()
-                        .map(|a| shlex::quote(a))
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                );
+                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
             }
         }
 

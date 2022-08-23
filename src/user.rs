@@ -422,14 +422,7 @@ impl Runner for User {
             }
             RunnerCommand::Exec(exec) => {
                 command.arg("-c");
-                // `shlex.join` doesn't work directly since `exec` has
-                // `String`s, not `str`s.
-                command.arg(
-                    exec.iter()
-                        .map(|a| shlex::quote(a))
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                );
+                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
             }
         }
 

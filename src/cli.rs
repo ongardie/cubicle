@@ -6,9 +6,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use super::{
-    package_set_from_names, Clean, Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, Quiet,
-};
+use super::packages::{package_set_from_names, ListPackagesFormat};
+use super::{Clean, Cubicle, EnvironmentName, ListFormat, Quiet};
 
 /// Manage sandboxed development environments.
 #[derive(Debug, Parser)]
