@@ -95,3 +95,25 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: audit
+
+      - name: Save build artifact
+        # The uploader currently uses gzip internally and will aggressively and
+        # slowly gzip anything it doesn't think is already compressed. It has
+        # an exception for a very small number of file extensions, including
+        # `.gz`. This uses `gzip -1` first, which saves a second or two. We can
+        # switch to Zstd (which would save another couple of seconds) once this
+        # PR is merged: <https://github.com/actions/toolkit/pull/1118>.
+        run: |
+          tar -C .. --create \
+            cubicle/Dockerfile.in \
+            cubicle/dev-init.sh \
+            cubicle/packages/ \
+            cubicle/target/debug/cubicle | \
+          gzip -1 > debug-dist.tar.gz
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: debug-dist-${{ matrix.os }}-${{ matrix.rust }}
+          path: debug-dist.tar.gz
+          if-no-files-found: error
