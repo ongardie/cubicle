@@ -8,7 +8,19 @@
     clippy::try_err,
     clippy::unreadable_literal
 )]
+#![warn(missing_docs)]
 
+//! This crate is the library underneath the Cubicle command-line program.
+//!
+//! It is split from the main program as a generally recommended practice in
+//! Rust and to allow for system-level tests. Most people should probably use
+//! the command-line program instead.
+//!
+//! The remainder of this header reproduces the README from the command-line
+//! program. Skip below to learn about the the library API.
+#![doc = include_str!("../README.md")]
+
+#[doc(no_inline)]
 pub use anyhow::Result;
 use anyhow::{anyhow, Context};
 use clap::ValueEnum;
@@ -29,8 +41,8 @@ use newtype::HostPath;
 
 pub mod cli;
 
-mod config;
-pub use config::Config;
+pub mod config;
+use config::Config;
 
 mod randname;
 use randname::RandomNameGenerator;
@@ -45,7 +57,8 @@ mod fs_util;
 use fs_util::DirSummary;
 
 mod packages;
-use packages::{write_package_list_tar, PackageName, PackageNameSet};
+use packages::write_package_list_tar;
+pub use packages::{ListPackagesFormat, PackageName, PackageNameSet};
 
 mod scoped_child;
 
@@ -60,6 +73,8 @@ use docker::Docker;
 mod user;
 use user::User;
 
+/// The main Cubicle program functionality.
+///
 // This struct is split in two so that the runner may also keep a reference to
 // `shared`.
 pub struct Cubicle {
@@ -82,9 +97,11 @@ struct CubicleShared {
     random_name_gen: RandomNameGenerator,
 }
 
+/// Named boolean flag for [`Cubicle::purge_environment`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Quiet(pub bool);
 
+/// Named boolean flag for [`Cubicle::reset_environment`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Clean(pub bool);
 
@@ -102,6 +119,17 @@ fn get_hostname() -> Option<String> {
 }
 
 impl Cubicle {
+    /// Creates a new instance.
+    ///
+    /// Note that this function and the rest of this library may read from
+    /// stdin and write to stdout and stderr. These effects are not currently
+    /// modeled through the type system.
+    ///
+    /// # Errors
+    ///
+    /// - Reading and parsing environment variables.
+    /// - Loading and initializing filesystem structures.
+    /// - Creating a runner.
     pub fn new(config: Config) -> Result<Self> {
         let hostname = get_hostname();
         let home = HostPath::try_from(std::env::var("HOME").context("Invalid $HOME")?)?;
@@ -181,6 +209,7 @@ impl Cubicle {
         Ok(Cubicle { runner, shared })
     }
 
+    /// Corresponds to `cub enter`.
     pub fn enter_environment(&self, name: &EnvironmentName) -> Result<()> {
         use EnvironmentExists::*;
         match self.runner.exists(name)? {
@@ -193,6 +222,7 @@ impl Cubicle {
         }
     }
 
+    /// Corresponds to `cub exec`.
     pub fn exec_environment(&self, name: &EnvironmentName, command: &[String]) -> Result<()> {
         use EnvironmentExists::*;
         match self.runner.exists(name)? {
@@ -205,6 +235,7 @@ impl Cubicle {
         }
     }
 
+    /// Corresponds to `cub list`.
     pub fn list_environments(&self, format: ListFormat) -> Result<()> {
         let names = {
             let mut names = self.runner.list()?;
@@ -317,6 +348,7 @@ impl Cubicle {
         Ok(())
     }
 
+    /// Corresponds to `cub new`.
     pub fn new_environment(
         &self,
         name: &EnvironmentName,
@@ -357,6 +389,7 @@ impl Cubicle {
         .with_context(|| format!("Failed to initialize new environment {name}"))
     }
 
+    /// Corresponds to `cub tmp`.
     pub fn create_enter_tmp_environment(&self, packages: Option<PackageNameSet>) -> Result<()> {
         let name = {
             let name = self
@@ -382,6 +415,7 @@ impl Cubicle {
         self.run(&name, &RunCommand::Interactive)
     }
 
+    /// Corresponds to `cub purge`.
     pub fn purge_environment(&self, name: &EnvironmentName, quiet: Quiet) -> Result<()> {
         if !quiet.0 && self.runner.exists(name)? == EnvironmentExists::NoEnvironment {
             println!("Warning: environment {name} does not exist (nothing to purge)");
@@ -397,6 +431,7 @@ impl Cubicle {
         Ok(())
     }
 
+    /// Corresponds to `cub reset`.
     pub fn reset_environment(
         &self,
         name: &EnvironmentName,
@@ -530,6 +565,10 @@ impl fmt::Display for ExitStatusError {
     }
 }
 
+/// The name of a potential Cubicle sandbox/isolation environment.
+///
+/// Other than '-' and '_' and some non-ASCII characters, values of this type
+/// may not contain whitespace or special characters.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EnvironmentName(String);
 
@@ -597,29 +636,39 @@ impl EnvironmentName {
     }
 }
 
+/// Allowed formats for [`Cubicle::list_environments`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum ListFormat {
+    /// Human-formatted table.
     #[default]
     Default,
+    /// Detailed JSON output for machine consumption.
     Json,
+    /// Newline-delimited list of environment names only.
     Names,
 }
 
+/// The type of runner to use to run isolated environments.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-enum RunnerKind {
+pub enum RunnerKind {
+    /// Use the Bubblewrap runner (Linux only).
     #[cfg(target_os = "linux")]
     #[serde(alias = "bubblewrap")]
     #[serde(alias = "bwrap")]
     Bubblewrap,
+
+    /// Use the Docker runner.
     #[serde(alias = "docker")]
     Docker,
+
+    /// Use the system user account runner.
     #[serde(alias = "user")]
     #[serde(alias = "Users")]
     #[serde(alias = "users")]
     User,
 }
 
-fn time_serialize<S>(time: &SystemTime, ser: S) -> Result<S::Ok, S::Error>
+fn time_serialize<S>(time: &SystemTime, ser: S) -> std::result::Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -627,7 +676,7 @@ where
     ser.serialize_f64(time)
 }
 
-fn time_serialize_opt<S>(time: &Option<SystemTime>, ser: S) -> Result<S::Ok, S::Error>
+fn time_serialize_opt<S>(time: &Option<SystemTime>, ser: S) -> std::result::Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {

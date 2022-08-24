@@ -124,7 +124,7 @@ impl Cubicle {
         Ok(names)
     }
 
-    pub fn scan_packages(&self) -> Result<PackageSpecs> {
+    pub(super) fn scan_packages(&self) -> Result<PackageSpecs> {
         let mut specs = BTreeMap::new();
 
         for dir in try_iterdir(&self.shared.user_package_dir)? {
@@ -155,7 +155,11 @@ impl Cubicle {
         Ok(specs)
     }
 
-    pub fn update_packages(&self, packages: &PackageNameSet, specs: &PackageSpecs) -> Result<()> {
+    pub(super) fn update_packages(
+        &self,
+        packages: &PackageNameSet,
+        specs: &PackageSpecs,
+    ) -> Result<()> {
         let now = SystemTime::now();
         let mut todo: Vec<PackageName> =
             Vec::from_iter(transitive_depends(packages, specs, BuildDepends(true)));
@@ -234,7 +238,11 @@ impl Cubicle {
         Ok(())
     }
 
-    pub fn update_package(&self, package_name: &PackageName, spec: &PackageSpec) -> Result<()> {
+    pub(super) fn update_package(
+        &self,
+        package_name: &PackageName,
+        spec: &PackageSpec,
+    ) -> Result<()> {
         self.update_package_(package_name, spec)
             .with_context(|| format!("Failed to update package: {package_name}"))
     }
@@ -375,6 +383,7 @@ impl Cubicle {
         }
     }
 
+    /// Corresponds to `cub packages`.
     pub fn list_packages(&self, format: ListPackagesFormat) -> Result<()> {
         type Format = ListPackagesFormat;
 
@@ -476,7 +485,7 @@ impl Cubicle {
         Ok(())
     }
 
-    pub fn read_package_list_from_env(
+    pub(super) fn read_package_list_from_env(
         &self,
         name: &EnvironmentName,
     ) -> Result<Option<PackageNameSet>> {
@@ -488,7 +497,7 @@ impl Cubicle {
         Ok(Some(package_set_from_names(names)?))
     }
 
-    pub fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<HostPath>> {
+    pub(super) fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<HostPath>> {
         let mut seeds = Vec::with_capacity(packages.len());
         let specs = self.scan_packages()?;
         let deps = transitive_depends(packages, &specs, BuildDepends(false));
@@ -502,6 +511,10 @@ impl Cubicle {
     }
 }
 
+/// The name of a potential Cubicle package.
+///
+/// Other than '-' and '_' and some non-ASCII characters, values of this type
+/// may not contain whitespace or special characters.
 #[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageName(String);
 
@@ -529,6 +542,7 @@ impl fmt::Display for PackageName {
     }
 }
 
+/// An ordered set of package names.
 pub type PackageNameSet = BTreeSet<PackageName>;
 
 pub fn package_set_from_names(names: Vec<String>) -> Result<PackageNameSet> {
@@ -544,11 +558,15 @@ pub fn package_set_from_names(names: Vec<String>) -> Result<PackageNameSet> {
     Ok(set)
 }
 
+/// Allowed formats for [`Cubicle::list_packages`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum ListPackagesFormat {
+    /// Human-formatted table.
     #[default]
     Default,
+    /// Detailed JSON output for machine consumption.
     Json,
+    /// Newline-delimited list of package names only.
     Names,
 }
 
