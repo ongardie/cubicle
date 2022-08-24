@@ -16,7 +16,9 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  test:
+  build:
+    name: Build & check
+
     strategy:
       fail-fast: false
       matrix:
@@ -95,3 +97,96 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: audit
+
+      - name: Save build artifact
+        # The uploader currently uses gzip internally and will aggressively and
+        # slowly gzip anything it doesn't think is already compressed. It has
+        # an exception for a very small number of file extensions, including
+        # `.gz`. This uses `gzip -1` first, which saves a second or two. We can
+        # switch to Zstd (which would save another couple of seconds) once this
+        # PR is merged: <https://github.com/actions/toolkit/pull/1118>.
+        run: |
+          tar -C .. --create \
+            cubicle/Dockerfile.in \
+            cubicle/dev-init.sh \
+            cubicle/packages/ \
+            cubicle/target/debug/cubicle | \
+          gzip -1 > debug-dist.tar.gz
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: debug-dist-${{ matrix.os }}-${{ matrix.rust }}
+          path: debug-dist.tar.gz
+          if-no-files-found: error
+
+  system_test:
+    name: System tests
+    needs: build
+
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable]
+        os: [ubuntu-20.04, macos-12]
+        runner: [docker]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Install Docker
+        # Docker isn't installed on the Mac runners due to licensing issues:
+        # <https://github.com/actions/runner-images/issues/2150>.
+        if: ${{ matrix.os == 'macos-12' }}
+        run: brew install docker docker-machine
+
+      - name: Create VirtualBox VM for Docker
+        if: ${{ matrix.os == 'macos-12' }}
+        # Normally docker-machine would check for the latest boot2docker URL,
+        # but it gives the error: `Error with pre-create check: "failure
+        # getting a version tag from the Github API response (are you getting
+        # rate limited by Github?)"`. Its README says to pass
+        # `--github-api-token`, but that doesn't work due to
+        # <https://github.com/docker/machine/issues/2765> and
+        # <https://github.com/docker/machine/issues/2296>. This just sets a
+        # static URL. Because boot2docker is no longer maintained, there's no
+        # risk of a newer ISO being released.
+
+        # Then, set a different IPv4 range to work around this error:
+        #
+        # ```
+        # Error creating machine: Error in driver during machine creation:
+        #     Error setting up host only network on machine start:
+        #     /usr/local/bin/VBoxManage hostonlyif ipconfig vboxnet0 --ip
+        #     192.168.99.1 --netmask 255.255.255.0 failed:
+        # VBoxManage: error: Code E_ACCESSDENIED (0x80070005) - Access denied
+        #     (extended info not available)
+        # VBoxManage: error: Context: "EnableStaticIPConfig(Bstr(pszIp).raw(),
+        #     Bstr(pszNetmask).raw())" at line 242 of file VBoxManageHostonly.cpp
+        # ```
+        #
+        # See <https://github.com/nektos/act/issues/858>.
+        run: |
+          docker-machine create \
+            --driver virtualbox  \
+            --virtualbox-boot2docker-url 'https://github.com/boot2docker/boot2docker/releases/download/v19.03.12/boot2docker.iso' \
+            --virtualbox-hostonly-cidr '192.168.56.1/24' \
+            default && \
+          eval "$(docker-machine env default)" && \
+          env | grep DOCKER >> $GITHUB_ENV
+
+      - name: Docker hello world
+        run: docker run --rm debian:11 echo "Hello world"
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: debug-dist-${{ matrix.os }}-${{ matrix.rust }}
+
+      - name: Unpack build artifact
+        run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+
+      - name: Run cubicle list
+        run: |
+          echo 'runner = "${{ matrix.runner }}"' > ~/.config/cubicle.toml && \
+          RUST_BACKTRACE=1 ./target/debug/cubicle list
