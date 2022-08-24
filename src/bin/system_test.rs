@@ -9,11 +9,8 @@
     clippy::unreadable_literal
 )]
 
-use cubicle::{cli, Config, Cubicle, Result};
+use cubicle::Quiet;
 
-fn main() -> Result<()> {
-    let args = cli::parse();
-    let config = Config::read_from_file(args.config.as_ref())?;
-    let program = Cubicle::new(config)?;
-    cli::run(args, &program)
+fn main() {
+    println!("hello world. {:?}", Quiet(false));
 }

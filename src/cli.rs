@@ -36,18 +36,18 @@ enum Commands {
     ///
     /// Installation for Bash:
     ///
-    ///     $ cub completions bash > ~/.local/share/bash-completion/completions/cub
+    ///   $ cub completions bash > ~/.local/share/bash-completion/completions/cub
     ///
     /// Installation for ZSH (depending on `$fpath`):
     ///
-    ///     $ cub completions zsh > ~/.zfunc/_cub
+    ///   $ cub completions zsh > ~/.zfunc/_cub
     ///
     /// You may need to restart your shell or configure it.
     ///
     /// This installation works similarly as for rustup's completions. For
     /// detailed instructions, see:
     ///
-    ///     $ rustup help completions
+    ///   $ rustup help completions
     #[clap(arg_required_else_help(true))]
     Completions {
         #[clap(value_parser)]
@@ -272,7 +272,7 @@ _cub_pkgs() {
     Ok(())
 }
 
-pub(super) fn run(args: Args, program: &Cubicle) -> Result<()> {
+pub fn run(args: Args, program: &Cubicle) -> Result<()> {
     use Commands::*;
     match args.command {
         Completions { shell } => write_completions(shell, &mut io::stdout()),
