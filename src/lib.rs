@@ -435,7 +435,7 @@ impl Cubicle {
     pub fn reset_environment(
         &self,
         name: &EnvironmentName,
-        packages: &Option<PackageNameSet>,
+        packages: Option<&PackageNameSet>,
         clean: Clean,
     ) -> Result<()> {
         if self.runner.exists(name)? == EnvironmentExists::NoEnvironment {

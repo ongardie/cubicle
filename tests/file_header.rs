@@ -68,7 +68,7 @@ fn targets(manifest_dir: &Path) -> Result<Vec<PathBuf>> {
     for path in [
         "src/lib.rs",
         "src/main.rs",
-        "src/bin/system_test.rs",
+        "src/bin/system_test/main.rs",
         file!(),
     ] {
         let path = manifest_dir.join(path);

@@ -325,7 +325,7 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
         } => {
             let packages = packages.map(package_set_from_names).transpose()?;
             for name in &names {
-                program.reset_environment(name, &packages, Clean(clean))?;
+                program.reset_environment(name, packages.as_ref(), Clean(clean))?;
             }
             Ok(())
         }
