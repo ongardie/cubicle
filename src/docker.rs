@@ -11,12 +11,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
+use super::os_util::get_timezone;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
+    timezone: String,
     mounts: Mounts,
     base_image: ImageName,
     container_home: EnvPath,
@@ -42,6 +44,8 @@ use newtypes::{ContainerName, ImageName, VolumeName};
 
 impl Docker {
     pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
+        let timezone = get_timezone();
+
         let mounts = if program.config.docker.bind_mounts {
             let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
                 Ok(path) => HostPath::try_from(path)?,
@@ -70,6 +74,7 @@ impl Docker {
 
         Ok(Self {
             program,
+            timezone,
             mounts,
             base_image,
             container_home,
@@ -161,7 +166,7 @@ impl Docker {
             return Ok(());
         }
         let dockerfile = std::fs::read_to_string(dockerfile_path.as_host_raw())?
-            .replace("@@TIMEZONE@@", &self.program.timezone)
+            .replace("@@TIMEZONE@@", &self.timezone)
             .replace("@@USER@@", &self.program.user);
         let mut child = Command::new("docker")
             .args(["build", "--tag", &self.base_image, "-"])
