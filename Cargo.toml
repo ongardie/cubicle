@@ -8,6 +8,7 @@ default-run = "cubicle"
 
 [dependencies]
 anyhow = { version = "1.0.60", features = ["backtrace"] }
+atty = "0.2.14"
 cap-std = "0.25.2"
 clap = { version = "3.2.16", features = ["derive"] }
 clap_complete = "3.2.4"
