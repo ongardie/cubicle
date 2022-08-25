@@ -6,9 +6,6 @@ heavy-weight container mechanism. Docker runs Linux containers, but it runs on
 Mac and Windows as well by running a Linux VM. Under Docker, the environments
 may use sudo to modify their root partitions.
 
-Unfortunately, Mac is currently unsupported; see
-<https://github.com/ongardie/cubicle/issues/2>.
-
 ## Security
 
 Cubicle relies on Docker and the Linux kernel for isolation, which aren't
