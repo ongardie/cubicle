@@ -453,7 +453,6 @@ impl Docker {
             .ok_or_else(|| anyhow!("path not valid UTF-8: {abs_path:?}"))?;
         let mut child = Command::new("docker")
             .arg("cp")
-            .arg("--archive")
             .arg(format!("{container_name}:{abs_path_str}",))
             .arg("-")
             .stdout(Stdio::piped())
@@ -738,7 +737,6 @@ impl Runner for Docker {
         if let RunnerCommand::Init { script, seeds } = run_command {
             let status = Command::new("docker")
                 .arg("cp")
-                .arg("--archive")
                 .arg(script.as_host_raw())
                 .arg(format!(
                     "{}:{}",
