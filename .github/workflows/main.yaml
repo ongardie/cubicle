@@ -110,7 +110,9 @@ jobs:
             cubicle/Dockerfile.in \
             cubicle/dev-init.sh \
             cubicle/packages/ \
-            cubicle/target/debug/cubicle | \
+            cubicle/src/bin/system_test/github/docker.toml \
+            cubicle/target/debug/cubicle \
+            cubicle/target/debug/system_test | \
           gzip -1 > debug-dist.tar.gz
 
       - name: Upload build artifact
@@ -127,9 +129,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable]
-        os: [ubuntu-20.04, macos-12]
-        runner: [docker]
+        include:
+          - os: ubuntu-20.04
+            runner: docker
+          - os: macos-12
+            runner: docker
 
     runs-on: ${{ matrix.os }}
 
@@ -137,11 +141,11 @@ jobs:
       - name: Install Docker
         # Docker isn't installed on the Mac runners due to licensing issues:
         # <https://github.com/actions/runner-images/issues/2150>.
-        if: ${{ matrix.os == 'macos-12' }}
+        if: ${{ matrix.os == 'macos-12' && matrix.runner == 'docker' }}
         run: brew install docker docker-machine
 
       - name: Create VirtualBox VM for Docker
-        if: ${{ matrix.os == 'macos-12' }}
+        if: ${{ matrix.os == 'macos-12' && matrix.runner == 'docker' }}
         # Normally docker-machine would check for the latest boot2docker URL,
         # but it gives the error: `Error with pre-create check: "failure
         # getting a version tag from the Github API response (are you getting
@@ -176,17 +180,24 @@ jobs:
           env | grep DOCKER >> $GITHUB_ENV
 
       - name: Docker hello world
+        if: ${{ matrix.runner == 'docker' }}
         run: docker run --rm debian:11 echo "Hello world"
 
       - name: Download build artifact
         uses: actions/download-artifact@v3
         with:
-          name: debug-dist-${{ matrix.os }}-${{ matrix.rust }}
+          name: debug-dist-${{ matrix.os }}-stable
 
       - name: Unpack build artifact
         run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
 
-      - name: Run cubicle list
+      - name: Run cub list
         run: |
-          echo 'runner = "${{ matrix.runner }}"' > ~/.config/cubicle.toml && \
-          RUST_BACKTRACE=1 ./target/debug/cubicle list
+          RUST_BACKTRACE=1 ./target/debug/cubicle \
+            --config 'src/bin/system_test/github/${{ matrix.runner }}.toml' \
+            list
+
+      - name: Run system test
+        run: |
+          RUST_BACKTRACE=1 ./target/debug/system_test \
+            --config 'src/bin/system_test/github/${{ matrix.runner }}.toml'
