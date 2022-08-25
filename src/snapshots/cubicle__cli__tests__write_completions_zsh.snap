@@ -56,14 +56,18 @@ _arguments "${_arguments_options[@]}" \
 ;;
 (list)
 _arguments "${_arguments_options[@]}" \
-'--format=[Set output format]:FORMAT:(default json names)' \
+'--format=[Set output format]:FORMAT:((default\:"Human-formatted table"
+json\:"Detailed JSON output for machine consumption"
+names\:"Newline-delimited list of environment names only"))' \
 '-h[Print help information. Use --help for more details]' \
 '--help[Print help information. Use --help for more details]' \
 && ret=0
 ;;
 (packages)
 _arguments "${_arguments_options[@]}" \
-'--format=[Set output format]:FORMAT:(default json names)' \
+'--format=[Set output format]:FORMAT:((default\:"Human-formatted table"
+json\:"Detailed JSON output for machine consumption"
+names\:"Newline-delimited list of package names only"))' \
 '-h[Print help information. Use --help for more details]' \
 '--help[Print help information. Use --help for more details]' \
 && ret=0

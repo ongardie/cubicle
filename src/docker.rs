@@ -453,7 +453,6 @@ impl Docker {
             .ok_or_else(|| anyhow!("path not valid UTF-8: {abs_path:?}"))?;
         let mut child = Command::new("docker")
             .arg("cp")
-            .arg("--archive")
             .arg(format!("{container_name}:{abs_path_str}",))
             .arg("-")
             .stdout(Stdio::piped())
@@ -738,7 +737,6 @@ impl Runner for Docker {
         if let RunnerCommand::Init { script, seeds } = run_command {
             let status = Command::new("docker")
                 .arg("cp")
-                .arg("--archive")
                 .arg(script.as_host_raw())
                 .arg(format!(
                     "{}:{}",
@@ -832,7 +830,16 @@ impl Runner for Docker {
         command.args(["--env", "USER"]);
         command.args(["--env", "TERM"]);
         command.arg("--interactive");
-        command.arg("--tty");
+
+        // If we really don't have a TTY, Docker will exit with status 1 when
+        // we request one.
+        if atty::is(atty::Stream::Stdin)
+            || atty::is(atty::Stream::Stdout)
+            || atty::is(atty::Stream::Stderr)
+        {
+            command.arg("--tty");
+        }
+
         command.arg(&container_name);
         command.args([&self.program.shell, "-l"]);
         match run_command {

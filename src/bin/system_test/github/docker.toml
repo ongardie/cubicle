@@ -1,0 +1,4 @@
+runner = "docker"
+
+[docker]
+prefix = "systest-"

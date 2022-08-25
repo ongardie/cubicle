@@ -2,11 +2,13 @@
 name = "cubicle"
 version = "0.0.0"
 edition = "2021"
+default-run = "cubicle"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = { version = "1.0.60", features = ["backtrace"] }
+atty = "0.2.14"
 cap-std = "0.25.2"
 clap = { version = "3.2.16", features = ["derive"] }
 clap_complete = "3.2.4"

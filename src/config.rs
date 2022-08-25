@@ -1,20 +1,33 @@
+//! Main Cubicle program configuration.
+
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::Path;
 
 use super::RunnerKind;
 
+/// Main Cubicle program configuration, normally read from a `cubicle.toml`
+/// file.
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub(super) runner: RunnerKind,
+    /// Which runner to use.
+    pub runner: RunnerKind,
+
+    /// Configuration specific to the Docker runner. Set to `Docker::default()`
+    /// for other runners.
     #[serde(default)]
     pub docker: Docker,
 }
 
-/// See <docs/Docker.md> for details.
+/// Configuration specific to the Docker runner.
+///
+/// See the [Configuration](#configuration) section below for details.
+/// This documentation is included from `docs/Docker.md`.
+#[doc = include_str!("../docs/Docker.md")]
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[allow(missing_docs)]
 pub struct Docker {
     #[serde(default)]
     pub bind_mounts: bool,
@@ -45,6 +58,7 @@ impl Config {
         Ok(config)
     }
 
+    /// Parses a TOML-formatted config file.
     pub fn read_from_file(path: &Path) -> Result<Self> {
         let buf = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {path:?}"))?;

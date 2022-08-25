@@ -1,3 +1,9 @@
+//! Command-line parsing and processing for main Cubicle executable.
+//!
+//! Note: the documentation for [`Args`] and related types is used to generate
+//! the usage for the command-line program and should be read from that
+//! perspective.
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
@@ -24,7 +30,7 @@ pub struct Args {
         default_value_t = default_config_path(),
         value_hint(clap::ValueHint::FilePath),
     )]
-    pub config: PathWithVarExpansion,
+    config: PathWithVarExpansion,
 
     #[clap(subcommand)]
     command: Commands,
@@ -36,18 +42,18 @@ enum Commands {
     ///
     /// Installation for Bash:
     ///
-    ///     $ cub completions bash > ~/.local/share/bash-completion/completions/cub
+    ///   $ cub completions bash > ~/.local/share/bash-completion/completions/cub
     ///
     /// Installation for ZSH (depending on `$fpath`):
     ///
-    ///     $ cub completions zsh > ~/.zfunc/_cub
+    ///   $ cub completions zsh > ~/.zfunc/_cub
     ///
     /// You may need to restart your shell or configure it.
     ///
     /// This installation works similarly as for rustup's completions. For
     /// detailed instructions, see:
     ///
-    ///     $ rustup help completions
+    ///   $ rustup help completions
     #[clap(arg_required_else_help(true))]
     Completions {
         #[clap(value_parser)]
@@ -128,8 +134,20 @@ enum Commands {
     },
 }
 
+/// Parses the command-line arguments given to this executable.
+///
+/// Exits the process upon errors or upon successfully handling certain flags
+/// like `--help`.
 pub fn parse() -> Args {
     Args::parse()
+}
+
+impl Args {
+    /// Returns the path on the host's filesystem to the Cubicle configuration
+    /// file (normally named `cubicle.toml`).
+    pub fn config_path(&self) -> &Path {
+        self.config.as_ref()
+    }
 }
 
 /// This type wrapper stores a normal path but understands "$HOME".
@@ -151,7 +169,7 @@ pub fn parse() -> Args {
 /// expand "$HOME". This didn't work either because clap always converts the
 /// default value to a string, then parses that string.
 #[derive(Debug)]
-pub struct PathWithVarExpansion(PathBuf);
+struct PathWithVarExpansion(PathBuf);
 
 impl PathWithVarExpansion {
     /// Helper for Display. Split out for unit testing.
@@ -272,7 +290,8 @@ _cub_pkgs() {
     Ok(())
 }
 
-pub(super) fn run(args: Args, program: &Cubicle) -> Result<()> {
+/// Execute the subcommand requested on the command line.
+pub fn run(args: Args, program: &Cubicle) -> Result<()> {
     use Commands::*;
     match args.command {
         Completions { shell } => write_completions(shell, &mut io::stdout()),
@@ -306,7 +325,7 @@ pub(super) fn run(args: Args, program: &Cubicle) -> Result<()> {
         } => {
             let packages = packages.map(package_set_from_names).transpose()?;
             for name in &names {
-                program.reset_environment(name, &packages, Clean(clean))?;
+                program.reset_environment(name, packages.as_ref(), Clean(clean))?;
             }
             Ok(())
         }
