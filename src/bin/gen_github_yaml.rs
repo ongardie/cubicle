@@ -122,8 +122,34 @@ struct Workflow {
     jobs: BTreeMap<JobKey, Job>,
 }
 
-#[derive(Clone, Debug, Eq, PartialOrd, Ord, PartialEq, Serialize)]
-struct JobKey(String);
+mod jobkey {
+    use super::Serialize;
+
+    #[derive(Clone, Debug, Eq, PartialOrd, Ord, PartialEq, Serialize)]
+    pub struct JobKey(String);
+
+    impl JobKey {
+        pub fn new(s: String) -> Self {
+            assert!(
+                s.len() < 100,
+                "Invalid job key {s:?}: must be less than 100 characters"
+            );
+            assert!(
+                s.chars()
+                    .all(|c| c.is_ascii() && (c.is_alphanumeric() || c == '-' || c == '_')),
+                "Invalid job key {s:?}: must be alphanumeric except '_' or '-'"
+            );
+            assert!(
+                matches!(
+                    s.chars().next(),
+                    Some(c) if c.is_alphanumeric() || c == '_'),
+                "Invalid job key {s:?}: must start with alphanumeric character or '_'"
+            );
+            Self(s)
+        }
+    }
+}
+use jobkey::JobKey;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -169,6 +195,13 @@ impl Os {
     fn as_str(&self) -> &'static str {
         match self {
             Os::Ubuntu => "ubuntu-20.04",
+            Os::Mac => "macos-12",
+        }
+    }
+
+    fn as_ident(&self) -> &'static str {
+        match self {
+            Os::Ubuntu => "ubuntu-20-04",
             Os::Mac => "macos-12",
         }
     }
@@ -460,6 +493,8 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
         env: dict! {},
     });
 
+    let key = JobKey::new(format!("build-{}-{}", os.as_ident(), rust));
+
     let job = Job {
         name: format!("Build & check ({os}, Rust {rust})"),
         needs: vec![],
@@ -467,7 +502,7 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
         steps,
     };
 
-    (JobKey(format!("build-{os}-{rust}")), job)
+    (key, job)
 }
 
 fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) {
@@ -523,13 +558,16 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         env: dict! {"RUST_BACKTRACE" => "1"},
     });
 
+    let key = JobKey::new(format!("system_test-{}-{}", os.as_ident(), runner));
+
     let job = Job {
         name: format!("System tests ({os}, {runner})"),
         needs,
         runs_on: os,
         steps,
     };
-    (JobKey(format!("system_test_{os}_{runner}")), job)
+
+    (key, job)
 }
 
 // Docker isn't installed on the Mac runners due to licensing issues:

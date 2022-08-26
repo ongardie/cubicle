@@ -56,7 +56,7 @@ jobs:
         if-no-files-found: error
         name: debug-dist-macos-12-stable
         path: debug-dist.tar.gz
-  build-ubuntu-20.04-nightly:
+  build-ubuntu-20-04-nightly:
     name: Build & check (ubuntu-20.04, Rust nightly)
     runs-on: ubuntu-20.04
     steps:
@@ -101,7 +101,7 @@ jobs:
         if-no-files-found: error
         name: debug-dist-ubuntu-20.04-nightly
         path: debug-dist.tar.gz
-  build-ubuntu-20.04-stable:
+  build-ubuntu-20-04-stable:
     name: Build & check (ubuntu-20.04, Rust stable)
     runs-on: ubuntu-20.04
     steps:
@@ -169,7 +169,7 @@ jobs:
         if-no-files-found: error
         name: debug-dist-ubuntu-20.04-stable
         path: debug-dist.tar.gz
-  system_test_macos-12_docker:
+  system_test-macos-12-docker:
     name: System tests (macos-12, docker)
     needs:
     - build-macos-12-stable
@@ -203,10 +203,10 @@ jobs:
       run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
       env:
         RUST_BACKTRACE: '1'
-  system_test_ubuntu-20.04_docker:
+  system_test-ubuntu-20-04-docker:
     name: System tests (ubuntu-20.04, docker)
     needs:
-    - build-ubuntu-20.04-stable
+    - build-ubuntu-20-04-stable
     runs-on: ubuntu-20.04
     steps:
     - name: Docker hello world
