@@ -273,13 +273,19 @@ impl Display for Rust {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Runner {
+    Bubblewrap,
+    DockerBind,
     Docker,
+    User,
 }
 
 impl Display for Runner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Runner::Bubblewrap => "bubblewrap",
             Runner::Docker => "docker",
+            Runner::DockerBind => "docker-bind",
+            Runner::User => "user",
         }
         .fmt(f)
     }
@@ -327,7 +333,18 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
     };
 
     jobs.extend([
-        system_test_job(Os::Ubuntu, Runner::Docker, vec![ubuntu_stable_key]),
+        system_test_job(
+            Os::Ubuntu,
+            Runner::Bubblewrap,
+            vec![ubuntu_stable_key.clone()],
+        ),
+        system_test_job(Os::Ubuntu, Runner::Docker, vec![ubuntu_stable_key.clone()]),
+        system_test_job(
+            Os::Ubuntu,
+            Runner::DockerBind,
+            vec![ubuntu_stable_key.clone()],
+        ),
+        system_test_job(Os::Ubuntu, Runner::User, vec![ubuntu_stable_key]),
         system_test_job(Os::Mac, Runner::Docker, vec![mac_stable_key]),
     ]);
 
@@ -471,7 +488,7 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
                 tar -C .. --create \\
                     cubicle/dev-init.sh \\
                     cubicle/packages/ \\
-                    cubicle/src/bin/system_test/github/docker.toml \\
+                    cubicle/src/bin/system_test/github/ \\
                     cubicle/target/debug/cubicle \\
                     cubicle/target/debug/system_test | \\
                 gzip -1 > debug-dist.tar.gz

@@ -1,0 +1,6 @@
+runner = "docker"
+
+[docker]
+bind_mounts = true
+prefix = "systest-"
+slim = true

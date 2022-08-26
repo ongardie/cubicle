@@ -46,7 +46,7 @@ jobs:
         tar -C .. --create \
             cubicle/dev-init.sh \
             cubicle/packages/ \
-            cubicle/src/bin/system_test/github/docker.toml \
+            cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cubicle \
             cubicle/target/debug/system_test | \
         gzip -1 > debug-dist.tar.gz
@@ -91,7 +91,7 @@ jobs:
         tar -C .. --create \
             cubicle/dev-init.sh \
             cubicle/packages/ \
-            cubicle/src/bin/system_test/github/docker.toml \
+            cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cubicle \
             cubicle/target/debug/system_test | \
         gzip -1 > debug-dist.tar.gz
@@ -159,7 +159,7 @@ jobs:
         tar -C .. --create \
             cubicle/dev-init.sh \
             cubicle/packages/ \
-            cubicle/src/bin/system_test/github/docker.toml \
+            cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cubicle \
             cubicle/target/debug/system_test | \
         gzip -1 > debug-dist.tar.gz
@@ -203,6 +203,27 @@ jobs:
       run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
       env:
         RUST_BACKTRACE: '1'
+  system_test-ubuntu-20-04-bubblewrap:
+    name: System tests (ubuntu-20.04, bubblewrap)
+    needs:
+    - build-ubuntu-20-04-stable
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: debug-dist-ubuntu-20.04-stable
+    - name: Unpack build artifact
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+    - name: Run cub list
+      run: ./target/debug/cubicle --config 'src/bin/system_test/github/bubblewrap.toml'
+        list
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run system test
+      run: ./target/debug/system_test --config 'src/bin/system_test/github/bubblewrap.toml'
+      env:
+        RUST_BACKTRACE: '1'
   system_test-ubuntu-20-04-docker:
     name: System tests (ubuntu-20.04, docker)
     needs:
@@ -224,5 +245,47 @@ jobs:
         RUST_BACKTRACE: '1'
     - name: Run system test
       run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
+      env:
+        RUST_BACKTRACE: '1'
+  system_test-ubuntu-20-04-docker-bind:
+    name: System tests (ubuntu-20.04, docker-bind)
+    needs:
+    - build-ubuntu-20-04-stable
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: debug-dist-ubuntu-20.04-stable
+    - name: Unpack build artifact
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+    - name: Run cub list
+      run: ./target/debug/cubicle --config 'src/bin/system_test/github/docker-bind.toml'
+        list
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run system test
+      run: ./target/debug/system_test --config 'src/bin/system_test/github/docker-bind.toml'
+      env:
+        RUST_BACKTRACE: '1'
+  system_test-ubuntu-20-04-user:
+    name: System tests (ubuntu-20.04, user)
+    needs:
+    - build-ubuntu-20-04-stable
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: debug-dist-ubuntu-20.04-stable
+    - name: Unpack build artifact
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+    - name: Run cub list
+      run: ./target/debug/cubicle --config 'src/bin/system_test/github/user.toml'
+        list
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run system test
+      run: ./target/debug/system_test --config 'src/bin/system_test/github/user.toml'
       env:
         RUST_BACKTRACE: '1'
