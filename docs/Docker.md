@@ -103,6 +103,14 @@ If true, the runner will use bind mounts instead. Bind mounts are probably only
 advantageous on Linux; they can be more convenient because they can be owned by
 the normal user on the host.
 
+### `extra_packages`
+
+- Type: array of string
+- Default: []
+
+A list of Debian packages to be installed with `apt-get` in the Docker base
+images.
+
 ### `prefix`
 
 - Type: string
@@ -111,6 +119,21 @@ the normal user on the host.
 This string is prepended to all the Docker object names (container, image, and
 volume names) that the Cubicle runner creates. It defaults to "cub-". Using the
 empty string is also allowed.
+
+### `slim`
+
+- Type: boolean
+- Default: `false`
+
+If false (default), the Docker runner will install some generally useful Debian
+packages in the base image. This includes things like system tools, man pages,
+and shell completions.
+
+If true, the runner will install only a small set of Debian packages in the
+base image: those that Cubicle itself needs or tools like `curl` that may be
+needed for many packages. This is intended for things like CI environments
+where minimizing first-run setup time is important and user interaction is
+unlikely.
 
 ## Uninstalling
 
@@ -150,8 +173,7 @@ Each Cubicle environment consists of three logical filesystem layers:
 | 3. work | cub-ENV-work Docker volume    | `~/w/`           | long     |
 
 1. The base operating system. This is the "cub-cubicle-base" Docker image that
-   is built automatically by Cubicle. It's currently based on Debian 11. See
-   `Dockerfile.in` for details.
+   is built automatically by Cubicle. It's currently based on Debian 11.
 
 2. A home directory. Inside the environment, this is at the same path as the
    host's `$HOME`, but it's not shared with the host. It lives in
