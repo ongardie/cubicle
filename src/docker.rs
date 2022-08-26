@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
+use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -11,15 +12,20 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
+use super::os_util::get_timezone;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
+    timezone: String,
     mounts: Mounts,
     base_image: ImageName,
     container_home: EnvPath,
+    /// Flag used to build the base image when it's first needed after the
+    /// program starts up, and probably not again after that.
+    built_base: Cell<bool>,
 }
 
 enum Mounts {
@@ -42,6 +48,8 @@ use newtypes::{ContainerName, ImageName, VolumeName};
 
 impl Docker {
     pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
+        let timezone = get_timezone();
+
         let mounts = if program.config.docker.bind_mounts {
             let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
                 Ok(path) => HostPath::try_from(path)?,
@@ -70,9 +78,11 @@ impl Docker {
 
         Ok(Self {
             program,
+            timezone,
             mounts,
             base_image,
             container_home,
+            built_base: Cell::new(false),
         })
     }
 
@@ -152,17 +162,17 @@ impl Docker {
     }
 
     fn build_base(&self) -> Result<()> {
-        let dockerfile_path = self.program.script_path.join("Dockerfile.in");
+        // These checks on the image timestamp are a little silly, since this
+        // program is short-lived. They used to make more sense when the
+        // Dockerfile was a normal file. They might well make more sense again
+        // in the future, so it's good to keep this code active.
         let base_mtime = self.base_mtime()?.unwrap_or(UNIX_EPOCH);
         let image_fresh =
             base_mtime.elapsed().unwrap_or(Duration::ZERO) < Duration::from_secs(60 * 60 * 12);
-        let dockerfile_mtime = std::fs::metadata(&dockerfile_path.as_host_raw())?.modified()?;
-        if image_fresh && dockerfile_mtime < base_mtime {
+        if image_fresh && self.built_base.get() {
             return Ok(());
         }
-        let dockerfile = std::fs::read_to_string(dockerfile_path.as_host_raw())?
-            .replace("@@TIMEZONE@@", &self.program.timezone)
-            .replace("@@USER@@", &self.program.user);
+
         let mut child = Command::new("docker")
             .args(["build", "--tag", &self.base_image, "-"])
             .stdin(Stdio::piped())
@@ -172,7 +182,21 @@ impl Docker {
                 .stdin
                 .take()
                 .ok_or_else(|| anyhow!("Failed to open stdin"))?;
-            stdin.write_all(dockerfile.as_bytes())?;
+
+            let mut packages: BTreeSet<&str> = BTreeSet::from_iter(SLIM_PACKAGES.iter().cloned());
+            if !self.program.config.docker.slim {
+                packages.extend(NORMAL_PACKAGES);
+                packages.extend(DEPENDENCIES_PACKAGES);
+            }
+            write_dockerfile(
+                &mut stdin,
+                DockerfileArgs {
+                    packages: &packages,
+                    timezone: &self.timezone,
+                    user: &self.program.user,
+                },
+            )?;
+            stdin.flush()?;
         }
 
         let status = child.wait()?;
@@ -184,6 +208,8 @@ impl Docker {
                 status.code(),
             ));
         }
+
+        self.built_base.set(true);
         Ok(())
     }
 
@@ -859,5 +885,183 @@ impl Runner for Docker {
         } else {
             Err(ExitStatusError::new(status, "docker exec").into())
         }
+    }
+}
+
+/// Debian packages that many packages might depend on for basic functionality.
+/// They are installed in the CI system.
+const SLIM_PACKAGES: &[&str] = &[
+    "curl", "git", "jq", "lz4", "procps", "pv", "sudo", "vim", "wget", "zip", "zstd", "zsh",
+];
+
+/// Debian packages that many users may like. To save time, they are not
+/// normally installed in the CI system.
+const NORMAL_PACKAGES: &[&str] = &[
+    "apt-file",
+    "bash-completion",
+    "bind9-dnsutils",
+    "build-essential",
+    "dialog",
+    "eatmydata",
+    "file",
+    "iproute2",
+    "iputils-ping",
+    "less",
+    "man-db",
+    "manpages",
+    "manpages-posix-dev",
+    "manpages-dev",
+    "net-tools",
+    "ripgrep",
+    "rsync",
+    "sqlite3",
+    "strace",
+    "time",
+    "tree",
+    "xdg-utils",
+    "zsh-autosuggestions",
+    "zsh-syntax-highlighting",
+];
+
+/// Debian packages that some of the Cubicle packages depend on. Because
+/// there's no way for them to express that yet, they go here for now.
+const DEPENDENCIES_PACKAGES: &[&str] = &[
+    // for Python
+    "build-essential",
+    "gdb",
+    "lcov",
+    "libbz2-dev",
+    "libffi-dev",
+    "libgdbm-compat-dev",
+    "libgdbm-dev",
+    "liblzma-dev",
+    "libncurses5-dev",
+    "libreadline6-dev",
+    "libsqlite3-dev",
+    "libssl-dev",
+    "lzma",
+    "lzma-dev",
+    "pkg-config",
+    "tk-dev",
+    "uuid-dev",
+    "zlib1g-dev",
+    // for firefox and vscodium
+    "libasound2",
+    "libatk-bridge2.0-0",
+    "libatk1.0-0",
+    "libcups2",
+    "libdbus-glib-1-2",
+    "libdrm2",
+    "libegl1",
+    "libgbm1",
+    "libglib2.0-0",
+    "libgtk-3-0",
+    "libnss3",
+    "libpci3",
+    "x11-utils",
+    // for mold and rust
+    "bsdmainutils",
+    "cmake",
+    "clang",
+];
+
+struct DockerfileArgs<'a> {
+    packages: &'a BTreeSet<&'a str>,
+    timezone: &'a str,
+    user: &'a str,
+}
+
+fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> Result<()> {
+    // Quote all the Strings that go into the file.
+    let packages: Vec<String> = args
+        .packages
+        .iter()
+        .map(|p| shlex::quote(p).into_owned())
+        .collect();
+    let timezone = shlex::quote(args.timezone);
+    let user = shlex::quote(args.user);
+    let has_apt_file = args.packages.contains("apt-file");
+    let has_sudo = args.packages.contains("sudo");
+
+    // Don't let the code below here access unquoted 'args'.
+    #[allow(clippy::drop_non_drop)]
+    std::mem::drop(args);
+
+    // Note: If we wanted to trim this down even more for CI, we might be able
+    // to use the '11-slim' base image here.
+    writeln!(w, "FROM debian:11")?;
+
+    // Set time zone.
+    writeln!(w, "RUN echo {timezone} > /etc/timezone && \\")?;
+    writeln!(
+        w,
+        "    ln -fs '/usr/share/zoneinfo/'{timezone} /etc/localtime"
+    )?;
+
+    // Set up user account.
+    writeln!(w, "RUN adduser --disabled-password --gecos '' {user} && \\")?;
+    writeln!(w, "    adduser {user} sudo && \\")?;
+    // For a Docker volume to be owned/writable by a regular user, a directory
+    // needs to exist there before the volume is mounted. See
+    // <https://github.com/moby/moby/issues/2259>.
+    writeln!(w, "    mkdir /home/{user}/w && \\")?;
+    writeln!(w, "    chown {user}:{user} /home/{user}/w")?;
+
+    // Configure and Update apt.
+    writeln!(
+        w,
+        r#"RUN sed -i 's/ main$/ main contrib non-free/' /etc/apt/sources.list"#
+    )?;
+    writeln!(w, "RUN apt-get update && apt-get upgrade -y")?;
+
+    // Install requested packages.
+    if let Some((last, init)) = packages.split_last() {
+        writeln!(w, "RUN apt-get install -y \\")?;
+        for package in init {
+            writeln!(w, "    {package} \\")?;
+        }
+        writeln!(w, "    {last}")?;
+    }
+
+    // Update lists of package contents (after 'apt-file' is installed).
+    if has_apt_file {
+        writeln!(w, "RUN apt-file update")?;
+    }
+
+    // Configure sudo (after 'sudo' is installed, which creates the directory
+    // with the right permissions).
+    if has_sudo {
+        writeln!(
+            w,
+            r#"RUN sh -c 'echo "Defaults umask = 0027" > /etc/sudoers.d/umask' && \"#
+        )?;
+        writeln!(
+            w,
+            r#"    sh -c 'echo "%sudo ALL=(ALL) CWD=* NOPASSWD: ALL" > /etc/sudoers.d/nopasswd'"#
+        )?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_snapshot;
+
+    #[test]
+    fn write_dockerfile() {
+        let mut buf: Vec<u8> = Vec::new();
+        super::write_dockerfile(
+            &mut buf,
+            DockerfileArgs {
+                packages: &BTreeSet::from(["apt-file", "pack#age1", "package2", "sudo"]),
+                timezone: "Etc/Timez'one",
+                user: "h#x*r",
+            },
+        )
+        .unwrap();
+        let dockerfile = String::from_utf8(buf).unwrap();
+        assert_snapshot!("Dockerfile", dockerfile);
     }
 }

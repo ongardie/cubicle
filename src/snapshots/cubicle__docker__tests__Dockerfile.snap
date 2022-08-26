@@ -1,0 +1,22 @@
+---
+source: src/docker.rs
+expression: dockerfile
+---
+FROM debian:11
+RUN echo "Etc/Timez'one" > /etc/timezone && \
+    ln -fs '/usr/share/zoneinfo/'"Etc/Timez'one" /etc/localtime
+RUN adduser --disabled-password --gecos '' "h#x*r" && \
+    adduser "h#x*r" sudo && \
+    mkdir /home/"h#x*r"/w && \
+    chown "h#x*r":"h#x*r" /home/"h#x*r"/w
+RUN sed -i 's/ main$/ main contrib non-free/' /etc/apt/sources.list
+RUN apt-get update && apt-get upgrade -y
+RUN apt-get install -y \
+    apt-file \
+    "pack#age1" \
+    package2 \
+    sudo
+RUN apt-file update
+RUN sh -c 'echo "Defaults umask = 0027" > /etc/sudoers.d/umask' && \
+    sh -c 'echo "%sudo ALL=(ALL) CWD=* NOPASSWD: ALL" > /etc/sudoers.d/nopasswd'
+

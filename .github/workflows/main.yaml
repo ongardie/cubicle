@@ -107,7 +107,6 @@ jobs:
         # PR is merged: <https://github.com/actions/toolkit/pull/1118>.
         run: |
           tar -C .. --create \
-            cubicle/Dockerfile.in \
             cubicle/dev-init.sh \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/docker.toml \

@@ -56,6 +56,9 @@ use bytes::Bytes;
 mod fs_util;
 use fs_util::DirSummary;
 
+mod os_util;
+use os_util::get_hostname;
+
 mod packages;
 use packages::write_package_list_tar;
 pub use packages::{ListPackagesFormat, PackageName, PackageNameSet};
@@ -89,7 +92,6 @@ struct CubicleShared {
     script_path: HostPath,
     hostname: Option<String>,
     home: HostPath,
-    timezone: String,
     user: String,
     package_cache: HostPath,
     code_package_dir: HostPath,
@@ -104,19 +106,6 @@ pub struct Quiet(pub bool);
 /// Named boolean flag for [`Cubicle::reset_environment`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Clean(pub bool);
-
-fn get_hostname() -> Option<String> {
-    #[cfg(unix)]
-    {
-        let uname = rustix::process::uname();
-        if let Ok(node_name) = uname.nodename().to_str() {
-            if !node_name.is_empty() {
-                return Some(node_name.to_owned());
-            }
-        }
-    }
-    None
-}
 
 impl Cubicle {
     /// Creates a new instance.
@@ -166,17 +155,6 @@ impl Cubicle {
             }
         };
 
-        let timezone = match std::fs::read_to_string("/etc/timezone") {
-            Ok(s) => s.trim().to_owned(),
-            Err(e) => {
-                println!(
-                    "Warning: Falling back to UTC due to failure reading /etc/timezone: {}",
-                    e
-                );
-                String::from("Etc/UTC")
-            }
-        };
-
         let package_cache = xdg_cache_home.join("cubicle").join("packages");
         let code_package_dir = script_path.join("packages");
         let user_package_dir = xdg_data_home.join("cubicle").join("packages");
@@ -191,7 +169,6 @@ impl Cubicle {
             script_path,
             hostname,
             home,
-            timezone,
             user,
             package_cache,
             code_package_dir,

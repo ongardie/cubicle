@@ -32,15 +32,23 @@ pub struct Docker {
     #[serde(default)]
     pub bind_mounts: bool,
 
+    #[serde(default)]
+    pub extra_packages: Vec<String>,
+
     #[serde(default = "cub_dash")]
     pub prefix: String,
+
+    #[serde(default)]
+    pub slim: bool,
 }
 
 impl Default for Docker {
     fn default() -> Self {
         Self {
             bind_mounts: Default::default(),
+            extra_packages: Vec::default(),
             prefix: cub_dash(),
+            slim: false,
         }
     }
 }
@@ -106,10 +114,7 @@ mod tests {
     fn config_from_str_ok() {
         let expected = Config {
             runner: RunnerKind::Docker,
-            docker: Docker {
-                bind_mounts: false,
-                prefix: String::from("cub-"),
-            },
+            docker: Docker::default(),
         };
         assert_eq!(expected, Config::from_str("runner = 'docker'").unwrap());
         assert_eq!(
@@ -131,7 +136,9 @@ mod tests {
                 runner: RunnerKind::Docker,
                 docker: Docker {
                     bind_mounts: true,
+                    extra_packages: vec![String::from("foo"), String::from("bar")],
                     prefix: String::from("p"),
+                    slim: true,
                 },
             },
             Config::from_str(
@@ -139,7 +146,9 @@ mod tests {
                 runner = 'docker'
                 [docker]
                 bind_mounts = true
+                extra_packages = ['foo', 'bar']
                 prefix = 'p'
+                slim = true
                 "
             )
             .unwrap()

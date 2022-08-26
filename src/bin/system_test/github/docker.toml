@@ -2,3 +2,4 @@ runner = "docker"
 
 [docker]
 prefix = "systest-"
+slim = true
