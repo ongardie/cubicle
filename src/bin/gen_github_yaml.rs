@@ -98,6 +98,21 @@ macro_rules! ymap {
     }
 }
 
+/// Returns a map from string to string with a convenient syntax.
+///
+/// The syntax is `{ "key" => "value", ... }`.
+macro_rules! dict {
+    { $( $k:expr => $v:expr ),* $( , )? } => {
+        Dict::from([
+            $(
+                ($k.to_string(), $v.to_string()),
+            )*
+        ])
+    }
+}
+
+type Dict = BTreeMap<String, String>;
+
 // GitHub Actions workflow syntax documentation is here:
 // <https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions>
 #[derive(Debug, Serialize)]
@@ -125,19 +140,17 @@ struct Step {
     name: String,
     #[serde(flatten)]
     details: StepDetails,
-    #[serde(skip_serializing_if = "Env::is_empty")]
-    env: Env,
+    #[serde(skip_serializing_if = "Dict::is_empty")]
+    env: Dict,
 }
-
-type Env = BTreeMap<String, String>;
 
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 enum StepDetails {
     Uses {
         uses: Action,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        with: Option<Mapping>,
+        #[serde(skip_serializing_if = "Dict::is_empty")]
+        with: Dict,
     },
     Run {
         run: String,
@@ -297,23 +310,23 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
         name: s("Check out sources"),
         details: Uses {
             uses: Action::Checkout,
-            with: None,
+            with: dict! {},
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     steps.push(Step {
         name: format!("Install Rust {rust} toolchain"),
         details: Uses {
             uses: Action::RustToolchain,
-            with: Some(ymap! {
-                "profile": "minimal",
-                "toolchain": rust.to_string(),
-                "override": true,
-                "components": vec!["rustfmt", "clippy"],
-            }),
+            with: dict! {
+                "profile" => "minimal",
+                "toolchain" => rust,
+                "override" => true,
+                "components" => "rustfmt, clippy",
+            },
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     steps.push(Step {
@@ -321,35 +334,35 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
         name: s("Use Rust/Cargo cache"),
         details: Uses {
             uses: Action::Cache,
-            with: Some(ymap! {
-                "path": indoc! {"
+            with: dict! {
+                "path" => indoc! {"
                     ~/.cargo/registry
                     ~/.cargo/git/
                     target/
                 "},
-                "key": format!("cargo-{os}-{rust}-${{{{ hashFiles('Cargo.lock') }}}}"),
-                "restore-keys": format!("cargo-{os}-{rust}-"),
-            }),
+                "key" => format!("cargo-{os}-{rust}-${{{{ hashFiles('Cargo.lock') }}}}"),
+                "restore-keys" => format!("cargo-{os}-{rust}-"),
+            },
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     steps.push(Step {
         name: s("Run cargo build"),
         details: Uses {
             uses: Action::Cargo,
-            with: Some(ymap! { "command": "build" }),
+            with: dict! { "command" => "build" },
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     steps.push(Step {
         name: s("Run cargo test"),
         details: Uses {
             uses: Action::Cargo,
-            with: Some(ymap! { "command": "test" }),
+            with: dict! { "command" => "test" },
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     // Some checks like `cargo fmt` only need to run once, preferably on the
@@ -359,24 +372,24 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
             name: s("Run cargo fmt"),
             details: Uses {
                 uses: Action::Cargo,
-                with: Some(ymap! {
-                    "command": "fmt",
-                    "args": "--all -- --check",
-                }),
+                with: dict! {
+                    "command" => "fmt",
+                    "args" => "--all -- --check",
+                },
             },
-            env: Env::default(),
+            env: dict! {},
         });
 
         steps.push(Step {
             name: s("Run clippy"),
             details: Uses {
                 uses: Action::Cargo,
-                with: Some(ymap! {
-                    "command": "clippy",
-                    "args": "-- -D warnings",
-                }),
+                with: dict! {
+                    "command" => "clippy",
+                    "args" => "-- -D warnings",
+                },
             },
-            env: Env::default(),
+            env: dict! {},
         });
 
         steps.push(Step {
@@ -387,28 +400,28 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
                     diff .github/workflows/main.yaml .github/workflows/main.gen.yaml
                 "}),
             },
-            env: Env::default(),
+            env: dict! {},
         });
 
         steps.push(Step {
             name: s("Install cargo audit"),
             details: Uses {
                 uses: Action::Cargo,
-                with: Some(ymap! {
-                    "command": "install",
-                    "args": "cargo-audit",
-                }),
+                with: dict! {
+                    "command" => "install",
+                    "args" => "cargo-audit",
+                },
             },
-            env: Env::default(),
+            env: dict! {},
         });
 
         steps.push(Step {
             name: s("Run cargo audit"),
             details: Uses {
                 uses: Action::Cargo,
-                with: Some(ymap! { "command": "audit" }),
+                with: dict! { "command" => "audit" },
             },
-            env: Env::default(),
+            env: dict! {},
         });
     }
 
@@ -431,20 +444,20 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
                 gzip -1 > debug-dist.tar.gz
             "}),
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     steps.push(Step {
         name: s("Upload build artifact"),
         details: Uses {
             uses: Action::UploadArtifact,
-            with: Some(ymap! {
-                "name": format!("debug-dist-{os}-{rust}"),
-                "path": "debug-dist.tar.gz",
-                "if-no-files-found": "error",
-            }),
+            with: dict! {
+                "name" => format!("debug-dist-{os}-{rust}"),
+                "path" => "debug-dist.tar.gz",
+                "if-no-files-found" => "error",
+            },
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     let job = Job {
@@ -471,7 +484,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
             details: Run {
                 run: s("docker run --rm debian:11 echo 'Hello world'"),
             },
-            env: Env::default(),
+            env: dict! {},
         });
     }
 
@@ -479,9 +492,9 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         name: s("Download build artifact"),
         details: Uses {
             uses: Action::DownloadArtifact,
-            with: Some(ymap! { "name": format!("debug-dist-{os}-{rust}") }),
+            with: dict! { "name" => format!("debug-dist-{os}-{rust}") },
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     steps.push(Step {
@@ -489,7 +502,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         details: Run {
             run: s("tar --directory .. --extract --verbose --file debug-dist.tar.gz"),
         },
-        env: Env::default(),
+        env: dict! {},
     });
 
     let config = format!("src/bin/system_test/github/{runner}.toml");
@@ -498,7 +511,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         details: Run {
             run: format!("./target/debug/cubicle --config '{config}' list"),
         },
-        env: Env::from([(s("RUST_BACKTRACE"), s("1"))]),
+        env: dict! {"RUST_BACKTRACE" => "1"},
     });
 
     let config = format!("src/bin/system_test/github/{runner}.toml");
@@ -507,7 +520,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         details: Run {
             run: format!("./target/debug/system_test --config '{config}'"),
         },
-        env: Env::from([(s("RUST_BACKTRACE"), s("1"))]),
+        env: dict! {"RUST_BACKTRACE" => "1"},
     });
 
     let job = Job {
@@ -528,7 +541,7 @@ fn docker_mac_install_steps() -> Vec<Step> {
             details: Run {
                 run: s("brew install docker docker-machine"),
             },
-            env: Env::default(),
+            env: dict! {},
         },
         Step {
             name: s("Create VirtualBox VM for Docker"),
@@ -567,7 +580,7 @@ fn docker_mac_install_steps() -> Vec<Step> {
                     env | grep DOCKER >> $GITHUB_ENV
                 "#}),
             },
-            env: Env::default(),
+            env: dict! {},
         },
     ]
 }

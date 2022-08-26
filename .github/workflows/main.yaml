@@ -20,10 +20,8 @@ jobs:
     - name: Install Rust stable toolchain
       uses: actions-rs/toolchain@v1
       with:
-        components:
-        - rustfmt
-        - clippy
-        override: true
+        components: rustfmt, clippy
+        override: 'true'
         profile: minimal
         toolchain: stable
     - name: Use Rust/Cargo cache
@@ -67,10 +65,8 @@ jobs:
     - name: Install Rust nightly toolchain
       uses: actions-rs/toolchain@v1
       with:
-        components:
-        - rustfmt
-        - clippy
-        override: true
+        components: rustfmt, clippy
+        override: 'true'
         profile: minimal
         toolchain: nightly
     - name: Use Rust/Cargo cache
@@ -114,10 +110,8 @@ jobs:
     - name: Install Rust stable toolchain
       uses: actions-rs/toolchain@v1
       with:
-        components:
-        - rustfmt
-        - clippy
-        override: true
+        components: rustfmt, clippy
+        override: 'true'
         profile: minimal
         toolchain: stable
     - name: Use Rust/Cargo cache
