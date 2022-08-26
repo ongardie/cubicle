@@ -209,6 +209,8 @@ jobs:
     - build-ubuntu-20-04-stable
     runs-on: ubuntu-20.04
     steps:
+    - name: Install Bubblewrap and minor dependencies
+      run: sudo apt-get install -y bubblewrap pv
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:
@@ -253,6 +255,8 @@ jobs:
     - build-ubuntu-20-04-stable
     runs-on: ubuntu-20.04
     steps:
+    - name: Docker hello world
+      run: docker run --rm debian:11 echo 'Hello world'
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:
@@ -274,6 +278,8 @@ jobs:
     - build-ubuntu-20-04-stable
     runs-on: ubuntu-20.04
     steps:
+    - name: Install minor dependencies
+      run: sudo apt-get install -y pv
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:

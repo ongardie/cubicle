@@ -526,18 +526,42 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
     let rust = Rust::Stable;
     let mut steps = Vec::new();
 
-    if runner == Runner::Docker {
-        if os == Os::Mac {
-            steps.extend(docker_mac_install_steps());
+    match runner {
+        Runner::Bubblewrap => {
+            assert!(os == Os::Ubuntu);
+            steps.push(Step {
+                name: s("Install Bubblewrap and minor dependencies"),
+                details: Run {
+                    run: s("sudo apt-get install -y bubblewrap pv"),
+                },
+                env: dict! {},
+            });
         }
 
-        steps.push(Step {
-            name: s("Docker hello world"),
-            details: Run {
-                run: s("docker run --rm debian:11 echo 'Hello world'"),
-            },
-            env: dict! {},
-        });
+        Runner::Docker | Runner::DockerBind => {
+            if os == Os::Mac {
+                steps.extend(docker_mac_install_steps());
+            }
+
+            steps.push(Step {
+                name: s("Docker hello world"),
+                details: Run {
+                    run: s("docker run --rm debian:11 echo 'Hello world'"),
+                },
+                env: dict! {},
+            });
+        }
+
+        Runner::User => {
+            assert!(os == Os::Ubuntu); // for now
+            steps.push(Step {
+                name: s("Install minor dependencies"),
+                details: Run {
+                    run: s("sudo apt-get install -y pv"),
+                },
+                env: dict! {},
+            });
+        }
     }
 
     steps.push(Step {
