@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Result};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -10,6 +9,7 @@ use super::fs_util::{summarize_dir, DirSummary};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
+use crate::somehow::{somehow as anyhow, Result};
 
 pub struct User {
     pub(super) program: Rc<CubicleShared>,

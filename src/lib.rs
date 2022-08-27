@@ -21,8 +21,6 @@
 #![doc = include_str!("../README.md")]
 
 #[doc(no_inline)]
-pub use anyhow::Result;
-use anyhow::{anyhow, Context};
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
@@ -35,6 +33,10 @@ use std::process::ExitStatus;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub mod somehow;
+pub use somehow::Result;
+use somehow::{somehow as anyhow, Context, Error};
 
 mod newtype;
 use newtype::HostPath;
@@ -546,6 +548,12 @@ impl fmt::Display for ExitStatusError {
     }
 }
 
+impl From<ExitStatusError> for somehow::Error {
+    fn from(error: ExitStatusError) -> somehow::Error {
+        anyhow!(error)
+    }
+}
+
 /// The name of a potential Cubicle sandbox/isolation environment.
 ///
 /// Other than '-' and '_' and some non-ASCII characters, values of this type
@@ -554,7 +562,7 @@ impl fmt::Display for ExitStatusError {
 pub struct EnvironmentName(String);
 
 impl FromStr for EnvironmentName {
-    type Err = anyhow::Error;
+    type Err = Error;
     fn from_str(mut s: &str) -> Result<Self> {
         s = s.trim();
         if s.is_empty() {

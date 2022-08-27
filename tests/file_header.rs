@@ -26,10 +26,11 @@
 //! The problems with using command-line arguments is that it's easy to forget
 //! them, and editors and such need to be reconfigured.
 
-use anyhow::Result;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use cubicle::somehow::Result;
 
 fn targets(manifest_dir: &Path) -> Result<Vec<PathBuf>> {
     #[derive(Debug, Deserialize)]

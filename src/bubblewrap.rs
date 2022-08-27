@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Context, Result};
 use std::collections::BTreeSet;
 use std::io;
 use std::path::Path;
@@ -11,6 +10,7 @@ use super::newtype::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::{ScopedChild, ScopedSpawn};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
+use crate::somehow::{somehow as anyhow, Context, Result};
 
 pub struct Bubblewrap {
     pub(super) program: Rc<CubicleShared>,

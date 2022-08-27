@@ -1,8 +1,8 @@
-use anyhow::{anyhow, Result};
 use rand::seq::SliceRandom;
 use std::io::{self, BufRead};
 
 use super::HostPath;
+use crate::somehow::{somehow as anyhow, Result};
 
 pub struct RandomNameGenerator {
     cache_dir: HostPath,

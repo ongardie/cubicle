@@ -34,7 +34,7 @@ macro_rules! name {
 pub(crate) use name;
 
 mod private_paths {
-    use anyhow::{anyhow, Error, Result};
+    use crate::somehow::{somehow as anyhow, Error, Result};
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
 

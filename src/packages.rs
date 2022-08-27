@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Context, Result};
 use clap::ValueEnum;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use tempfile::NamedTempFile;
+
+use crate::somehow::{somehow as anyhow, Context, Error, Result};
 
 use super::fs_util::{
     create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, DirSummary, TarOptions,
@@ -519,7 +520,7 @@ impl Cubicle {
 pub struct PackageName(String);
 
 impl FromStr for PackageName {
-    type Err = anyhow::Error;
+    type Err = Error;
     fn from_str(mut s: &str) -> Result<Self> {
         s = s.trim();
         if s.is_empty() {

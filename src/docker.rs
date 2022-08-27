@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Result};
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use std::cell::Cell;
@@ -16,6 +15,7 @@ use super::os_util::{get_timezone, get_uids, Uids};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
+use crate::somehow::{somehow as anyhow, Result};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,

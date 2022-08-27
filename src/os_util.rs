@@ -1,6 +1,7 @@
-use anyhow::{anyhow, Context, Error};
 use std::ffi::OsStr;
 use std::path::Path;
+
+use crate::somehow::{somehow as anyhow, Context, Error};
 
 pub fn get_hostname() -> Option<String> {
     #[cfg(unix)]

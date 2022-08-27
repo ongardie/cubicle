@@ -9,9 +9,9 @@
     clippy::unreadable_literal
 )]
 
-use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use cubicle::config::Config;
+use cubicle::somehow::{somehow as anyhow, Context, Result};
 use cubicle::{Clean, Cubicle, EnvironmentName, ListFormat, PackageName, PackageNameSet, Quiet};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;

@@ -4,7 +4,6 @@
 //! the usage for the command-line program and should be read from that
 //! perspective.
 
-use anyhow::Result;
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
 use std::fmt::Display;
@@ -14,6 +13,7 @@ use std::str::FromStr;
 
 use super::packages::{package_set_from_names, ListPackagesFormat};
 use super::{Clean, Cubicle, EnvironmentName, ListFormat, Quiet};
+use crate::somehow::{Error, Result};
 
 /// Manage sandboxed development environments.
 #[derive(Debug, Parser)]
@@ -213,7 +213,7 @@ impl Display for PathWithVarExpansion {
 }
 
 impl FromStr for PathWithVarExpansion {
-    type Err = anyhow::Error;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
         let home = PathBuf::from(std::env::var("HOME")?);

@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Context, Result};
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
@@ -6,6 +5,7 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::HostPath;
+use crate::somehow::{somehow as anyhow, Context, Result};
 
 pub fn rmtree(path: &HostPath) -> Result<()> {
     rmtree_(path).with_context(|| format!("Failed to recursively remove directory: {:?}", path))

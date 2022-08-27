@@ -1,9 +1,9 @@
-use anyhow::Result;
 use std::io;
 use std::path::Path;
 
 use super::fs_util::DirSummary;
 use super::{EnvironmentName, HostPath};
+use crate::somehow::Result;
 
 /// Manages isolated operating system environments.
 pub trait Runner {

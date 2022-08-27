@@ -1,10 +1,10 @@
 //! Main Cubicle program configuration.
 
-use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 use super::RunnerKind;
+use crate::somehow::{somehow as anyhow, Context, Result};
 
 /// Main Cubicle program configuration, normally read from a `cubicle.toml`
 /// file.
