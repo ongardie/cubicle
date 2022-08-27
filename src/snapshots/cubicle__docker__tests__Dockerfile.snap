@@ -5,8 +5,8 @@ expression: dockerfile
 FROM debian:11
 RUN echo "Etc/Timez'one" > /etc/timezone && \
     ln -fs '/usr/share/zoneinfo/'"Etc/Timez'one" /etc/localtime
-RUN addgroup --gid 7331 "h#x*r" && \
-    adduser --disabled-password --gecos '' --uid 1337 --gid 7331 "h#x*r" && \
+RUN addgroup --gid 7331 "h#x*r" || addgroup "h#x*r" && \
+    adduser --disabled-password --gecos '' --uid 1337 --ingroup "h#x*r" "h#x*r" && \
     adduser "h#x*r" sudo && \
     mkdir /home/"h#x*r"/w && \
     chown "h#x*r":"h#x*r" /home/"h#x*r"/w

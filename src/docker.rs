@@ -1002,12 +1002,25 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> Result<()>
         "    ln -fs '/usr/share/zoneinfo/'{timezone} /etc/localtime"
     )?;
 
-    // Set up a user account. Use the same UID and GID as the host because that
-    // makes the file permissions usable for bind mounts.
-    writeln!(w, "RUN addgroup --gid {gid} {user} && \\")?;
+    // Set up a user account. Use the same UID as the host because that makes
+    // the file permissions usable for bind mounts. The Debian convention is to
+    // have a group with the same name as the user and put the user in it. Some
+    // hosts use a GID with a small number for many users (GitHub Actions Mac
+    // OS appears to have GID 20). If the group ID is taken on the Debian image
+    // already, this falls back to any available GID, even if the group
+    // permissions end up wonky for bind mounts.
     writeln!(
         w,
-        "    adduser --disabled-password --gecos '' --uid {uid} --gid {gid} {user} && \\",
+        "RUN addgroup --gid {gid} {user} || addgroup {user} && \\"
+    )?;
+    //
+    // Prevent using gid below.
+    #[allow(unused)]
+    let gid: ();
+    //
+    writeln!(
+        w,
+        "    adduser --disabled-password --gecos '' --uid {uid} --ingroup {user} {user} && \\",
     )?;
     writeln!(w, "    adduser {user} sudo && \\")?;
     // For a Docker volume to be owned/writable by a regular user, a directory
