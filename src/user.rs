@@ -78,6 +78,7 @@ impl User {
         }
 
         let status = Command::new("sudo")
+            // See notes about `--chdir` elsewhere.
             .arg("--login")
             .args(["--user", username])
             .arg("--")
@@ -122,7 +123,11 @@ impl User {
         let mut source_stdout = source.stdout.take().unwrap();
 
         let mut dest = Command::new("sudo")
-            .args(["--chdir", "~"])
+            // This used to use `--chdir ~`, but that was introduced
+            // relatively recently in sudo 1.9.3 (released 2020-09-21).
+            // Now it uses `--login` instead, which does change directories
+            // but has some other side effects.
+            .arg("--login")
             .args(["--user", username])
             .arg("--")
             .arg("tar")
@@ -171,7 +176,8 @@ impl Runner for User {
     ) -> Result<()> {
         let username = self.username_from_environment(env_name);
         let mut child = Command::new("sudo")
-            .args(["--chdir", "~"])
+            // See notes about `--chdir` elsewhere.
+            .arg("--login")
             .args(["--user", &username])
             .arg("--")
             .arg("cat")
@@ -300,7 +306,8 @@ impl Runner for User {
 
         println!("Saving work directory to {work_tar:?}");
         let mut child = Command::new("sudo")
-            .args(["--chdir", "~"])
+            // See notes about `--chdir` elsewhere.
+            .arg("--login")
             .args(["--user", &username])
             .arg("--")
             .arg("tar")
@@ -407,22 +414,29 @@ impl Runner for User {
         }
 
         command
-            // The double-slash after `~` appears to be necessary for sudo
+            // This used to use `--chdir ~//w`, but that was introduced
+            // relatively recently in sudo 1.9.3 (released 2020-09-21).
+            //
+            // The double-slash after `~` appeared to be necessary for sudo
             // (1.9.5p2). It seems dubious, though.
-            .args(["--chdir", "~//w"])
             .arg("--login")
             .args(["--user", &username])
             .arg("--preserve-env=SANDBOX,SHELL")
             .arg("--")
             .arg(&self.program.shell);
         match run_command {
-            RunnerCommand::Interactive => {}
+            RunnerCommand::Interactive => {
+                command.args(["-c", &format!("cd w && exec {}", self.program.shell)]);
+            }
             RunnerCommand::Init { .. } => {
-                command.args(["-c", "../.cubicle-init-script"]);
+                command.args(["-c", "./.cubicle-init-script"]);
             }
             RunnerCommand::Exec(exec) => {
                 command.arg("-c");
-                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
+                command.arg(format!(
+                    "cd w && {}",
+                    shlex::join(exec.iter().map(|a| a.as_str()))
+                ));
             }
         }
 
