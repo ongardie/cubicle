@@ -135,15 +135,8 @@ mod tests {
             "missing field `runner`",
             Config::from_str("").unwrap_err().to_string()
         );
-
-        #[cfg(target_os = "linux")]
-        let expected =
-            "unknown variant `q`, expected one of `Bubblewrap`, `Docker`, `User` for key `runner` at line 1 column 1";
-        #[cfg(not(target_os = "linux"))]
-        let expected =
-            "unknown variant `q`, expected `Docker` or `User` for key `runner` at line 1 column 1";
         assert_eq!(
-            expected,
+            "unknown variant `q`, expected one of `Bubblewrap`, `Docker`, `User` for key `runner` at line 1 column 1",
             Config::from_str("runner = 'q'").unwrap_err().to_string()
         );
     }

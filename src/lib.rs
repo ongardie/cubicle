@@ -177,8 +177,12 @@ impl Cubicle {
         });
 
         let runner = CheckedRunner::new(match shared.config.runner {
-            #[cfg(target_os = "linux")]
-            RunnerKind::Bubblewrap => Box::new(Bubblewrap::new(shared.clone())?),
+            RunnerKind::Bubblewrap => {
+                #[cfg(not(target_os = "linux"))]
+                return Err(anyhow!("The Bubblewrap runner is only available on Linux"));
+                #[cfg(target_os = "linux")]
+                Box::new(Bubblewrap::new(shared.clone())?)
+            }
             RunnerKind::Docker => Box::new(Docker::new(shared.clone())?),
             RunnerKind::User => Box::new(User::new(shared.clone())?),
         });
@@ -629,7 +633,6 @@ pub enum ListFormat {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 pub enum RunnerKind {
     /// Use the Bubblewrap runner (Linux only).
-    #[cfg(target_os = "linux")]
     #[serde(alias = "bubblewrap")]
     #[serde(alias = "bwrap")]
     Bubblewrap,
