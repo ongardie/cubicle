@@ -68,7 +68,6 @@ macro_rules! deprecated_from {
 
 allowed_from!(toml::de::Error);
 deprecated_from!(reqwest::Error);
-deprecated_from!(rustix::io::Errno);
 deprecated_from!(serde_json::Error);
 deprecated_from!(std::env::JoinPathsError);
 deprecated_from!(std::env::VarError);

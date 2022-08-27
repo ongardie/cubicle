@@ -48,7 +48,7 @@ impl Bubblewrap {
     }
 }
 
-fn get_fd_for_child<F>(file: &F) -> Result<String>
+fn get_fd_for_child<F>(file: &F) -> std::io::Result<String>
 where
     F: rustix::fd::AsFd + std::os::unix::io::AsRawFd,
 {
@@ -289,7 +289,11 @@ impl Runner for Bubblewrap {
         command.args(ro_bind_try("/var/lib/apt/lists"));
         command.args(ro_bind_try("/var/lib/dpkg"));
         if let Some(seccomp) = &seccomp {
-            command.arg("--seccomp").arg(get_fd_for_child(seccomp)?);
+            command
+                .arg("--seccomp")
+                .arg(get_fd_for_child(seccomp).context(
+                    "Failed to set up seccomp file descriptor to be inherited by bwrap",
+                )?);
         }
         command.arg("--chdir").arg(env_home.join("w").as_env_raw());
         command.arg("--");
