@@ -15,6 +15,18 @@ pub fn get_hostname() -> Option<String> {
     None
 }
 
+pub struct Uids {
+    pub real_user: u64,
+    pub group: u64,
+}
+
+pub fn get_uids() -> Uids {
+    Uids {
+        real_user: rustix::process::getuid().as_raw().into(),
+        group: rustix::process::getgid().as_raw().into(),
+    }
+}
+
 pub fn get_timezone() -> String {
     try_get_timezone().unwrap_or_else(|| String::from("Etc/UTC"))
 }
