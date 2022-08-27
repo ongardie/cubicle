@@ -1,18 +1,23 @@
 //! Main Cubicle program configuration.
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::RunnerKind;
 
 /// Main Cubicle program configuration, normally read from a `cubicle.toml`
 /// file.
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// Which runner to use.
     pub runner: RunnerKind,
+
+    /// Configuration specific to the Bubblewrap runner. Set to `None` for
+    /// other runners.
+    #[serde(default)]
+    pub bubblewrap: Option<Bubblewrap>,
 
     /// Configuration specific to the Docker runner. Set to `Docker::default()`
     /// for other runners.
@@ -20,12 +25,46 @@ pub struct Config {
     pub docker: Docker,
 }
 
+/// Configuration specific to the Bubblewrap runner.
+///
+/// See the [Configuration](#configuration) section below for details.
+/// This documentation is included from `docs/Bubblewrap.md`.
+#[doc = include_str!("../docs/Bubblewrap.md")]
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+#[allow(missing_docs)]
+pub struct Bubblewrap {
+    pub seccomp: PathOrDisabled,
+}
+
+/// Like an `Option<PathBuf>` but more opinionated about recommending a path be
+/// set.
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[serde(from = "String")]
+pub enum PathOrDisabled {
+    /// Against our recommendations, the user has insisted on disabling this.
+    /// It may be a poor choice for security or maybe they know best.
+    DangerouslyDisabled,
+    /// Host path.
+    Path(PathBuf),
+}
+
+impl std::convert::From<String> for PathOrDisabled {
+    fn from(s: String) -> Self {
+        if s == "dangerously-disabled" {
+            PathOrDisabled::DangerouslyDisabled
+        } else {
+            PathOrDisabled::Path(PathBuf::from(s))
+        }
+    }
+}
+
 /// Configuration specific to the Docker runner.
 ///
 /// See the [Configuration](#configuration) section below for details.
 /// This documentation is included from `docs/Docker.md`.
 #[doc = include_str!("../docs/Docker.md")]
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[allow(missing_docs)]
 pub struct Docker {
@@ -62,7 +101,18 @@ impl Config {
     ///
     /// The returned error message lacks context.
     fn from_str(s: &str) -> Result<Self> {
-        let config = toml::from_str(s)?;
+        let config: Config = toml::from_str(s)?;
+
+        match config.runner {
+            RunnerKind::Bubblewrap => {
+                if config.bubblewrap.is_none() {
+                    return Err(anyhow!("Bubblewrap settings are required for that runner. See `docs/Bubblewrap.md`."));
+                }
+            }
+            RunnerKind::Docker => {}
+            RunnerKind::User => {}
+        }
+
         Ok(config)
     }
 
@@ -85,15 +135,8 @@ mod tests {
             "missing field `runner`",
             Config::from_str("").unwrap_err().to_string()
         );
-
-        #[cfg(target_os = "linux")]
-        let expected =
-            "unknown variant `q`, expected one of `Bubblewrap`, `Docker`, `User` for key `runner` at line 1 column 1";
-        #[cfg(not(target_os = "linux"))]
-        let expected =
-            "unknown variant `q`, expected `Docker` or `User` for key `runner` at line 1 column 1";
         assert_eq!(
-            expected,
+            "unknown variant `q`, expected one of `Bubblewrap`, `Docker`, `User` for key `runner` at line 1 column 1",
             Config::from_str("runner = 'q'").unwrap_err().to_string()
         );
     }
@@ -111,9 +154,16 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Bubblewrap settings are required")]
+    fn config_from_str_missing_bubblewrap() {
+        Config::from_str("runner = 'bubblewrap'").unwrap();
+    }
+
+    #[test]
     fn config_from_str_ok() {
         let expected = Config {
             runner: RunnerKind::Docker,
+            bubblewrap: None,
             docker: Docker::default(),
         };
         assert_eq!(expected, Config::from_str("runner = 'docker'").unwrap());
@@ -134,6 +184,9 @@ mod tests {
         assert_eq!(
             Config {
                 runner: RunnerKind::Docker,
+                bubblewrap: Some(Bubblewrap {
+                    seccomp: PathOrDisabled::Path(PathBuf::from("/tmp/seccomp.bpf")),
+                }),
                 docker: Docker {
                     bind_mounts: true,
                     extra_packages: vec![String::from("foo"), String::from("bar")],
@@ -144,6 +197,10 @@ mod tests {
             Config::from_str(
                 "
                 runner = 'docker'
+
+                [bubblewrap]
+                seccomp = '/tmp/seccomp.bpf'
+
                 [docker]
                 bind_mounts = true
                 extra_packages = ['foo', 'bar']
@@ -152,6 +209,24 @@ mod tests {
                 "
             )
             .unwrap()
+        );
+    }
+
+    #[test]
+    fn config_from_str_full_seccomp_disabled() {
+        assert_eq!(
+            PathOrDisabled::DangerouslyDisabled,
+            Config::from_str(
+                "
+                runner = 'bubblewrap'
+                [bubblewrap]
+                seccomp = 'dangerously-disabled'
+                "
+            )
+            .unwrap()
+            .bubblewrap
+            .unwrap()
+            .seccomp
         );
     }
 }

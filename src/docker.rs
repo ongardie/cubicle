@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
-use super::os_util::get_timezone;
+use super::os_util::{get_timezone, get_uids, Uids};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
@@ -194,6 +194,7 @@ impl Docker {
                     packages: &packages,
                     timezone: &self.timezone,
                     user: &self.program.user,
+                    uids: &get_uids(),
                 },
             )?;
             stdin.flush()?;
@@ -969,6 +970,7 @@ struct DockerfileArgs<'a> {
     packages: &'a BTreeSet<&'a str>,
     timezone: &'a str,
     user: &'a str,
+    uids: &'a Uids,
 }
 
 fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> Result<()> {
@@ -982,6 +984,8 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> Result<()>
     let user = shlex::quote(args.user);
     let has_apt_file = args.packages.contains("apt-file");
     let has_sudo = args.packages.contains("sudo");
+    let uid = args.uids.real_user;
+    let gid = args.uids.group;
 
     // Don't let the code below here access unquoted 'args'.
     #[allow(clippy::drop_non_drop)]
@@ -998,8 +1002,26 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> Result<()>
         "    ln -fs '/usr/share/zoneinfo/'{timezone} /etc/localtime"
     )?;
 
-    // Set up user account.
-    writeln!(w, "RUN adduser --disabled-password --gecos '' {user} && \\")?;
+    // Set up a user account. Use the same UID as the host because that makes
+    // the file permissions usable for bind mounts. The Debian convention is to
+    // have a group with the same name as the user and put the user in it. Some
+    // hosts use a GID with a small number for many users (GitHub Actions Mac
+    // OS appears to have GID 20). If the group ID is taken on the Debian image
+    // already, this falls back to any available GID, even if the group
+    // permissions end up wonky for bind mounts.
+    writeln!(
+        w,
+        "RUN addgroup --gid {gid} {user} || addgroup {user} && \\"
+    )?;
+    //
+    // Prevent using gid below.
+    #[allow(unused)]
+    let gid: ();
+    //
+    writeln!(
+        w,
+        "    adduser --disabled-password --gecos '' --uid {uid} --ingroup {user} {user} && \\",
+    )?;
     writeln!(w, "    adduser {user} sudo && \\")?;
     // For a Docker volume to be owned/writable by a regular user, a directory
     // needs to exist there before the volume is mounted. See
@@ -1058,6 +1080,10 @@ mod tests {
                 packages: &BTreeSet::from(["apt-file", "pack#age1", "package2", "sudo"]),
                 timezone: "Etc/Timez'one",
                 user: "h#x*r",
+                uids: &Uids {
+                    real_user: 1337,
+                    group: 7331,
+                },
             },
         )
         .unwrap();

@@ -89,7 +89,7 @@ sed 's/"getpid",/"getpid", "clone", "unshare",/' < docker-seccomp.json > seccomp
 ## Configuration
 
 Inside your `cubicle.toml`, set `runner` to `"docker"`. You can optionally
-create a table named `docker` with the following keys:
+create an object named `docker` with the following keys:
 
 ### `bind_mounts`
 

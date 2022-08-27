@@ -12,6 +12,7 @@ atty = "0.2.14"
 cap-std = "0.25.2"
 clap = { version = "3.2.16", features = ["derive"] }
 clap_complete = "3.2.4"
+indoc = "1.0.7"
 lazy_static = "1.4.0"
 rand = "0.8.5"
 regex = "1.6.0"
@@ -19,6 +20,7 @@ reqwest = { version = "0.11.11", features = ["blocking"] }
 rustix = { version = "0.35.7", features = ["process"] }
 serde = { version = "1.0.143", features = ["derive"] }
 serde_json = "1.0.83"
+serde_yaml = "0.9.10"
 shlex = "1.1.0"
 tar = "0.4.38"
 tempfile = "3.3.0"

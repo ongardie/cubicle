@@ -38,6 +38,14 @@ impl Bubblewrap {
             work_dirs,
         })
     }
+
+    fn config(&self) -> &super::config::Bubblewrap {
+        self.program
+            .config
+            .bubblewrap
+            .as_ref()
+            .expect("Bubblewrap config needed")
+    }
 }
 
 fn get_fd_for_child<F>(file: &F) -> Result<String>
@@ -201,8 +209,16 @@ impl Runner for Bubblewrap {
             _ => None,
         };
 
-        let seccomp =
-            std::fs::File::open(self.program.script_path.join("seccomp.bpf").as_host_raw())?;
+        let seccomp: Option<std::fs::File> = {
+            use super::config::PathOrDisabled::*;
+            match &self.config().seccomp {
+                Path(path) => Some(
+                    std::fs::File::open(path)
+                        .with_context(|| format!("Failed to open seccomp filter: {path:?}"))?,
+                ),
+                DangerouslyDisabled => None,
+            }
+        };
 
         let mut command = Command::new("bwrap");
 
@@ -272,7 +288,9 @@ impl Runner for Bubblewrap {
         command.args(ro_bind_try("/usr"));
         command.args(ro_bind_try("/var/lib/apt/lists"));
         command.args(ro_bind_try("/var/lib/dpkg"));
-        command.arg("--seccomp").arg(get_fd_for_child(&seccomp)?);
+        if let Some(seccomp) = &seccomp {
+            command.arg("--seccomp").arg(get_fd_for_child(seccomp)?);
+        }
         command.arg("--chdir").arg(env_home.join("w").as_env_raw());
         command.arg("--");
         command.arg(&self.program.shell);

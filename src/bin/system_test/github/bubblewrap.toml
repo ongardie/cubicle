@@ -1,0 +1,4 @@
+runner = "bubblewrap"
+
+[bubblewrap]
+seccomp = 'dangerously-disabled'
