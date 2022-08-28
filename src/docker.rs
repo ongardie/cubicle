@@ -165,7 +165,8 @@ impl Docker {
             ));
         }
 
-        let timestamp: String = String::from_utf8(output.stdout)?;
+        let timestamp: String =
+            String::from_utf8(output.stdout).context("failed to read `docker inspect` output")?;
         let timestamp: u64 = u64::from_str(timestamp.trim())
             .with_context(|| format!("failed to parse Unix timestamp from {timestamp:?}"))?;
         Ok(Some(UNIX_EPOCH + Duration::from_secs(timestamp)))
@@ -356,6 +357,11 @@ impl Docker {
     }
 
     fn volume_mountpoint(&self, name: &VolumeName) -> Result<Option<HostPath>> {
+        self.volume_mountpoint_(name)
+            .with_context(|| format!("failed to get mountpoint of Docker volume {name:?}"))
+    }
+
+    fn volume_mountpoint_(&self, name: &VolumeName) -> Result<Option<HostPath>> {
         let output = Command::new("docker")
             .arg("volume")
             .arg("inspect")
@@ -369,18 +375,23 @@ impl Docker {
                 return Ok(None);
             }
             return Err(anyhow!(
-                "Failed to inspect Docker volume {}: \
-                docker volume inspect exited with status {:?} and stderr: {}",
-                name,
+                "docker volume inspect exited with status {:?} and stderr: {}",
                 status.code(),
                 stderr
             ));
         }
-        let stdout = String::from_utf8(output.stdout)?.trim().to_owned();
+        let stdout = String::from_utf8(output.stdout)
+            .context("failed to read `docker volume inspect` output")?
+            .trim()
+            .to_owned();
         Ok(Some(HostPath::try_from(stdout)?))
     }
 
     fn volume_du(&self, name: &VolumeName) -> Result<DirSummary> {
+        self.volume_du_(name)
+            .with_context(|| format!("Failed to summarize disk usage of Docker volume {name:?}"))
+    }
+    fn volume_du_(&self, name: &VolumeName) -> Result<DirSummary> {
         let output = Command::new("docker")
             .arg("run")
             .arg("--mount")
@@ -402,15 +413,14 @@ impl Docker {
         if !status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(anyhow!(
-                "Failed to summarize disk usage of Docker volume {}: \
-                docker run du exited with status {:?} and stderr: {}",
-                name,
+                "`docker run ... -- du ...` exited with status {:?} and stderr: {}",
                 status.code(),
                 stderr
             ));
         }
 
-        let stdout = String::from_utf8(output.stdout)?;
+        let stdout = String::from_utf8(output.stdout)
+            .context("failed to read `docker run ... -- du ...` output")?;
 
         lazy_static! {
             static ref RE: Regex =

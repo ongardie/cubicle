@@ -68,7 +68,6 @@ macro_rules! deprecated_from {
 }
 
 deprecated_from!(std::io::Error);
-deprecated_from!(std::string::FromUtf8Error);
 
 /// Creates a [`somehow::Error`](Error) from a string with format args or
 /// another error of any type.

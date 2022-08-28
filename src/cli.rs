@@ -14,7 +14,7 @@ use std::str::FromStr;
 use super::os_util::host_home_dir;
 use super::packages::{package_set_from_names, ListPackagesFormat};
 use super::{Clean, Cubicle, EnvironmentName, ListFormat, Quiet};
-use crate::somehow::{Error, Result};
+use crate::somehow::{Context, Error, Result};
 
 /// Manage sandboxed development environments.
 #[derive(Debug, Parser)]
@@ -237,7 +237,7 @@ fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
     if shell == Shell::Zsh {
         let mut buf: Vec<u8> = Vec::new();
         generate(shell, cmd, "cub", &mut buf);
-        let buf = String::from_utf8(buf)?;
+        let buf = String::from_utf8(buf).context("error reading clap shell completion output")?;
         let mut counts = [0; 4];
         for line in buf.lines() {
             match line {
