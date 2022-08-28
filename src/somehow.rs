@@ -68,7 +68,6 @@ macro_rules! deprecated_from {
 
 allowed_from!(toml::de::Error);
 deprecated_from!(serde_json::Error);
-deprecated_from!(std::env::VarError);
 deprecated_from!(std::io::Error);
 deprecated_from!(std::string::FromUtf8Error);
 

@@ -59,7 +59,7 @@ mod fs_util;
 use fs_util::DirSummary;
 
 mod os_util;
-use os_util::get_hostname;
+use os_util::{get_hostname, host_home_dir};
 
 mod packages;
 use packages::write_package_list_tar;
@@ -123,7 +123,7 @@ impl Cubicle {
     /// - Creating a runner.
     pub fn new(config: Config) -> Result<Self> {
         let hostname = get_hostname();
-        let home = HostPath::try_from(std::env::var("HOME").context("Invalid $HOME")?)?;
+        let home = host_home_dir().clone();
         let user = std::env::var("USER").context("Invalid $USER")?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/sh"));
 

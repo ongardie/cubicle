@@ -11,6 +11,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use super::os_util::host_home_dir;
 use super::packages::{package_set_from_names, ListPackagesFormat};
 use super::{Clean, Cubicle, EnvironmentName, ListFormat, Quiet};
 use crate::somehow::{Error, Result};
@@ -182,9 +183,9 @@ impl PathWithVarExpansion {
     }
 
     /// Helper for `from_str`. Split out for unit testing.
-    fn expand_home_prefix(path_str: &str, home: PathBuf) -> Self {
+    fn expand_home_prefix(path_str: &str, home: &Path) -> Self {
         let path = if path_str == "$HOME" {
-            home
+            home.to_owned()
         } else if let Some(rest) =
             path_str.strip_prefix(&format!("$HOME{}", std::path::MAIN_SEPARATOR))
         {
@@ -204,11 +205,7 @@ impl AsRef<Path> for PathWithVarExpansion {
 
 impl Display for PathWithVarExpansion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Ok(home) = std::env::var("HOME") {
-            self.sub_home_prefix(Path::new(&home)).fmt(f)
-        } else {
-            self.0.display().fmt(f)
-        }
+        self.sub_home_prefix(host_home_dir().as_host_raw()).fmt(f)
     }
 }
 
@@ -216,8 +213,7 @@ impl FromStr for PathWithVarExpansion {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        let home = PathBuf::from(std::env::var("HOME")?);
-        Ok(Self::expand_home_prefix(s, home))
+        Ok(Self::expand_home_prefix(s, host_home_dir().as_host_raw()))
     }
 }
 
@@ -225,8 +221,7 @@ fn default_config_path() -> PathWithVarExpansion {
     let xdg_config_home = if let Ok(path) = std::env::var("XDG_CONFIG_HOME") {
         PathBuf::from(path)
     } else {
-        let home = PathBuf::from(std::env::var("HOME").expect("Invalid $HOME"));
-        home.join(".config")
+        host_home_dir().as_host_raw().join(".config")
     };
     PathWithVarExpansion(xdg_config_home.join("cubicle.toml"))
 }
@@ -353,32 +348,30 @@ mod tests {
     fn expand_home_prefix() {
         assert_eq!(
             "/home/foo/bar",
-            PathWithVarExpansion::expand_home_prefix("$HOME/bar", PathBuf::from("/home/foo"))
+            PathWithVarExpansion::expand_home_prefix("$HOME/bar", Path::new("/home/foo"))
                 .to_string()
         );
         assert_eq!(
             "/home/foo/bar",
-            PathWithVarExpansion::expand_home_prefix("$HOME/bar", PathBuf::from("/home/foo/"))
+            PathWithVarExpansion::expand_home_prefix("$HOME/bar", Path::new("/home/foo/"))
                 .to_string()
         );
         assert_eq!(
             "/home/foo",
-            PathWithVarExpansion::expand_home_prefix("$HOME", PathBuf::from("/home/foo"))
-                .to_string()
+            PathWithVarExpansion::expand_home_prefix("$HOME", Path::new("/home/foo")).to_string()
         );
         assert_eq!(
             "$HOMER",
-            PathWithVarExpansion::expand_home_prefix("$HOMER", PathBuf::from("/home/foo"))
-                .to_string()
+            PathWithVarExpansion::expand_home_prefix("$HOMER", Path::new("/home/foo")).to_string()
         );
         assert_eq!(
             "/abc/$HOME",
-            PathWithVarExpansion::expand_home_prefix("/abc/$HOME", PathBuf::from("/home/foo"))
+            PathWithVarExpansion::expand_home_prefix("/abc/$HOME", Path::new("/home/foo"))
                 .to_string()
         );
         assert_eq!(
             "/abc/def",
-            PathWithVarExpansion::expand_home_prefix("/abc/def", PathBuf::from("/home/foo"))
+            PathWithVarExpansion::expand_home_prefix("/abc/def", Path::new("/home/foo"))
                 .to_string()
         );
     }
