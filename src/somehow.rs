@@ -96,7 +96,7 @@ pub use somehow;
 /// errors.
 ///
 /// This is similar to [`anyhow::Context`] but also includes
-/// [`Self::todo_context`] to aid in transitioning to better error messages.
+/// [`Self::todo_context`] and [`Self::enough_context`].
 pub trait Context<T> {
     /// Prepends a static string to explain the underlying error.
     fn context<C>(self, context: C) -> Result<T, Error>
@@ -114,6 +114,14 @@ pub trait Context<T> {
     /// This is a temporary aid to help in transitioning to better error
     /// messages.
     fn todo_context(self) -> Result<T, Error>;
+
+    /// Marks the error as having sufficient context.
+    ///
+    /// This is normally used when the static error type typically lacks
+    /// context, but it's sufficient here. This can happen when this error
+    /// message is unusually good or when the calling code is known to give it
+    /// enough context.
+    fn enough_context(self) -> Result<T, Error>;
 }
 
 static TODO_CONTEXT: &str = "\
@@ -140,6 +148,10 @@ impl<T> Context<T> for Result<T, Error> {
     fn todo_context(self) -> Result<T, Error> {
         self.context(TODO_CONTEXT)
     }
+
+    fn enough_context(self) -> Result<T, Error> {
+        self
+    }
 }
 
 impl<T, E> Context<T> for Result<T, E>
@@ -163,6 +175,10 @@ where
 
     fn todo_context(self) -> Result<T, Error> {
         self.context(TODO_CONTEXT)
+    }
+
+    fn enough_context(self) -> Result<T, Error> {
+        self.map_err(|e| Error(anyhow::Error::from(e)))
     }
 }
 
