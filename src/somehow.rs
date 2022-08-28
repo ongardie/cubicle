@@ -14,13 +14,20 @@ use std::fmt::{self, Debug, Display};
 /// The normal return type for functions that may fail with `somehow`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+/// Return type with a [`LowLevelError`] that lacks context.
+pub type LowLevelResult<T, E = LowLevelError> = std::result::Result<T, E>;
+
 /// An Error type that tracks backtraces and can be created from some other
 /// error types (but not all).
 ///
 /// Instances of this type should provide enough context at a low level. For
 /// example, "file not found" would be bad, but "file not found: /dev/null"
-/// would be OK. Whether this error provides sufficient context at a higher
-/// level of the program is not modeled in the types.
+/// would be OK.
+///
+/// [`Result`] with this error type implements [`Context`].
+///
+/// If you need to provide additional context at a higher level before this
+/// error makes sense, consider [`LowLevelError`].
 pub struct Error(anyhow::Error);
 
 /// See [`anyhow::Error`].
@@ -40,6 +47,33 @@ impl Display for Error {
 impl From<anyhow::Error> for Error {
     fn from(error: anyhow::Error) -> Self {
         Self(error)
+    }
+}
+
+/// An Error that needs context before it should be displayed.
+///
+/// This can be created from anything but will not implicitly convert to a
+/// [`somehow::Error`](Error).
+///
+/// [`LowLevelError`] does not implement [`std::fmt::Debug`] or
+/// [`std::fmt::Display`] since you're not supposed to be printing it.
+/// If you need to, use [`Context::enough_context`].
+///
+/// [`LowLevelResult`] with this error type implements [`Context`].
+pub struct LowLevelError(Error);
+
+impl From<Error> for LowLevelError {
+    fn from(error: Error) -> Self {
+        Self(error)
+    }
+}
+
+impl<E> From<E> for LowLevelError
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    fn from(error: E) -> Self {
+        Self(Error(anyhow::Error::from(error)))
     }
 }
 
@@ -143,6 +177,31 @@ impl<T> Context<T> for Result<T, Error> {
 
     fn enough_context(self) -> Result<T, Error> {
         self
+    }
+}
+
+impl<T> Context<T> for Result<T, LowLevelError> {
+    fn context<C>(self, context: C) -> Result<T, Error>
+    where
+        C: fmt::Display + Send + Sync + 'static,
+    {
+        self.map_err(|err| err.0).context(context)
+    }
+
+    fn with_context<C, F>(self, context: F) -> Result<T, Error>
+    where
+        C: fmt::Display + Send + Sync + 'static,
+        F: FnOnce() -> C,
+    {
+        self.map_err(|err| err.0).with_context(context)
+    }
+
+    fn todo_context(self) -> Result<T, Error> {
+        self.context(TODO_CONTEXT)
+    }
+
+    fn enough_context(self) -> Result<T, Error> {
+        self.map_err(|err| err.0)
     }
 }
 

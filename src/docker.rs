@@ -16,7 +16,7 @@ use super::newtype::EnvPath;
 use super::os_util::{get_timezone, get_uids, Uids};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::somehow::{somehow as anyhow, Context, Result};
+use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
@@ -126,7 +126,7 @@ impl Docker {
         self.ps_().context("failed to list Docker containers")
     }
 
-    fn ps_(&self) -> Result<Vec<EnvironmentName>> {
+    fn ps_(&self) -> LowLevelResult<Vec<EnvironmentName>> {
         let output = Command::new("docker")
             .args(["ps", "--all", "--format", "{{ .Names }}"])
             .output()?;
@@ -136,7 +136,8 @@ impl Docker {
                 "`docker ps` exited with {}. Output: {}",
                 status,
                 String::from_utf8_lossy(&output.stderr)
-            ));
+            )
+            .into());
         }
 
         let mut envs = Vec::new();
@@ -160,7 +161,7 @@ impl Docker {
         })
     }
 
-    fn base_mtime_(&self) -> Result<Option<SystemTime>> {
+    fn base_mtime_(&self) -> LowLevelResult<Option<SystemTime>> {
         let output = Command::new("docker")
             .arg("inspect")
             .args(["--type", "image"])
@@ -173,9 +174,9 @@ impl Docker {
             if status.code() == Some(1) && stderr.starts_with("Error: No such image") {
                 return Ok(None);
             }
-            return Err(anyhow!(
-                "`docker inspect ...` exited with {status} and output: {stderr}",
-            ));
+            return Err(
+                anyhow!("`docker inspect ...` exited with {status} and output: {stderr}").into(),
+            );
         }
 
         let timestamp: String =
@@ -191,7 +192,7 @@ impl Docker {
             .with_context(|| format!("failed to build {} Docker image", self.base_image))
     }
 
-    fn build_base_(&self) -> Result<()> {
+    fn build_base_(&self) -> LowLevelResult<()> {
         // These checks on the image timestamp are a little silly, since this
         // program is short-lived. They used to make more sense when the
         // Dockerfile was a normal file. They might well make more sense again
@@ -230,7 +231,7 @@ impl Docker {
 
         let status = child.wait()?;
         if !status.success() {
-            return Err(anyhow!("`docker build` exited with {status}"));
+            return Err(anyhow!("`docker build` exited with {status}").into());
         }
         self.built_base.set(true);
         Ok(())
@@ -241,7 +242,7 @@ impl Docker {
             .with_context(|| format!("failed to start Docker container {env_name:?}"))
     }
 
-    fn spawn_(&self, env_name: &EnvironmentName) -> Result<()> {
+    fn spawn_(&self, env_name: &EnvironmentName) -> LowLevelResult<()> {
         let container_name = self.container_from_environment(env_name);
         let seccomp_json = self.program.script_path.join("seccomp.json");
         let mut command = Command::new("docker");
@@ -352,7 +353,7 @@ impl Docker {
             .context("failed to list Docker volumes")
     }
 
-    fn list_volumes_(&self) -> Result<Vec<VolumeName>> {
+    fn list_volumes_(&self) -> LowLevelResult<Vec<VolumeName>> {
         let output = Command::new("docker")
             .args(["volume", "ls", "--format", "{{ .Name }}"])
             .output()?;
@@ -362,7 +363,8 @@ impl Docker {
                 "`docker volume ls` exited with {} and output: {}",
                 status,
                 String::from_utf8_lossy(&output.stderr)
-            ));
+            )
+            .into());
         }
 
         output
@@ -371,6 +373,7 @@ impl Docker {
             .map(|line| {
                 line.map(VolumeName::new)
                     .context("failed to read `docker volume ls` output")
+                    .map_err(|e| e.into())
             })
             .collect()
     }
@@ -384,7 +387,7 @@ impl Docker {
             .with_context(|| format!("failed to get mountpoint of Docker volume {name:?}"))
     }
 
-    fn volume_mountpoint_(&self, name: &VolumeName) -> Result<Option<HostPath>> {
+    fn volume_mountpoint_(&self, name: &VolumeName) -> LowLevelResult<Option<HostPath>> {
         let output = Command::new("docker")
             .arg("volume")
             .arg("inspect")
@@ -399,7 +402,8 @@ impl Docker {
             }
             return Err(anyhow!(
                 "`docker volume inspect` exited with {status} and stderr: {stderr}"
-            ));
+            )
+            .into());
         }
         let stdout = String::from_utf8(output.stdout)
             .context("failed to read `docker volume inspect` output")?
@@ -412,7 +416,7 @@ impl Docker {
         self.volume_du_(name)
             .with_context(|| format!("Failed to summarize disk usage of Docker volume {name:?}"))
     }
-    fn volume_du_(&self, name: &VolumeName) -> Result<DirSummary> {
+    fn volume_du_(&self, name: &VolumeName) -> LowLevelResult<DirSummary> {
         let output = Command::new("docker")
             .arg("run")
             .arg("--mount")
@@ -435,7 +439,8 @@ impl Docker {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(anyhow!(
                 "`docker run ... -- du ...` exited with {status} and stderr: {stderr}",
-            ));
+            )
+            .into());
         }
 
         let stdout = String::from_utf8(output.stdout)
@@ -460,9 +465,9 @@ impl Docker {
                     last_modified: mtime,
                 })
             }
-            None => Err(anyhow!(
-                "Unexpected output from `docker run ... -- du ...`: {stdout:?}",
-            )),
+            None => Err(
+                anyhow!("Unexpected output from `docker run ... -- du ...`: {stdout:?}",).into(),
+            ),
         }
     }
 
@@ -471,7 +476,7 @@ impl Docker {
             .with_context(|| format!("failed to create Docker volume {name:?}"))
     }
 
-    fn ensure_volume_exists_(&self, name: &VolumeName) -> Result<()> {
+    fn ensure_volume_exists_(&self, name: &VolumeName) -> LowLevelResult<()> {
         let status = Command::new("docker")
             .arg("volume")
             .arg("create")
@@ -479,7 +484,7 @@ impl Docker {
             .stdout(Stdio::null())
             .status()?;
         if !status.success() {
-            return Err(anyhow!("`docker volume create` exited with {status}"));
+            return Err(anyhow!("`docker volume create` exited with {status}").into());
         }
         Ok(())
     }
@@ -489,7 +494,7 @@ impl Docker {
             .with_context(|| format!("failed to remove Docker volume {name:?}"))
     }
 
-    fn ensure_no_volume_(&self, name: &VolumeName) -> Result<()> {
+    fn ensure_no_volume_(&self, name: &VolumeName) -> LowLevelResult<()> {
         let status = Command::new("docker")
             .arg("volume")
             .arg("rm")
@@ -498,18 +503,17 @@ impl Docker {
             .stdout(Stdio::null())
             .status()?;
         if !status.success() {
-            return Err(anyhow!("`docker volume rm` exited with {status}"));
+            return Err(anyhow!("`docker volume rm` exited with {status}").into());
         }
         Ok(())
     }
 
-    // Note: returned error lacks context.
     fn docker_cp_out_from_root(
         &self,
         env_name: &EnvironmentName,
         abs_path: &EnvPath,
         w: &mut dyn io::Write,
-    ) -> Result<()> {
+    ) -> LowLevelResult<()> {
         let container_name = self.container_from_environment(env_name);
         if !self.is_container(&container_name)? {
             self.build_base()?;
@@ -539,18 +543,21 @@ impl Docker {
             .ok_or_else(|| anyhow!("tar file had no entries, expected 1"))?;
         io::copy(&mut entry, w).context("error reading/writing data")?;
         if entries.next().is_some() {
-            return Err(anyhow!("tar file had multiple entries, expected 1"));
+            return Err(anyhow!("tar file had multiple entries, expected 1").into());
         }
 
         let status = child.wait()?;
         if !status.success() {
-            return Err(anyhow!("`docker cp` exited with {status}"));
+            return Err(anyhow!("`docker cp` exited with {status}").into());
         }
         Ok(())
     }
 
-    // Note: returned error lacks context.
-    fn copy_seeds(&self, container_name: &ContainerName, seeds: &Vec<HostPath>) -> Result<()> {
+    fn copy_seeds(
+        &self,
+        container_name: &ContainerName,
+        seeds: &Vec<HostPath>,
+    ) -> LowLevelResult<()> {
         if seeds.is_empty() {
             return Ok(());
         }
@@ -601,9 +608,7 @@ impl Docker {
 
         let status = child.wait()?;
         if !status.success() {
-            return Err(anyhow!(
-                "`docker exec ... -- 'pv | tar'` exited with {status}"
-            ));
+            return Err(anyhow!("`docker exec ... -- 'pv | tar'` exited with {status}").into());
         }
         Ok(())
     }

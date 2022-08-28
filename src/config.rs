@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 use super::RunnerKind;
-use crate::somehow::{somehow as anyhow, Context, Result};
+use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 
 /// Main Cubicle program configuration, normally read from a `cubicle.toml`
 /// file.
@@ -98,15 +98,17 @@ fn cub_dash() -> String {
 
 impl Config {
     /// Parses and validates a TOML-formatted string into a Config.
-    ///
-    /// The returned error message lacks context.
-    fn from_str(s: &str) -> Result<Self> {
-        let config: Config = toml::from_str(s).enough_context()?;
+    fn from_str(s: &str) -> LowLevelResult<Self> {
+        let config: Config = toml::from_str(s)?;
 
         match config.runner {
             RunnerKind::Bubblewrap => {
                 if config.bubblewrap.is_none() {
-                    return Err(anyhow!("Bubblewrap settings are required for that runner. See `docs/Bubblewrap.md`."));
+                    return Err(anyhow!(
+                        "Bubblewrap settings are required for that runner. \
+                        See `docs/Bubblewrap.md`."
+                    )
+                    .into());
                 }
             }
             RunnerKind::Docker => {}
@@ -133,11 +135,14 @@ mod tests {
     fn config_from_str_bad_runner() {
         assert_eq!(
             "missing field `runner`",
-            Config::from_str("").unwrap_err().to_string()
+            Config::from_str("")
+                .enough_context()
+                .unwrap_err()
+                .to_string()
         );
         assert_eq!(
             "unknown variant `q`, expected one of `Bubblewrap`, `Docker`, `User` for key `runner` at line 1 column 1",
-            Config::from_str("runner = 'q'").unwrap_err().to_string()
+            Config::from_str("runner = 'q'").enough_context().unwrap_err().to_string()
         );
     }
 
@@ -150,13 +155,16 @@ mod tests {
             asdf = 'what?'
             ",
         )
+        .enough_context()
         .unwrap();
     }
 
     #[test]
     #[should_panic(expected = "Bubblewrap settings are required")]
     fn config_from_str_missing_bubblewrap() {
-        Config::from_str("runner = 'bubblewrap'").unwrap();
+        Config::from_str("runner = 'bubblewrap'")
+            .enough_context()
+            .unwrap();
     }
 
     #[test]
@@ -166,7 +174,12 @@ mod tests {
             bubblewrap: None,
             docker: Docker::default(),
         };
-        assert_eq!(expected, Config::from_str("runner = 'docker'").unwrap());
+        assert_eq!(
+            expected,
+            Config::from_str("runner = 'docker'")
+                .enough_context()
+                .unwrap()
+        );
         assert_eq!(
             expected,
             Config::from_str(
@@ -175,6 +188,7 @@ mod tests {
                     [docker]
                 "
             )
+            .enough_context()
             .unwrap()
         );
     }
@@ -208,6 +222,7 @@ mod tests {
                 slim = true
                 "
             )
+            .enough_context()
             .unwrap()
         );
     }
@@ -223,6 +238,7 @@ mod tests {
                 seccomp = 'dangerously-disabled'
                 "
             )
+            .enough_context()
             .unwrap()
             .bubblewrap
             .unwrap()
