@@ -239,30 +239,31 @@ fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
         generate(shell, cmd, "cub", &mut buf);
         let buf = String::from_utf8(buf).context("error reading clap shell completion output")?;
         let mut counts = [0; 4];
-        for line in buf.lines() {
-            match line {
-                r#"':name -- Environment name:' \"# => {
-                    counts[0] += 1;
-                    writeln!(out, r#"':name -- Environment name:_cub_envs' \"#)?;
-                }
-                r#"'*::names -- Environment name(s):' \"# => {
-                    counts[1] += 1;
-                    writeln!(out, r#"'*::names -- Environment name(s):_cub_envs' \"#)?;
-                }
-                r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES: ' \"# =>
-                {
-                    counts[2] += 1;
-                    writeln!(
-                        out,
-                        r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs' \"#
-                    )?;
-                }
-                r#"_cub "$@""# => {
-                    counts[3] += 1;
-                    writeln!(
-                        out,
-                        "{}",
-                        r#"
+        let mut write = || -> std::io::Result<()> {
+            for line in buf.lines() {
+                match line {
+                    r#"':name -- Environment name:' \"# => {
+                        counts[0] += 1;
+                        writeln!(out, r#"':name -- Environment name:_cub_envs' \"#)?;
+                    }
+                    r#"'*::names -- Environment name(s):' \"# => {
+                        counts[1] += 1;
+                        writeln!(out, r#"'*::names -- Environment name(s):_cub_envs' \"#)?;
+                    }
+                    r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES: ' \"# =>
+                    {
+                        counts[2] += 1;
+                        writeln!(
+                            out,
+                            r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs' \"#
+                        )?;
+                    }
+                    r#"_cub "$@""# => {
+                        counts[3] += 1;
+                        writeln!(
+                            out,
+                            "{}",
+                            r#"
 _cub_envs() {
     _values -w 'environments' $(cub list --format=names)
 }
@@ -270,15 +271,22 @@ _cub_pkgs() {
     _values -s , -w 'packages' $(cub packages --format=names)
 }
 "#
-                    )?;
-                    writeln!(out, "{}", line)?;
-                }
-                _ => {
-                    writeln!(out, "{}", line)?;
+                        )?;
+                        writeln!(out, "{}", line)?;
+                    }
+                    _ => {
+                        writeln!(out, "{}", line)?;
+                    }
                 }
             }
-        }
-        debug_assert_eq!(counts, [2, 2, 3, 1], "completions not patched as expected");
+            Ok(())
+        };
+        write().context("failed to write zsh completions")?;
+        debug_assert_eq!(
+            counts,
+            [2, 2, 3, 1],
+            "zsh completions not patched as expected"
+        );
     } else {
         generate(shell, cmd, "cub", out);
     }

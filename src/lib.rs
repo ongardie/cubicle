@@ -137,7 +137,7 @@ impl Cubicle {
             Err(_) => home.join(".local").join("share"),
         };
 
-        let exe = std::env::current_exe()?;
+        let exe = std::env::current_exe().todo_context()?;
         let script_name = match exe.file_name() {
             Some(path) => path.to_string_lossy().into_owned(),
             None => {

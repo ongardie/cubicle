@@ -55,19 +55,18 @@ macro_rules! allowed_from {
     };
 }
 
+#[allow(unused)]
 /// Allows implicit converstions from this error type to `somehow::Error`,
 /// but annotates them with `TODO_CONTEXT`.
 macro_rules! deprecated_from {
     ($error:ty) => {
         impl From<$error> for Error {
             fn from(error: $error) -> Self {
-                Self(anyhow::Error::from(error).context(TODO_CONTEXT))
+                Self(anyhow::Error::from(error).context($crate::somehow::TODO_CONTEXT))
             }
         }
     };
 }
-
-deprecated_from!(std::io::Error);
 
 /// Creates a [`somehow::Error`](Error) from a string with format args or
 /// another error of any type.
@@ -184,22 +183,33 @@ impl From<Error> for Box<dyn std::error::Error + Send + Sync + 'static> {
 
 #[cfg(test)]
 mod tests {
-    use super::Result;
+    use super::{Context, Error, Result};
     use insta::assert_snapshot;
 
-    /*
-    nothing is allowed at the moment, so this is disabled
+    #[derive(Debug)]
+    struct MyError;
+    impl std::fmt::Display for MyError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("MyError")
+        }
+    }
+    impl std::error::Error for MyError {}
+    allowed_from!(MyError);
+
     #[test]
     fn allowed_from() {
-        let make_err = || -> Result<_> { Ok(toml::from_str("pi")?) };
+        let make_err = || -> Result<()> {
+            #[allow(clippy::try_err)]
+            Err(MyError)?
+        };
         let err = make_err().unwrap_err();
         let debug = format!("{:?}", err);
-        assert_snapshot!(debug, @"expected an equals, found eof at line 1 column 3");
+        assert_snapshot!(debug, @"MyError");
     }
-    */
 
     #[test]
     fn deprecated_from() {
+        deprecated_from!(std::io::Error);
         let make_err = || -> Result<f64> {
             #[allow(clippy::try_err)]
             Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?
@@ -207,6 +217,21 @@ mod tests {
         let err = make_err().unwrap_err();
         let debug = format!("{:?}", err);
         assert_snapshot!(debug, @r###"
+        The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
+        info. A pull request or a GitHub issue with this output and the steps to
+        reproduce it would be welcome.
+
+        Caused by:
+            unexpected end of file
+        "###);
+    }
+
+    #[test]
+    fn todo_context() {
+        let err: std::io::Result<f64> =
+            Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+        let err: Error = err.todo_context().unwrap_err();
+        assert_snapshot!(format!("{err:?}"), @r###"
         The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
         info. A pull request or a GitHub issue with this output and the steps to
         reproduce it would be welcome.

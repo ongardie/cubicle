@@ -29,7 +29,7 @@ struct Args {
 /// trivial to update that metadata in a cross-platform way, so this just
 /// rewrites the file instead.
 fn rewrite<P: AsRef<Path>>(path: P) -> Result<()> {
-    let rewrite_ = |path: &Path| -> Result<()> {
+    let rewrite_ = |path: &Path| -> std::io::Result<()> {
         let contents = std::fs::read(path)?;
         std::fs::write(path, contents)?;
         Ok(())
@@ -39,7 +39,7 @@ fn rewrite<P: AsRef<Path>>(path: P) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let exe = std::env::current_exe()?;
+    let exe = std::env::current_exe().todo_context()?;
     let project_root = match exe.ancestors().nth(3) {
         Some(path) => path.to_owned(),
         None => {

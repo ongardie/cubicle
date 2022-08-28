@@ -106,14 +106,16 @@ impl Docker {
             .args(["inspect", "--type", "container", name])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status()?;
+            .status()
+            .todo_context()?;
         Ok(status.success())
     }
 
     fn ps(&self) -> Result<Vec<EnvironmentName>> {
         let output = Command::new("docker")
             .args(["ps", "--all", "--format", "{{ .Names }}"])
-            .output()?;
+            .output()
+            .todo_context()?;
         let status = output.status;
         if !status.success() {
             return Err(anyhow!(
@@ -126,7 +128,7 @@ impl Docker {
 
         let mut envs = Vec::new();
         for line in output.stdout.lines() {
-            let line = line?;
+            let line = line.todo_context()?;
             if let Some(name) = line.strip_prefix(&self.program.config.docker.prefix) {
                 if let Ok(env) = EnvironmentName::from_str(name) {
                     envs.push(env);
@@ -151,7 +153,7 @@ impl Docker {
         command.args(["--type", "image"]);
         command.args(["--format", "{{ $.Metadata.LastTagTime.Unix }}"]);
         command.arg(&self.base_image);
-        let output = command.output()?;
+        let output = command.output().todo_context()?;
         let status = output.status;
         if !status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -187,7 +189,8 @@ impl Docker {
         let mut child = Command::new("docker")
             .args(["build", "--tag", &self.base_image, "-"])
             .stdin(Stdio::piped())
-            .scoped_spawn()?;
+            .scoped_spawn()
+            .todo_context()?;
         {
             let mut stdin = child
                 .stdin
@@ -207,11 +210,12 @@ impl Docker {
                     user: &self.program.user,
                     uids: &get_uids(),
                 },
-            )?;
-            stdin.flush()?;
+            )
+            .todo_context()?;
+            stdin.flush().todo_context()?;
         }
 
-        let status = child.wait()?;
+        let status = child.wait().todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to build {} Docker image: \
@@ -240,7 +244,7 @@ impl Docker {
         command.arg("--init");
         command.args(["--name", &container_name]);
         command.arg("--rm");
-        if try_exists(&seccomp_json)? {
+        if try_exists(&seccomp_json).todo_context()? {
             command.args([
                 "--security-opt",
                 &format!("seccomp={}", seccomp_json.as_host_raw().display()),
@@ -323,7 +327,7 @@ impl Docker {
         command.arg(&self.base_image);
         command.args(["sleep", "90d"]);
         command.stdout(Stdio::null());
-        let status = command.status()?;
+        let status = command.status().todo_context()?;
         if status.success() {
             Ok(())
         } else {
@@ -334,7 +338,8 @@ impl Docker {
     fn list_volumes(&self) -> Result<Vec<VolumeName>> {
         let output = Command::new("docker")
             .args(["volume", "ls", "--format", "{{ .Name }}"])
-            .output()?;
+            .output()
+            .todo_context()?;
         let status = output.status;
         if !status.success() {
             return Err(anyhow!(
@@ -348,7 +353,7 @@ impl Docker {
         output
             .stdout
             .lines()
-            .map(|line| line.map(VolumeName::new).map_err(|e| e.into()))
+            .map(|line| line.map(VolumeName::new).todo_context())
             .collect()
     }
 
@@ -367,7 +372,8 @@ impl Docker {
             .arg("inspect")
             .args(["--format", "{{ .Mountpoint }}"])
             .arg(&name)
-            .output()?;
+            .output()
+            .todo_context()?;
         let status = output.status;
         if !status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -404,7 +410,8 @@ impl Docker {
             .arg("--time")
             .arg("--time-style=+%s")
             .arg("/v")
-            .output()?;
+            .output()
+            .todo_context()?;
 
         // ignore permissions errors
         let errors = !&output.stderr.is_empty();
@@ -451,7 +458,8 @@ impl Docker {
             .arg("create")
             .arg(&name)
             .stdout(Stdio::null())
-            .status()?;
+            .status()
+            .todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to create Docker volume {}: \
@@ -470,7 +478,8 @@ impl Docker {
             .arg("--force")
             .arg(&name)
             .stdout(Stdio::null())
-            .status()?;
+            .status()
+            .todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to remove Docker volume {}: \
@@ -503,23 +512,25 @@ impl Docker {
             .arg(format!("{container_name}:{abs_path_str}",))
             .arg("-")
             .stdout(Stdio::piped())
-            .scoped_spawn()?;
+            .scoped_spawn()
+            .todo_context()?;
 
         let stdout = child.stdout.take().unwrap();
 
         // Unfortunately, we get a tar file here, since we specified "-".
         let mut archive = tar::Archive::new(stdout);
-        let mut entries = archive.entries()?;
+        let mut entries = archive.entries().todo_context()?;
         let mut entry = entries
             .next()
-            .transpose()?
+            .transpose()
+            .todo_context()?
             .ok_or_else(|| anyhow!("tar file had no entries, expected 1"))?;
-        io::copy(&mut entry, w)?;
+        io::copy(&mut entry, w).todo_context()?;
         if entries.next().is_some() {
             return Err(anyhow!("tar file had multiple entries, expected 1"));
         }
 
-        let status = child.wait()?;
+        let status = child.wait().todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to copy file {:?} from Docker container {}. \
@@ -545,9 +556,10 @@ impl Runner for Docker {
                 let home_dir = cap_std::fs::Dir::open_ambient_dir(
                     &home_dirs.join(env_name).as_host_raw(),
                     cap_std::ambient_authority(),
-                )?;
-                let mut file = home_dir.open(path)?;
-                io::copy(&mut file, w)?;
+                )
+                .todo_context()?;
+                let mut file = home_dir.open(path).todo_context()?;
+                io::copy(&mut file, w).todo_context()?;
                 Ok(())
             }
             Volumes => {
@@ -568,9 +580,10 @@ impl Runner for Docker {
                 let work_dir = cap_std::fs::Dir::open_ambient_dir(
                     &work_dirs.join(env_name).as_host_raw(),
                     cap_std::ambient_authority(),
-                )?;
-                let mut file = work_dir.open(path)?;
-                io::copy(&mut file, w)?;
+                )
+                .todo_context()?;
+                let mut file = work_dir.open(path).todo_context()?;
+                io::copy(&mut file, w).todo_context()?;
                 Ok(())
             }
             Volumes => {
@@ -590,12 +603,10 @@ impl Runner for Docker {
                 home_dirs,
                 work_dirs,
             } => {
-                std::fs::create_dir_all(&home_dirs.as_host_raw())?;
-                std::fs::create_dir_all(&work_dirs.as_host_raw())?;
                 let host_home = home_dirs.join(env_name);
                 let host_work = work_dirs.join(env_name);
-                std::fs::create_dir(&host_home.as_host_raw())?;
-                std::fs::create_dir(&host_work.as_host_raw())?;
+                std::fs::create_dir_all(&host_home.as_host_raw()).todo_context()?;
+                std::fs::create_dir_all(&host_work.as_host_raw()).todo_context()?;
                 Ok(())
             }
             Volumes => {
@@ -616,8 +627,8 @@ impl Runner for Docker {
                 home_dirs,
                 work_dirs,
             } => {
-                has_home_dir = try_exists(&home_dirs.join(env_name))?;
-                has_work_dir = try_exists(&work_dirs.join(env_name))?;
+                has_home_dir = try_exists(&home_dirs.join(env_name)).todo_context()?;
+                has_work_dir = try_exists(&work_dirs.join(env_name)).todo_context()?;
             }
             Volumes => {
                 has_home_dir = self.volume_exists(&self.home_volume(env_name))?;
@@ -641,7 +652,8 @@ impl Runner for Docker {
             let status = Command::new("docker")
                 .args(["rm", "--force", &container_name])
                 .stdout(Stdio::null())
-                .status()?;
+                .status()
+                .todo_context()?;
             if !status.success() {
                 return Err(anyhow!(
                     "Failed to stop Docker container {}: \
@@ -702,7 +714,7 @@ impl Runner for Docker {
                 work_dirs,
             } => {
                 let home_dir = home_dirs.join(name);
-                let home_dir_exists = try_exists(&home_dir)?;
+                let home_dir_exists = try_exists(&home_dir).todo_context()?;
                 let home_dir_summary = if home_dir_exists {
                     summarize_dir(&home_dir)?
                 } else {
@@ -710,7 +722,7 @@ impl Runner for Docker {
                 };
 
                 let work_dir = work_dirs.join(name);
-                let work_dir_exists = try_exists(&work_dir)?;
+                let work_dir_exists = try_exists(&work_dir).todo_context()?;
                 let work_dir_summary = if work_dir_exists {
                     summarize_dir(&work_dir)?
                 } else {
@@ -744,7 +756,7 @@ impl Runner for Docker {
             BindMounts { home_dirs, .. } => {
                 let host_home = home_dirs.join(name);
                 rmtree(&host_home)?;
-                std::fs::create_dir(&host_home.as_host_raw())?;
+                std::fs::create_dir(&host_home.as_host_raw()).todo_context()?;
             }
             Volumes => {
                 let home_volume = self.home_volume(name);
@@ -790,7 +802,8 @@ impl Runner for Docker {
                     container_name,
                     script_path.as_env_raw().to_str().unwrap()
                 ))
-                .status()?;
+                .status()
+                .todo_context()?;
             if !status.success() {
                 return Err(anyhow!(
                     "Failed to copy init script into Docker container: \
@@ -811,7 +824,7 @@ impl Runner for Docker {
                     let mut size: u64 = 0;
                     for path in seeds {
                         use std::os::unix::fs::MetadataExt;
-                        let metadata = std::fs::metadata(path.as_host_raw())?;
+                        let metadata = std::fs::metadata(path.as_host_raw()).todo_context()?;
                         size += metadata.size();
                     }
                     size
@@ -834,18 +847,19 @@ impl Runner for Docker {
                         ),
                     ])
                     .stdin(Stdio::piped())
-                    .scoped_spawn()?;
+                    .scoped_spawn()
+                    .todo_context()?;
                 {
                     let mut stdin = child
                         .stdin
                         .take()
                         .ok_or_else(|| anyhow!("failed to open stdin"))?;
                     for path in seeds {
-                        let mut file = std::fs::File::open(path.as_host_raw())?;
-                        io::copy(&mut file, &mut stdin)?;
+                        let mut file = std::fs::File::open(path.as_host_raw()).todo_context()?;
+                        io::copy(&mut file, &mut stdin).todo_context()?;
                     }
                 }
-                let status = child.wait()?;
+                let status = child.wait().todo_context()?;
                 if !status.success() {
                     return Err(anyhow!(
                         "Failed to copy package seeds into Docker container {}: \
@@ -890,7 +904,7 @@ impl Runner for Docker {
             }
         }
 
-        let status = command.status()?;
+        let status = command.status().todo_context()?;
         if status.success() {
             Ok(())
         } else {
@@ -1006,7 +1020,7 @@ struct DockerfileArgs<'a> {
     uids: &'a Uids,
 }
 
-fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> Result<()> {
+fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::Result<()> {
     // Quote all the Strings that go into the file.
     let packages: Vec<String> = args
         .packages

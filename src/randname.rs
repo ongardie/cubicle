@@ -86,11 +86,11 @@ impl RandomNameGenerator {
                     .with_context(|| {
                         format!("error downloading word list from {:?}", self.eff_url)
                     })?;
-                std::fs::create_dir_all(self.cache_dir.as_host_raw())?;
-                std::fs::write(&eff_word_list.as_host_raw(), body)?;
-                std::fs::File::open(&eff_word_list.as_host_raw())?
+                std::fs::create_dir_all(self.cache_dir.as_host_raw()).todo_context()?;
+                std::fs::write(&eff_word_list.as_host_raw(), body).todo_context()?;
+                std::fs::File::open(&eff_word_list.as_host_raw()).todo_context()?
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e).todo_context(),
         };
         Ok(file)
     }
@@ -103,7 +103,10 @@ where
 {
     let mut rng = rand::thread_rng();
     let reader = io::BufReader::new(reader);
-    let lines = reader.lines().collect::<Result<Vec<String>, _>>()?;
+    let lines = reader
+        .lines()
+        .collect::<Result<Vec<String>, _>>()
+        .todo_context()?;
     for _ in 0..200 {
         if let Some(line) = lines.choose(&mut rng) {
             for word in line.split_ascii_whitespace() {

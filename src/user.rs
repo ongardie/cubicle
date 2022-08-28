@@ -9,7 +9,7 @@ use super::fs_util::{summarize_dir, DirSummary};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::somehow::{somehow as anyhow, Result};
+use crate::somehow::{somehow as anyhow, Context, Result};
 
 pub struct User {
     pub(super) program: Rc<CubicleShared>,
@@ -67,7 +67,8 @@ impl User {
             ])
             .args(["--shell", &self.program.shell])
             .arg(username)
-            .status()?;
+            .status()
+            .todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to create user {}: \
@@ -85,7 +86,8 @@ impl User {
             .arg("mkdir")
             .arg("w")
             .env_clear()
-            .status()?;
+            .status()
+            .todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to create user {} work directory ~/w/: \
@@ -105,7 +107,8 @@ impl User {
             .arg("pkill")
             .args(["--signal", "KILL"])
             .args(["--uid", username])
-            .status()?;
+            .status()
+            .todo_context()?;
         Ok(())
     }
 
@@ -119,7 +122,8 @@ impl User {
             .args(["-i", "0.1"])
             .args(seeds.iter().map(|s| s.as_host_raw()))
             .stdout(Stdio::piped())
-            .scoped_spawn()?;
+            .scoped_spawn()
+            .todo_context()?;
         let mut source_stdout = source.stdout.take().unwrap();
 
         let mut dest = Command::new("sudo")
@@ -135,15 +139,16 @@ impl User {
             .arg("--ignore-zero")
             .env_clear()
             .stdin(Stdio::piped())
-            .scoped_spawn()?;
+            .scoped_spawn()
+            .todo_context()?;
 
         {
             let mut dest_stdin = dest.stdin.take().unwrap();
-            io::copy(&mut source_stdout, &mut dest_stdin)?;
-            dest_stdin.flush()?;
+            io::copy(&mut source_stdout, &mut dest_stdin).todo_context()?;
+            dest_stdin.flush().todo_context()?;
         }
 
-        let status = dest.wait()?;
+        let status = dest.wait().todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to copy seed tarball into user {}: \
@@ -153,7 +158,7 @@ impl User {
             ));
         }
 
-        let status = source.wait()?;
+        let status = source.wait().todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to read seed tarballs for user {}: \
@@ -184,10 +189,11 @@ impl Runner for User {
             .arg(path)
             .env_clear()
             .stdout(Stdio::piped())
-            .scoped_spawn()?;
+            .scoped_spawn()
+            .todo_context()?;
         let mut stdout = child.stdout.take().unwrap();
-        io::copy(&mut stdout, w)?;
-        let status = child.wait()?;
+        io::copy(&mut stdout, w).todo_context()?;
+        let status = child.wait().todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to copy file {:?} from user {}: \
@@ -228,11 +234,11 @@ impl Runner for User {
     }
 
     fn list(&self) -> Result<Vec<EnvironmentName>> {
-        let file = std::fs::File::open("/etc/passwd")?;
+        let file = std::fs::File::open("/etc/passwd").todo_context()?;
         let reader = io::BufReader::new(file);
         let mut names = Vec::new();
         for line in reader.lines() {
-            let line = line?;
+            let line = line.todo_context()?;
             if let Some(env) = line
                 .split_once(':')
                 .and_then(|(username, _)| username.strip_prefix(self.username_prefix))
@@ -247,11 +253,11 @@ impl Runner for User {
     fn files_summary(&self, env_name: &EnvironmentName) -> Result<EnvFilesSummary> {
         let username = self.username_from_environment(env_name);
         let home: Option<HostPath> = {
-            let file = std::fs::File::open("/etc/passwd")?;
+            let file = std::fs::File::open("/etc/passwd").todo_context()?;
             let reader = io::BufReader::new(file);
             let mut home = None;
             for line in reader.lines() {
-                let line = line?;
+                let line = line.todo_context()?;
                 let mut fields = line.split(':');
                 if fields.next() != Some(&username) {
                     continue;
@@ -297,7 +303,7 @@ impl Runner for User {
         let username = self.username_from_environment(env_name);
         self.kill_username(&username)?;
 
-        std::fs::create_dir_all(&self.work_tars.as_host_raw())?;
+        std::fs::create_dir_all(&self.work_tars.as_host_raw()).todo_context()?;
         let work_tar = self.work_tars.join(format!(
             "{}-{}.tar",
             env_name,
@@ -318,18 +324,20 @@ impl Runner for User {
             .arg("w")
             .env_clear()
             .stdout(Stdio::piped())
-            .scoped_spawn()?;
+            .scoped_spawn()
+            .todo_context()?;
         let mut stdout = child.stdout.take().unwrap();
 
         {
             let mut f = std::fs::OpenOptions::new()
                 .create_new(true)
                 .write(true)
-                .open(&work_tar.as_host_raw())?;
-            io::copy(&mut stdout, &mut f)?;
-            f.flush()?;
+                .open(&work_tar.as_host_raw())
+                .todo_context()?;
+            io::copy(&mut stdout, &mut f).todo_context()?;
+            f.flush().todo_context()?;
         }
-        let status = child.wait()?;
+        let status = child.wait().todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to tar work directory for environment {}: \
@@ -354,7 +362,7 @@ impl Runner for User {
 
         match purge_and_restore() {
             Ok(()) => {
-                std::fs::remove_file(work_tar.as_host_raw())?;
+                std::fs::remove_file(work_tar.as_host_raw()).todo_context()?;
                 Ok(())
             }
             Err(e) => {
@@ -376,7 +384,8 @@ impl Runner for User {
             .arg("deluser")
             .arg("--remove-home")
             .arg(&username)
-            .status()?;
+            .status()
+            .todo_context()?;
         if !status.success() {
             return Err(anyhow!(
                 "Failed to delete user {}: \
@@ -392,11 +401,16 @@ impl Runner for User {
         let username = self.username_from_environment(env_name);
 
         if let RunnerCommand::Init { seeds, script } = run_command {
-            let script_tar = tempfile::NamedTempFile::new()?;
+            let script_tar = tempfile::NamedTempFile::new().todo_context()?;
             let mut builder = tar::Builder::new(script_tar.as_file());
-            let mut script_file = std::fs::File::open(script.as_host_raw())?;
-            builder.append_file(".cubicle-init-script", &mut script_file)?;
-            builder.into_inner().and_then(|mut f| f.flush())?;
+            let mut script_file = std::fs::File::open(script.as_host_raw()).todo_context()?;
+            builder
+                .append_file(".cubicle-init-script", &mut script_file)
+                .todo_context()?;
+            builder
+                .into_inner()
+                .and_then(|mut f| f.flush())
+                .todo_context()?;
 
             let mut seeds: Vec<&HostPath> = seeds.iter().collect();
             let script_tar_path = HostPath::try_from(script_tar.path().to_owned())?;
@@ -443,7 +457,7 @@ impl Runner for User {
             }
         }
 
-        let status = command.status()?;
+        let status = command.status().todo_context()?;
         if status.success() {
             Ok(())
         } else {

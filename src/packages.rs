@@ -91,8 +91,12 @@ impl Cubicle {
             let mut depends = read_package_list(&dir, "depends.txt")?.unwrap_or_default();
             depends.insert(PackageName::from_str("auto").unwrap());
 
-            let test = try_exists(&dir.join("test.sh"))?.then_some(String::from("./test.sh"));
-            let update = try_exists(&dir.join("update.sh"))?.then_some(String::from("./update.sh"));
+            let test = try_exists(&dir.join("test.sh"))
+                .todo_context()?
+                .then_some(String::from("./test.sh"));
+            let update = try_exists(&dir.join("update.sh"))
+                .todo_context()?
+                .then_some(String::from("./update.sh"));
             packages.insert(
                 name,
                 PackageSpec {
@@ -254,7 +258,7 @@ impl Cubicle {
         let package_cache = &self.shared.package_cache;
 
         {
-            let tar_file = NamedTempFile::new()?;
+            let tar_file = NamedTempFile::new().todo_context()?;
             create_tar_from_dir(
                 &spec.dir,
                 tar_file.as_file(),
@@ -286,7 +290,7 @@ impl Cubicle {
                 },
             ) {
                 let cached = package_cache.join(format!("{package_name}.tar"));
-                if try_exists(&cached)? {
+                if try_exists(&cached).todo_context()? {
                     println!(
                         "WARNING: Failed to update package {package_name}. \
                         Keeping stale version. Error was: {e}"
@@ -300,18 +304,21 @@ impl Cubicle {
             // filesystem.
         }
 
-        std::fs::create_dir_all(&package_cache.as_host_raw())?;
+        std::fs::create_dir_all(&package_cache.as_host_raw()).todo_context()?;
         let package_cache_dir = cap_std::fs::Dir::open_ambient_dir(
             &package_cache.as_host_raw(),
             cap_std::ambient_authority(),
-        )?;
+        )
+        .todo_context()?;
 
         match &spec.test {
             None => {
-                let mut file = package_cache_dir.open_with(
-                    &format!("{package_name}.tar"),
-                    cap_std::fs::OpenOptions::new().create(true).write(true),
-                )?;
+                let mut file = package_cache_dir
+                    .open_with(
+                        &format!("{package_name}.tar"),
+                        cap_std::fs::OpenOptions::new().create(true).write(true),
+                    )
+                    .todo_context()?;
                 self.runner
                     .copy_out_from_home(&env_name, Path::new("provides.tar"), &mut file)
             }
@@ -321,7 +328,7 @@ impl Cubicle {
                 let test_name =
                     EnvironmentName::from_str(&format!("test-package-{package_name}")).unwrap();
 
-                let tar_file = NamedTempFile::new()?;
+                let tar_file = NamedTempFile::new().todo_context()?;
                 create_tar_from_dir(
                     &spec.dir,
                     tar_file.as_file(),
@@ -336,10 +343,12 @@ impl Cubicle {
 
                 let testing_tar = format!("{package_name}.testing.tar");
                 {
-                    let mut file = package_cache_dir.open_with(
-                        &testing_tar,
-                        cap_std::fs::OpenOptions::new().create(true).write(true),
-                    )?;
+                    let mut file = package_cache_dir
+                        .open_with(
+                            &testing_tar,
+                            cap_std::fs::OpenOptions::new().create(true).write(true),
+                        )
+                        .todo_context()?;
                     self.runner.copy_out_from_home(
                         &env_name,
                         Path::new("provides.tar"),
@@ -363,7 +372,7 @@ impl Cubicle {
                     .and_then(|_| self.run(&test_name, &RunCommand::Exec(&[test_script.clone()])));
                 if let Err(e) = result {
                     let cached = package_cache.join(format!("{package_name}.tar"));
-                    if try_exists(&cached)? {
+                    if try_exists(&cached).todo_context()? {
                         println!(
                             "WARNING: Updated package {package_name} failed tests. \
                             Keeping stale version. Error was: {e}"
@@ -378,7 +387,8 @@ impl Cubicle {
                     &package_cache
                         .join(format!("{package_name}.tar"))
                         .as_host_raw(),
-                )?;
+                )
+                .todo_context()?;
                 Ok(())
             }
         }
@@ -498,7 +508,10 @@ impl Cubicle {
         self.runner
             .copy_out_from_work(name, Path::new("packages.txt"), &mut buf)?;
         let reader = io::BufReader::new(buf.as_slice());
-        let names = reader.lines().collect::<Result<Vec<String>, _>>()?;
+        let names = reader
+            .lines()
+            .collect::<Result<Vec<String>, _>>()
+            .todo_context()?;
         Ok(Some(package_set_from_names(names)?))
     }
 
@@ -508,7 +521,7 @@ impl Cubicle {
         let deps = transitive_depends(packages, &specs, BuildDepends(false));
         for package in deps {
             let provides = self.shared.package_cache.join(format!("{package}.tar"));
-            if try_exists(&provides)? {
+            if try_exists(&provides).todo_context()? {
                 seeds.push(provides);
             }
         }
@@ -576,20 +589,24 @@ pub enum ListPackagesFormat {
 }
 
 fn read_package_list(dir: &HostPath, path: &str) -> Result<Option<PackageNameSet>> {
-    let dir = cap_std::fs::Dir::open_ambient_dir(dir.as_host_raw(), cap_std::ambient_authority())?;
+    let dir = cap_std::fs::Dir::open_ambient_dir(dir.as_host_raw(), cap_std::ambient_authority())
+        .todo_context()?;
     let file = match dir.open(path) {
         Ok(file) => file,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.into()),
+        Err(e) => return Err(e).todo_context(),
     };
     let reader = io::BufReader::new(file);
-    let names = reader.lines().collect::<Result<Vec<String>, _>>()?;
+    let names = reader
+        .lines()
+        .collect::<Result<Vec<String>, _>>()
+        .todo_context()?;
     Ok(Some(package_set_from_names(names)?))
 }
 
 pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::NamedTempFile> {
-    let file = tempfile::NamedTempFile::new()?;
-    let metadata = file.as_file().metadata()?;
+    let file = tempfile::NamedTempFile::new().todo_context()?;
+    let metadata = file.as_file().metadata().todo_context()?;
     let mut builder = tar::Builder::new(file.as_file());
     let mut header = tar::Header::new_gnu();
     #[cfg(unix)]
@@ -603,14 +620,19 @@ pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::Nam
 
     let mut buf = Vec::new();
     for package in packages.iter() {
-        writeln!(buf, "{package}")?;
+        writeln!(buf, "{package}").todo_context()?;
     }
     header.set_size(buf.len() as u64);
-    builder.append_data(
-        &mut header,
-        Path::new("w").join("packages.txt"),
-        buf.as_slice(),
-    )?;
-    builder.into_inner().and_then(|mut f| f.flush())?;
+    builder
+        .append_data(
+            &mut header,
+            Path::new("w").join("packages.txt"),
+            buf.as_slice(),
+        )
+        .todo_context()?;
+    builder
+        .into_inner()
+        .and_then(|mut f| f.flush())
+        .todo_context()?;
     Ok(file)
 }
