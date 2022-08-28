@@ -16,7 +16,7 @@ use super::os_util::{get_timezone, get_uids, Uids};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::somehow::{somehow as anyhow, Result};
+use crate::somehow::{somehow as anyhow, Context, Result};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
@@ -137,6 +137,15 @@ impl Docker {
     }
 
     fn base_mtime(&self) -> Result<Option<SystemTime>> {
+        self.base_mtime_().with_context(|| {
+            format!(
+                "failed to get last build time for {:?} Docker image",
+                self.base_image
+            )
+        })
+    }
+
+    fn base_mtime_(&self) -> Result<Option<SystemTime>> {
         let mut command = Command::new("docker");
         command.arg("inspect");
         command.args(["--type", "image"]);
@@ -150,15 +159,15 @@ impl Docker {
                 return Ok(None);
             }
             return Err(anyhow!(
-                "Failed to get last build time for {} Docker image: \
-                docker inspect exited with status {:?} and output: {}",
-                self.base_image,
+                "docker inspect exited with status {:?} and output: {}",
                 status.code(),
                 stderr
             ));
         }
+
         let timestamp: String = String::from_utf8(output.stdout)?;
-        let timestamp: u64 = u64::from_str(timestamp.trim())?;
+        let timestamp: u64 = u64::from_str(timestamp.trim())
+            .with_context(|| format!("failed to parse Unix timestamp from {timestamp:?}"))?;
         Ok(Some(UNIX_EPOCH + Duration::from_secs(timestamp)))
     }
 

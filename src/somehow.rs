@@ -70,7 +70,6 @@ allowed_from!(toml::de::Error);
 deprecated_from!(serde_json::Error);
 deprecated_from!(std::env::VarError);
 deprecated_from!(std::io::Error);
-deprecated_from!(std::num::ParseIntError);
 deprecated_from!(std::string::FromUtf8Error);
 deprecated_from!(std::time::SystemTimeError);
 
@@ -202,17 +201,19 @@ mod tests {
 
     #[test]
     fn deprecated_from() {
-        use std::str::FromStr;
-        let make_err = || -> Result<u64> { Ok(u64::from_str("pi")?) };
+        let make_err = || -> Result<f64> {
+            #[allow(clippy::try_err)]
+            Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?
+        };
         let err = make_err().unwrap_err();
         let debug = format!("{:?}", err);
         assert_snapshot!(debug, @r###"
-            The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
-            info. A pull request or a GitHub issue with this output and the steps to
-            reproduce it would be welcome.
+        The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
+        info. A pull request or a GitHub issue with this output and the steps to
+        reproduce it would be welcome.
 
-            Caused by:
-                invalid digit found in string
+        Caused by:
+            unexpected end of file
         "###);
     }
 }
