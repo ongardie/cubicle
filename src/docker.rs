@@ -5,16 +5,16 @@ use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
 use super::os_util::{get_timezone, get_uids, Uids};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
-use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, Context, Result};
 
@@ -102,33 +102,46 @@ impl Docker {
     }
 
     fn is_container(&self, name: &ContainerName) -> Result<bool> {
+        self.is_container_(name)
+            .with_context(|| format!("failed to check if {name} is an existing container"))
+    }
+
+    fn is_container_(&self, name: &ContainerName) -> Result<bool> {
         let status = Command::new("docker")
-            .args(["inspect", "--type", "container", name])
+            .arg("inspect")
+            .args(["--type", "container"])
+            .args(["--format", "{{ .Name }}"])
+            .arg(name)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status()
-            .todo_context()?;
-        Ok(status.success())
+            .status()?;
+        match status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(anyhow!("`docker inspect ...` exited with {status}")),
+        }
     }
 
     fn ps(&self) -> Result<Vec<EnvironmentName>> {
+        self.ps_().context("failed to list Docker containers")
+    }
+
+    fn ps_(&self) -> Result<Vec<EnvironmentName>> {
         let output = Command::new("docker")
             .args(["ps", "--all", "--format", "{{ .Names }}"])
-            .output()
-            .todo_context()?;
+            .output()?;
         let status = output.status;
         if !status.success() {
             return Err(anyhow!(
-                "Failed to list Docker containers: \
-                docker ps exited with status {:?} and output: {}",
-                status.code(),
+                "`docker ps` exited with {}. Output: {}",
+                status,
                 String::from_utf8_lossy(&output.stderr)
             ));
         }
 
         let mut envs = Vec::new();
         for line in output.stdout.lines() {
-            let line = line.todo_context()?;
+            let line = line.context("could not read `docker ps` output")?;
             if let Some(name) = line.strip_prefix(&self.program.config.docker.prefix) {
                 if let Ok(env) = EnvironmentName::from_str(name) {
                     envs.push(env);
@@ -148,12 +161,12 @@ impl Docker {
     }
 
     fn base_mtime_(&self) -> Result<Option<SystemTime>> {
-        let mut command = Command::new("docker");
-        command.arg("inspect");
-        command.args(["--type", "image"]);
-        command.args(["--format", "{{ $.Metadata.LastTagTime.Unix }}"]);
-        command.arg(&self.base_image);
-        let output = command.output().todo_context()?;
+        let output = Command::new("docker")
+            .arg("inspect")
+            .args(["--type", "image"])
+            .args(["--format", "{{ $.Metadata.LastTagTime.Unix }}"])
+            .arg(&self.base_image)
+            .output()?;
         let status = output.status;
         if !status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -161,20 +174,24 @@ impl Docker {
                 return Ok(None);
             }
             return Err(anyhow!(
-                "docker inspect exited with status {:?} and output: {}",
-                status.code(),
-                stderr
+                "`docker inspect ...` exited with {status} and output: {stderr}",
             ));
         }
 
         let timestamp: String =
             String::from_utf8(output.stdout).context("failed to read `docker inspect` output")?;
-        let timestamp: u64 = u64::from_str(timestamp.trim())
-            .with_context(|| format!("failed to parse Unix timestamp from {timestamp:?}"))?;
+        let timestamp: u64 = u64::from_str(timestamp.trim()).with_context(|| {
+            format!("failed to parse Unix timestamp from `docker inspect`: {timestamp:?}")
+        })?;
         Ok(Some(UNIX_EPOCH + Duration::from_secs(timestamp)))
     }
 
     fn build_base(&self) -> Result<()> {
+        self.build_base_()
+            .with_context(|| format!("failed to build {} Docker image", self.base_image))
+    }
+
+    fn build_base_(&self) -> Result<()> {
         // These checks on the image timestamp are a little silly, since this
         // program is short-lived. They used to make more sense when the
         // Dockerfile was a normal file. They might well make more sense again
@@ -189,14 +206,10 @@ impl Docker {
         let mut child = Command::new("docker")
             .args(["build", "--tag", &self.base_image, "-"])
             .stdin(Stdio::piped())
-            .scoped_spawn()
-            .todo_context()?;
-        {
-            let mut stdin = child
-                .stdin
-                .take()
-                .ok_or_else(|| anyhow!("Failed to open stdin"))?;
+            .scoped_spawn()?;
 
+        {
+            let mut stdin = child.stdin().take().unwrap();
             let mut packages: BTreeSet<&str> = BTreeSet::from_iter(SLIM_PACKAGES.iter().cloned());
             if !self.program.config.docker.slim {
                 packages.extend(NORMAL_PACKAGES);
@@ -211,25 +224,24 @@ impl Docker {
                     uids: &get_uids(),
                 },
             )
-            .todo_context()?;
-            stdin.flush().todo_context()?;
+            .and_then(|_| stdin.flush())
+            .context("failed to write Dockerfile for base image")?;
         }
 
-        let status = child.wait().todo_context()?;
+        let status = child.wait()?;
         if !status.success() {
-            return Err(anyhow!(
-                "Failed to build {} Docker image: \
-                docker build exited with status {:?}",
-                self.base_image,
-                status.code(),
-            ));
+            return Err(anyhow!("`docker build` exited with {status}"));
         }
-
         self.built_base.set(true);
         Ok(())
     }
 
     fn spawn(&self, env_name: &EnvironmentName) -> Result<()> {
+        self.spawn_(env_name)
+            .with_context(|| format!("failed to start Docker container {env_name:?}"))
+    }
+
+    fn spawn_(&self, env_name: &EnvironmentName) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
         let seccomp_json = self.program.script_path.join("seccomp.json");
         let mut command = Command::new("docker");
@@ -327,7 +339,7 @@ impl Docker {
         command.arg(&self.base_image);
         command.args(["sleep", "90d"]);
         command.stdout(Stdio::null());
-        let status = command.status().todo_context()?;
+        let status = command.status()?;
         if status.success() {
             Ok(())
         } else {
@@ -336,16 +348,19 @@ impl Docker {
     }
 
     fn list_volumes(&self) -> Result<Vec<VolumeName>> {
+        self.list_volumes_()
+            .context("failed to list Docker volumes")
+    }
+
+    fn list_volumes_(&self) -> Result<Vec<VolumeName>> {
         let output = Command::new("docker")
             .args(["volume", "ls", "--format", "{{ .Name }}"])
-            .output()
-            .todo_context()?;
+            .output()?;
         let status = output.status;
         if !status.success() {
             return Err(anyhow!(
-                "Failed to list Docker volumes: \
-                docker volume ls exited with status {:?} and output: {}",
-                status.code(),
+                "`docker volume ls` exited with {} and output: {}",
+                status,
                 String::from_utf8_lossy(&output.stderr)
             ));
         }
@@ -353,7 +368,10 @@ impl Docker {
         output
             .stdout
             .lines()
-            .map(|line| line.map(VolumeName::new).todo_context())
+            .map(|line| {
+                line.map(VolumeName::new)
+                    .context("failed to read `docker volume ls` output")
+            })
             .collect()
     }
 
@@ -372,8 +390,7 @@ impl Docker {
             .arg("inspect")
             .args(["--format", "{{ .Mountpoint }}"])
             .arg(&name)
-            .output()
-            .todo_context()?;
+            .output()?;
         let status = output.status;
         if !status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -381,9 +398,7 @@ impl Docker {
                 return Ok(None);
             }
             return Err(anyhow!(
-                "docker volume inspect exited with status {:?} and stderr: {}",
-                status.code(),
-                stderr
+                "`docker volume inspect` exited with {status} and stderr: {stderr}"
             ));
         }
         let stdout = String::from_utf8(output.stdout)
@@ -410,8 +425,7 @@ impl Docker {
             .arg("--time")
             .arg("--time-style=+%s")
             .arg("/v")
-            .output()
-            .todo_context()?;
+            .output()?;
 
         // ignore permissions errors
         let errors = !&output.stderr.is_empty();
@@ -420,9 +434,7 @@ impl Docker {
         if !status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(anyhow!(
-                "`docker run ... -- du ...` exited with status {:?} and stderr: {}",
-                status.code(),
-                stderr
+                "`docker run ... -- du ...` exited with {status} and stderr: {stderr}",
             ));
         }
 
@@ -448,49 +460,50 @@ impl Docker {
                     last_modified: mtime,
                 })
             }
-            None => Err(anyhow!("Unexpected output from du: {:#?}", stdout)),
+            None => Err(anyhow!(
+                "Unexpected output from `docker run ... -- du ...`: {stdout:?}",
+            )),
         }
     }
 
     fn ensure_volume_exists(&self, name: &VolumeName) -> Result<()> {
+        self.ensure_volume_exists_(name)
+            .with_context(|| format!("failed to create Docker volume {name:?}"))
+    }
+
+    fn ensure_volume_exists_(&self, name: &VolumeName) -> Result<()> {
         let status = Command::new("docker")
             .arg("volume")
             .arg("create")
             .arg(&name)
             .stdout(Stdio::null())
-            .status()
-            .todo_context()?;
+            .status()?;
         if !status.success() {
-            return Err(anyhow!(
-                "Failed to create Docker volume {}: \
-                docker volume create exited with status {:?}",
-                name,
-                status.code(),
-            ));
+            return Err(anyhow!("`docker volume create` exited with {status}"));
         }
         Ok(())
     }
 
     fn ensure_no_volume(&self, name: &VolumeName) -> Result<()> {
+        self.ensure_no_volume_(name)
+            .with_context(|| format!("failed to remove Docker volume {name:?}"))
+    }
+
+    fn ensure_no_volume_(&self, name: &VolumeName) -> Result<()> {
         let status = Command::new("docker")
             .arg("volume")
             .arg("rm")
             .arg("--force")
             .arg(&name)
             .stdout(Stdio::null())
-            .status()
-            .todo_context()?;
+            .status()?;
         if !status.success() {
-            return Err(anyhow!(
-                "Failed to remove Docker volume {}: \
-                docker volume rm exited with status {:?}",
-                name,
-                status.code(),
-            ));
+            return Err(anyhow!("`docker volume rm` exited with {status}"));
         }
         Ok(())
     }
 
+    // Note: returned error lacks context.
     fn docker_cp_out_from_root(
         &self,
         env_name: &EnvironmentName,
@@ -509,13 +522,12 @@ impl Docker {
             .ok_or_else(|| anyhow!("path not valid UTF-8: {abs_path:?}"))?;
         let mut child = Command::new("docker")
             .arg("cp")
-            .arg(format!("{container_name}:{abs_path_str}",))
+            .arg(format!("{container_name}:{abs_path_str}"))
             .arg("-")
             .stdout(Stdio::piped())
-            .scoped_spawn()
-            .todo_context()?;
+            .scoped_spawn()?;
 
-        let stdout = child.stdout.take().unwrap();
+        let stdout = child.stdout().take().unwrap();
 
         // Unfortunately, we get a tar file here, since we specified "-".
         let mut archive = tar::Archive::new(stdout);
@@ -525,19 +537,72 @@ impl Docker {
             .transpose()
             .todo_context()?
             .ok_or_else(|| anyhow!("tar file had no entries, expected 1"))?;
-        io::copy(&mut entry, w).todo_context()?;
+        io::copy(&mut entry, w).context("error reading/writing data")?;
         if entries.next().is_some() {
             return Err(anyhow!("tar file had multiple entries, expected 1"));
         }
 
-        let status = child.wait().todo_context()?;
+        let status = child.wait()?;
+        if !status.success() {
+            return Err(anyhow!("`docker cp` exited with {status}"));
+        }
+        Ok(())
+    }
+
+    // Note: returned error lacks context.
+    fn copy_seeds(&self, container_name: &ContainerName, seeds: &Vec<HostPath>) -> Result<()> {
+        if seeds.is_empty() {
+            return Ok(());
+        }
+        println!("Copying/extracting seed tarball");
+
+        // Use pv from inside the container since it may not be
+        // installed on the host. Since it's reading from a stream, it
+        // needs to know the total size to display a good progress bar.
+        #[cfg(not(unix))]
+        let size: Option<u64> = None;
+        #[cfg(unix)]
+        let size: Option<u64> = Some({
+            let mut size: u64 = 0;
+            for path in seeds {
+                use std::os::unix::fs::MetadataExt;
+                let metadata = std::fs::metadata(path.as_host_raw()).todo_context()?;
+                size += metadata.size();
+            }
+            size
+        });
+
+        let mut child = Command::new("docker")
+            .arg("exec")
+            .arg("--interactive")
+            .arg(&container_name)
+            .args([
+                "sh",
+                "-c",
+                &format!(
+                    "pv --interval 0.1 --force {} | \
+                    tar --ignore-zero --directory ~ --extract",
+                    match size {
+                        Some(size) => format!("--size {size}"),
+                        None => String::new(),
+                    },
+                ),
+            ])
+            .stdin(Stdio::piped())
+            .scoped_spawn()?;
+
+        {
+            let mut stdin = child.stdin().take().unwrap();
+            for path in seeds {
+                let mut file = std::fs::File::open(path.as_host_raw()).todo_context()?;
+                io::copy(&mut file, &mut stdin).todo_context()?;
+            }
+        }
+
+        let status = child.wait()?;
         if !status.success() {
             return Err(anyhow!(
-                "Failed to copy file {:?} from Docker container {}. \
-                docker cp exited with status {:?}",
-                abs_path,
-                container_name,
-                status.code(),
+                "`docker exec ... -- 'pv | tar'` exited with {status}"
             ));
         }
         Ok(())
@@ -562,9 +627,13 @@ impl Runner for Docker {
                 io::copy(&mut file, w).todo_context()?;
                 Ok(())
             }
+
             Volumes => {
                 let abs_path = self.container_home.join(path);
                 self.docker_cp_out_from_root(env_name, &abs_path, w)
+                    .with_context(|| {
+                        format!("failed to `docker cp` {path:?} from {env_name:?} home directory")
+                    })
             }
         }
     }
@@ -589,6 +658,9 @@ impl Runner for Docker {
             Volumes => {
                 let abs_path = self.container_home.join("w").join(path);
                 self.docker_cp_out_from_root(env_name, &abs_path, w)
+                    .with_context(|| {
+                        format!("failed to `docker cp` {path:?} from {env_name:?} work directory")
+                    })
             }
         }
     }
@@ -648,22 +720,17 @@ impl Runner for Docker {
 
     fn stop(&self, env_name: &EnvironmentName) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
-        if self.is_container(&container_name)? {
+        let do_stop = || {
             let status = Command::new("docker")
                 .args(["rm", "--force", &container_name])
                 .stdout(Stdio::null())
-                .status()
-                .todo_context()?;
+                .status()?;
             if !status.success() {
-                return Err(anyhow!(
-                    "Failed to stop Docker container {}: \
-                    docker rm exited with status {:?}",
-                    container_name,
-                    status.code(),
-                ));
+                return Err(anyhow!("`docker rm` exited with {status}"));
             }
-        }
-        Ok(())
+            Ok(())
+        };
+        do_stop().with_context(|| format!("failed to remove Docker container {container_name:?}"))
     }
 
     fn list(&self) -> Result<Vec<EnvironmentName>> {
@@ -794,81 +861,28 @@ impl Runner for Docker {
         let script_path = EnvPath::try_from(String::from("/.cubicle-init")).unwrap();
 
         if let RunnerCommand::Init { script, seeds } = run_command {
-            let status = Command::new("docker")
-                .arg("cp")
-                .arg(script.as_host_raw())
-                .arg(format!(
-                    "{}:{}",
-                    container_name,
-                    script_path.as_env_raw().to_str().unwrap()
-                ))
-                .status()
-                .todo_context()?;
-            if !status.success() {
-                return Err(anyhow!(
-                    "Failed to copy init script into Docker container: \
-                    docker cp exited with status {:?}",
-                    status.code(),
-                ));
-            }
-
-            if !seeds.is_empty() {
-                println!("Copying/extracting seed tarball");
-                // Use pv from inside the container since it may not be
-                // installed on the host. Since it's reading from a stream, it
-                // needs to know the total size to display a good progress bar.
-                #[cfg(not(unix))]
-                let size: Option<u64> = None;
-                #[cfg(unix)]
-                let size: Option<u64> = Some({
-                    let mut size: u64 = 0;
-                    for path in seeds {
-                        use std::os::unix::fs::MetadataExt;
-                        let metadata = std::fs::metadata(path.as_host_raw()).todo_context()?;
-                        size += metadata.size();
-                    }
-                    size
-                });
-
-                let mut child = Command::new("docker")
-                    .arg("exec")
-                    .arg("--interactive")
-                    .arg(&container_name)
-                    .args([
-                        "sh",
-                        "-c",
-                        &format!(
-                            "pv --interval 0.1 --force {} | \
-                            tar --ignore-zero --directory ~ --extract",
-                            match size {
-                                Some(size) => format!("--size {size}"),
-                                None => String::from(""),
-                            },
-                        ),
-                    ])
-                    .stdin(Stdio::piped())
-                    .scoped_spawn()
-                    .todo_context()?;
-                {
-                    let mut stdin = child
-                        .stdin
-                        .take()
-                        .ok_or_else(|| anyhow!("failed to open stdin"))?;
-                    for path in seeds {
-                        let mut file = std::fs::File::open(path.as_host_raw()).todo_context()?;
-                        io::copy(&mut file, &mut stdin).todo_context()?;
-                    }
-                }
-                let status = child.wait().todo_context()?;
-                if !status.success() {
-                    return Err(anyhow!(
-                        "Failed to copy package seeds into Docker container {}: \
-                        docker exec (pv | tar) exited with status {:?}",
+            let copy_init = || {
+                let status = Command::new("docker")
+                    .arg("cp")
+                    .arg(script.as_host_raw())
+                    .arg(format!(
+                        "{}:{}",
                         container_name,
-                        status.code(),
-                    ));
+                        script_path.as_env_raw().to_str().unwrap()
+                    ))
+                    .status()?;
+                if !status.success() {
+                    return Err(anyhow!("`docker cp` exited with {status}"));
                 }
-            }
+                Ok(())
+            };
+            copy_init().with_context(|| {
+                format!("failed to copy init script into Docker container {container_name:?}")
+            })?;
+
+            self.copy_seeds(&container_name, seeds).with_context(|| {
+                format!("failed to copy package seeds into Docker container {container_name:?}")
+            })?;
         }
 
         let mut command = Command::new("docker");
@@ -904,7 +918,7 @@ impl Runner for Docker {
             }
         }
 
-        let status = command.status().todo_context()?;
+        let status = command.status()?;
         if status.success() {
             Ok(())
         } else {

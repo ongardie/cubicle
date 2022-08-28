@@ -26,6 +26,10 @@
 //! The problems with using command-line arguments is that it's easy to forget
 //! them, and editors and such need to be reconfigured.
 
+// Needed for `std::process::Command`, which the library has an internal
+// wrapper around.
+#![allow(clippy::disallowed_types)]
+
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;

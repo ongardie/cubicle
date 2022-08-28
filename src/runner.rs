@@ -10,8 +10,8 @@ pub trait Runner {
     /// Returns a list of existing environments.
     ///
     /// The returned list includes environments that partially exist.
-
     fn list(&self) -> Result<Vec<EnvironmentName>>;
+
     /// Copies a single file from within the home directory in the environment
     /// into the given writer.
     ///

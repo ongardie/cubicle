@@ -1,13 +1,13 @@
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::command_ext::Command;
 use super::fs_util::{summarize_dir, DirSummary};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
-use super::scoped_child::ScopedSpawn;
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, Context, Result};
 
@@ -124,7 +124,7 @@ impl User {
             .stdout(Stdio::piped())
             .scoped_spawn()
             .todo_context()?;
-        let mut source_stdout = source.stdout.take().unwrap();
+        let mut source_stdout = source.stdout().take().unwrap();
 
         let mut dest = Command::new("sudo")
             // This used to use `--chdir ~`, but that was introduced
@@ -143,7 +143,7 @@ impl User {
             .todo_context()?;
 
         {
-            let mut dest_stdin = dest.stdin.take().unwrap();
+            let mut dest_stdin = dest.stdin().take().unwrap();
             io::copy(&mut source_stdout, &mut dest_stdin).todo_context()?;
             dest_stdin.flush().todo_context()?;
         }
@@ -191,7 +191,7 @@ impl Runner for User {
             .stdout(Stdio::piped())
             .scoped_spawn()
             .todo_context()?;
-        let mut stdout = child.stdout.take().unwrap();
+        let mut stdout = child.stdout().take().unwrap();
         io::copy(&mut stdout, w).todo_context()?;
         let status = child.wait().todo_context()?;
         if !status.success() {
@@ -326,7 +326,7 @@ impl Runner for User {
             .stdout(Stdio::piped())
             .scoped_spawn()
             .todo_context()?;
-        let mut stdout = child.stdout.take().unwrap();
+        let mut stdout = child.stdout().take().unwrap();
 
         {
             let mut f = std::fs::OpenOptions::new()

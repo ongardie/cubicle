@@ -65,7 +65,7 @@ mod packages;
 use packages::write_package_list_tar;
 pub use packages::{ListPackagesFormat, PackageName, PackageNameSet};
 
-mod scoped_child;
+mod command_ext;
 
 #[cfg(target_os = "linux")]
 mod bubblewrap;

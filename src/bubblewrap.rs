@@ -1,14 +1,14 @@
 use std::collections::BTreeSet;
 use std::io;
 use std::path::Path;
-use std::process::{ChildStdout, Command, Stdio};
+use std::process::{ChildStdout, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 
+use super::command_ext::{Command, ScopedChild};
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
-use super::scoped_child::{ScopedChild, ScopedSpawn};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, Context, Result};
 
@@ -201,7 +201,7 @@ impl Runner for Bubblewrap {
                     .stdout(Stdio::piped())
                     .scoped_spawn()
                     .todo_context()?;
-                let stdout = child.stdout.take().unwrap();
+                let stdout = child.stdout().take().unwrap();
                 Some(Seed {
                     _child: child,
                     stdout,
