@@ -301,7 +301,10 @@ impl Runner for User {
         let work_tar = self.work_tars.join(format!(
             "{}-{}.tar",
             env_name,
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         ));
 
         println!("Saving work directory to {work_tar:?}");

@@ -71,7 +71,6 @@ deprecated_from!(serde_json::Error);
 deprecated_from!(std::env::VarError);
 deprecated_from!(std::io::Error);
 deprecated_from!(std::string::FromUtf8Error);
-deprecated_from!(std::time::SystemTimeError);
 
 /// Creates a [`somehow::Error`](Error) from a string with format args or
 /// another error of any type.
