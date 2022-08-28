@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Context, Result};
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
@@ -6,6 +5,7 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::HostPath;
+use crate::somehow::{somehow as anyhow, Context, Result};
 
 pub fn rmtree(path: &HostPath) -> Result<()> {
     rmtree_(path).with_context(|| format!("Failed to recursively remove directory: {:?}", path))
@@ -32,17 +32,17 @@ fn rmtree_(path: &HostPath) -> Result<()> {
     ) {
         Ok(dir) => dir,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e.into()),
+        Err(e) => return Err(e).todo_context(),
     };
     match dir.remove_open_dir_all() {
         Ok(()) => return Ok(()),
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
             // continue below
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => return Err(e).todo_context(),
     }
 
-    fn rm_contents(dir: &cap_std::fs::Dir) -> Result<()> {
+    fn rm_contents(dir: &cap_std::fs::Dir) -> std::io::Result<()> {
         for entry in dir.entries()? {
             let entry = entry?;
             let file_name = entry.file_name();
@@ -66,9 +66,10 @@ fn rmtree_(path: &HostPath) -> Result<()> {
         Ok(())
     }
 
-    let dir = cap_std::fs::Dir::open_ambient_dir(path.as_host_raw(), cap_std::ambient_authority())?;
+    let dir = cap_std::fs::Dir::open_ambient_dir(path.as_host_raw(), cap_std::ambient_authority())
+        .todo_context()?;
     let _ = rm_contents(&dir); // ignore this error
-    dir.remove_open_dir_all()?; // prefer this one
+    dir.remove_open_dir_all().todo_context()?; // prefer this one
     Ok(())
 }
 
@@ -166,9 +167,11 @@ pub fn try_iterdir(path: &HostPath) -> Result<Vec<OsString>> {
     if matches!(&readdir, Err(e) if e.kind() == io::ErrorKind::NotFound) {
         return Ok(Vec::new());
     };
-    let mut names = readdir?
+    let mut names = readdir
+        .todo_context()?
         .map(|entry| entry.map(|entry| entry.file_name()))
-        .collect::<io::Result<Vec<_>>>()?;
+        .collect::<io::Result<Vec<_>>>()
+        .todo_context()?;
     names.sort_unstable();
     Ok(names)
 }
@@ -193,8 +196,9 @@ pub struct WalkDir {
 impl WalkDir {
     pub fn new(path: &HostPath) -> Result<WalkDir> {
         let dir =
-            cap_std::fs::Dir::open_ambient_dir(path.as_host_raw(), cap_std::ambient_authority())?;
-        let entries = dir.entries()?;
+            cap_std::fs::Dir::open_ambient_dir(path.as_host_raw(), cap_std::ambient_authority())
+                .todo_context()?;
+        let entries = dir.entries().todo_context()?;
         Ok(WalkDir {
             stack: vec![WalkDirCursor {
                 path: PathBuf::new(),
@@ -288,14 +292,16 @@ pub fn create_tar_from_dir<W: io::Write>(dir: &HostPath, w: W, opts: &TarOptions
                 None => path.clone(),
             };
             if file_type.is_file() {
-                let file = entry.open()?;
-                builder.append_file(append_path, &mut file.into_std())?;
+                let file = entry.open().todo_context()?;
+                builder
+                    .append_file(append_path, &mut file.into_std())
+                    .todo_context()?;
                 return Ok(());
             }
             #[cfg(unix)]
             {
                 use std::os::unix::fs::MetadataExt;
-                let metadata = entry.metadata()?;
+                let metadata = entry.metadata().todo_context()?;
                 let mut header = tar::Header::new_gnu();
                 header.set_mtime(metadata.mtime() as u64);
                 header.set_uid(metadata.uid() as u64);
@@ -303,12 +309,16 @@ pub fn create_tar_from_dir<W: io::Write>(dir: &HostPath, w: W, opts: &TarOptions
                 header.set_mode(metadata.mode());
                 if file_type.is_dir() {
                     header.set_entry_type(tar::EntryType::Directory);
-                    builder.append_data(&mut header, append_path, io::empty())?;
+                    builder
+                        .append_data(&mut header, append_path, io::empty())
+                        .todo_context()?;
                     return Ok(());
                 } else if file_type.is_symlink() {
                     header.set_entry_type(tar::EntryType::Symlink);
-                    let target = parent.read_link(path.file_name().unwrap())?;
-                    builder.append_link(&mut header, append_path, target)?;
+                    let target = parent.read_link(path.file_name().unwrap()).todo_context()?;
+                    builder
+                        .append_link(&mut header, append_path, target)
+                        .todo_context()?;
                     return Ok(());
                 }
             }
@@ -316,7 +326,10 @@ pub fn create_tar_from_dir<W: io::Write>(dir: &HostPath, w: W, opts: &TarOptions
         };
         add().with_context(|| format!("Failed to add {:#?} to tar archive", dir.join(path)))?;
     }
-    builder.into_inner().and_then(|mut f| f.flush())?;
+    builder
+        .into_inner()
+        .and_then(|mut f| f.flush())
+        .todo_context()?;
     Ok(())
 }
 

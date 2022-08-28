@@ -1,6 +1,29 @@
-use anyhow::{anyhow, Context, Error};
+use lazy_static::lazy_static;
 use std::ffi::OsStr;
 use std::path::Path;
+
+use super::HostPath;
+use crate::somehow::{somehow as anyhow, Context, Error};
+
+fn get_home_dir() -> HostPath {
+    let result = match std::env::var_os("HOME") {
+        Some(home) => HostPath::try_from(home),
+        None => Err(anyhow!("environment variable $HOME not set")),
+    }
+    .context("failed to locate home directory on host");
+    match result {
+        Ok(dir) => dir,
+        Err(e) => panic!("{e:?}"),
+    }
+}
+
+lazy_static! {
+    static ref HOME_DIR: HostPath = get_home_dir();
+}
+
+pub fn host_home_dir() -> &'static HostPath {
+    &HOME_DIR
+}
 
 pub fn get_hostname() -> Option<String> {
     #[cfg(unix)]

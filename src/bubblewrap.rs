@@ -1,16 +1,16 @@
-use anyhow::{anyhow, Context, Result};
 use std::collections::BTreeSet;
 use std::io;
 use std::path::Path;
-use std::process::{ChildStdout, Command, Stdio};
+use std::process::{ChildStdout, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 
+use super::command_ext::{Command, ScopedChild};
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
-use super::scoped_child::{ScopedChild, ScopedSpawn};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
+use crate::somehow::{somehow as anyhow, Context, Result};
 
 pub struct Bubblewrap {
     pub(super) program: Rc<CubicleShared>,
@@ -48,7 +48,7 @@ impl Bubblewrap {
     }
 }
 
-fn get_fd_for_child<F>(file: &F) -> Result<String>
+fn get_fd_for_child<F>(file: &F) -> std::io::Result<String>
 where
     F: rustix::fd::AsFd + std::os::unix::io::AsRawFd,
 {
@@ -73,9 +73,10 @@ impl Runner for Bubblewrap {
         let home_dir = cap_std::fs::Dir::open_ambient_dir(
             &self.home_dirs.join(name).as_host_raw(),
             cap_std::ambient_authority(),
-        )?;
-        let mut file = home_dir.open(path)?;
-        io::copy(&mut file, w)?;
+        )
+        .todo_context()?;
+        let mut file = home_dir.open(path).todo_context()?;
+        io::copy(&mut file, w).todo_context()?;
         Ok(())
     }
 
@@ -88,25 +89,24 @@ impl Runner for Bubblewrap {
         let work_dir = cap_std::fs::Dir::open_ambient_dir(
             &self.work_dirs.join(name).as_host_raw(),
             cap_std::ambient_authority(),
-        )?;
-        let mut file = work_dir.open(path)?;
-        io::copy(&mut file, w)?;
+        )
+        .todo_context()?;
+        let mut file = work_dir.open(path).todo_context()?;
+        io::copy(&mut file, w).todo_context()?;
         Ok(())
     }
 
     fn create(&self, name: &EnvironmentName) -> Result<()> {
-        std::fs::create_dir_all(&self.home_dirs.as_host_raw())?;
-        std::fs::create_dir_all(&self.work_dirs.as_host_raw())?;
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
-        std::fs::create_dir(&host_home.as_host_raw())?;
-        std::fs::create_dir(&host_work.as_host_raw())?;
+        std::fs::create_dir_all(&host_home.as_host_raw()).todo_context()?;
+        std::fs::create_dir_all(&host_work.as_host_raw()).todo_context()?;
         Ok(())
     }
 
     fn exists(&self, name: &EnvironmentName) -> Result<EnvironmentExists> {
-        let has_home_dir = try_exists(&self.home_dirs.join(name))?;
-        let has_work_dir = try_exists(&self.work_dirs.join(name))?;
+        let has_home_dir = try_exists(&self.home_dirs.join(name)).todo_context()?;
+        let has_work_dir = try_exists(&self.work_dirs.join(name)).todo_context()?;
 
         use EnvironmentExists::*;
         Ok(if has_home_dir && has_work_dir {
@@ -147,7 +147,7 @@ impl Runner for Bubblewrap {
 
     fn files_summary(&self, name: &EnvironmentName) -> Result<EnvFilesSummary> {
         let home_dir = self.home_dirs.join(name);
-        let home_dir_exists = try_exists(&home_dir)?;
+        let home_dir_exists = try_exists(&home_dir).todo_context()?;
         let home_dir_summary = if home_dir_exists {
             summarize_dir(&home_dir)?
         } else {
@@ -155,7 +155,7 @@ impl Runner for Bubblewrap {
         };
 
         let work_dir = self.work_dirs.join(name);
-        let work_dir_exists = try_exists(&work_dir)?;
+        let work_dir_exists = try_exists(&work_dir).todo_context()?;
         let work_dir_summary = if work_dir_exists {
             summarize_dir(&work_dir)?
         } else {
@@ -174,8 +174,8 @@ impl Runner for Bubblewrap {
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
         rmtree(&host_home)?;
-        std::fs::create_dir_all(host_home.as_host_raw())?;
-        std::fs::create_dir_all(host_work.as_host_raw())?;
+        std::fs::create_dir_all(host_home.as_host_raw()).todo_context()?;
+        std::fs::create_dir_all(host_work.as_host_raw()).todo_context()?;
         Ok(())
     }
 
@@ -200,7 +200,7 @@ impl Runner for Bubblewrap {
                     .args(seeds.iter().map(|s| s.as_host_raw()))
                     .stdout(Stdio::piped())
                     .scoped_spawn()?;
-                let stdout = child.stdout.take().unwrap();
+                let stdout = child.stdout().take().unwrap();
                 Some(Seed {
                     _child: child,
                     stdout,
@@ -214,7 +214,7 @@ impl Runner for Bubblewrap {
             match &self.config().seccomp {
                 Path(path) => Some(
                     std::fs::File::open(path)
-                        .with_context(|| format!("Failed to open seccomp filter: {path:?}"))?,
+                        .with_context(|| format!("failed to open seccomp filter: {path:?}"))?,
                 ),
                 DangerouslyDisabled => None,
             }
@@ -267,7 +267,9 @@ impl Runner for Bubblewrap {
         if let Some(Seed { stdout, .. }) = &seed {
             command
                 .arg("--file")
-                .arg(get_fd_for_child(stdout)?)
+                .arg(get_fd_for_child(stdout).context(
+                    "failed to set up file descriptor to be inherited by bwrap for seed tarballs",
+                )?)
                 .arg("/dev/shm/seed.tar");
         }
         command.args(ro_bind_try("/etc"));
@@ -289,7 +291,11 @@ impl Runner for Bubblewrap {
         command.args(ro_bind_try("/var/lib/apt/lists"));
         command.args(ro_bind_try("/var/lib/dpkg"));
         if let Some(seccomp) = &seccomp {
-            command.arg("--seccomp").arg(get_fd_for_child(seccomp)?);
+            command
+                .arg("--seccomp")
+                .arg(get_fd_for_child(seccomp).context(
+                    "failed to set up seccomp file descriptor to be inherited by bwrap",
+                )?);
         }
         command.arg("--chdir").arg(env_home.join("w").as_env_raw());
         command.arg("--");
@@ -307,9 +313,7 @@ impl Runner for Bubblewrap {
             }
         }
 
-        let status = command
-            .status()
-            .context("Failed to execute bwrap process")?;
+        let status = command.status()?;
         if status.success() {
             Ok(())
         } else {

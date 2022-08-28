@@ -1,17 +1,17 @@
-use anyhow::Result;
 use std::io;
 use std::path::Path;
 
 use super::fs_util::DirSummary;
 use super::{EnvironmentName, HostPath};
+use crate::somehow::Result;
 
 /// Manages isolated operating system environments.
 pub trait Runner {
     /// Returns a list of existing environments.
     ///
     /// The returned list includes environments that partially exist.
-
     fn list(&self) -> Result<Vec<EnvironmentName>>;
+
     /// Copies a single file from within the home directory in the environment
     /// into the given writer.
     ///

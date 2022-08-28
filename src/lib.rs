@@ -21,8 +21,6 @@
 #![doc = include_str!("../README.md")]
 
 #[doc(no_inline)]
-pub use anyhow::Result;
-use anyhow::{anyhow, Context};
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
@@ -35,6 +33,10 @@ use std::process::ExitStatus;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub mod somehow;
+pub use somehow::Result;
+use somehow::{somehow as anyhow, Context, Error};
 
 mod newtype;
 use newtype::HostPath;
@@ -57,13 +59,13 @@ mod fs_util;
 use fs_util::DirSummary;
 
 mod os_util;
-use os_util::get_hostname;
+use os_util::{get_hostname, host_home_dir};
 
 mod packages;
 use packages::write_package_list_tar;
 pub use packages::{ListPackagesFormat, PackageName, PackageNameSet};
 
-mod scoped_child;
+mod command_ext;
 
 #[cfg(target_os = "linux")]
 mod bubblewrap;
@@ -121,7 +123,7 @@ impl Cubicle {
     /// - Creating a runner.
     pub fn new(config: Config) -> Result<Self> {
         let hostname = get_hostname();
-        let home = HostPath::try_from(std::env::var("HOME").context("Invalid $HOME")?)?;
+        let home = host_home_dir().clone();
         let user = std::env::var("USER").context("Invalid $USER")?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/sh"));
 
@@ -135,7 +137,7 @@ impl Cubicle {
             Err(_) => home.join(".local").join("share"),
         };
 
-        let exe = std::env::current_exe()?;
+        let exe = std::env::current_exe().todo_context()?;
         let script_name = match exe.file_name() {
             Some(path) => path.to_string_lossy().into_owned(),
             None => {
@@ -281,7 +283,11 @@ impl Cubicle {
                 let envs = envs
                     .map(|(name, value)| (name.0.clone(), value))
                     .collect::<BTreeMap<String, _>>();
-                println!("{}", serde_json::to_string_pretty(&envs)?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&envs)
+                        .context("failed to serialize JSON while listing environments")?
+                );
             }
 
             ListFormat::Default => {
@@ -546,6 +552,12 @@ impl fmt::Display for ExitStatusError {
     }
 }
 
+impl From<ExitStatusError> for somehow::Error {
+    fn from(error: ExitStatusError) -> somehow::Error {
+        anyhow!(error)
+    }
+}
+
 /// The name of a potential Cubicle sandbox/isolation environment.
 ///
 /// Other than '-' and '_' and some non-ASCII characters, values of this type
@@ -554,7 +566,7 @@ impl fmt::Display for ExitStatusError {
 pub struct EnvironmentName(String);
 
 impl FromStr for EnvironmentName {
-    type Err = anyhow::Error;
+    type Err = Error;
     fn from_str(mut s: &str) -> Result<Self> {
         s = s.trim();
         if s.is_empty() {

@@ -26,10 +26,15 @@
 //! The problems with using command-line arguments is that it's easy to forget
 //! them, and editors and such need to be reconfigured.
 
-use anyhow::Result;
+// Needed for `std::process::Command`, which the library has an internal
+// wrapper around.
+#![allow(clippy::disallowed_types)]
+
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use cubicle::somehow::{Context, Result};
 
 fn targets(manifest_dir: &Path) -> Result<Vec<PathBuf>> {
     #[derive(Debug, Deserialize)]
@@ -53,10 +58,12 @@ fn targets(manifest_dir: &Path) -> Result<Vec<PathBuf>> {
         .arg("metadata")
         .arg("--format-version=1")
         .arg("--no-deps")
-        .output()?;
+        .output()
+        .todo_context()?;
     assert!(output.status.success(), "cargo metadata failed");
 
-    let metadata: Metadata = serde_json::from_slice(&output.stdout)?;
+    let metadata: Metadata =
+        serde_json::from_slice(&output.stdout).context("failed to parse `cargo metadata` JSON")?;
     let mut roots = Vec::new();
     for package in metadata.packages {
         for target in package.targets {
@@ -82,13 +89,13 @@ fn targets(manifest_dir: &Path) -> Result<Vec<PathBuf>> {
 fn roots() -> Result<()> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
-    let source = std::fs::read_to_string(manifest_dir.join(file!()))?;
+    let source = std::fs::read_to_string(manifest_dir.join(file!())).todo_context()?;
     let (header, _) = source
         .split_once("// END OF HEADER")
         .expect("should have END OF HEADER comment");
 
     for target in targets(&manifest_dir)? {
-        let source = std::fs::read_to_string(&target)?;
+        let source = std::fs::read_to_string(&target).todo_context()?;
         let ok = source.starts_with(header);
         assert!(ok, "{target:?} should start with exact header:\n{header}");
     }

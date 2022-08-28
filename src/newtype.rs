@@ -34,7 +34,7 @@ macro_rules! name {
 pub(crate) use name;
 
 mod private_paths {
-    use anyhow::{anyhow, Error, Result};
+    use crate::somehow::{somehow as anyhow, Error, Result};
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
 
@@ -68,7 +68,7 @@ mod private_paths {
                     // paths. See `PathBuf::push` docs.
                     assert!(
                         end.is_relative(),
-                        "{} cannot be joined to absolute path, got {:?}",
+                        "{} cannot be joined to an absolute path, got {:?}",
                         stringify!($name),
                         end,
                     );
@@ -83,7 +83,7 @@ mod private_paths {
                         Ok(Self(p))
                     } else {
                         Err(anyhow!(
-                            "{} must be absolute path, got {p:?}",
+                            "{} must be an absolute path, got {p:?}",
                             stringify!($name),
                         ))
                     }
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn path_from_str_relative() {
         assert_eq!(
-            "HostPath must be absolute path, got \"hi\"",
+            "HostPath must be an absolute path, got \"hi\"",
             HostPath::try_from(String::from("hi"))
                 .unwrap_err()
                 .to_string()
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "EnvPath cannot be joined to absolute path, got \"/bye\"")]
+    #[should_panic(expected = "EnvPath cannot be joined to an absolute path, got \"/bye\"")]
     fn path_join_absolute() {
         EnvPath::try_from(String::from("/hi")).unwrap().join("/bye");
     }
