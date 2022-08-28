@@ -53,9 +53,9 @@ shell scripts for package setup that run in containers.
 
 ### Installing Dependencies
 
-For now, you'll need a Debian-based system with `sudo`, and `adduser`.
-Otherwise, follow the same instructions as for Bubblewrap: see
-<docs/Bubblewrap.md>.
+For now, you'll need a Debian-based system with `sudo` and `adduser` and
+`pkill` (from the `procps` package). Otherwise, follow the same instructions as
+for Bubblewrap: see <docs/Bubblewrap.md>.
 
 ### Installing Cubicle
 

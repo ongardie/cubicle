@@ -9,7 +9,7 @@ use super::command_ext::Command;
 use super::fs_util::{summarize_dir, DirSummary};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::somehow::{somehow as anyhow, Context, Result};
+use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 
 pub struct User {
     pub(super) program: Rc<CubicleShared>,
@@ -43,21 +43,32 @@ impl User {
     }
 
     fn user_exists(&self, username: &Username) -> Result<bool> {
+        self.user_exists_(username)
+            .with_context(|| format!("failed to check if user `{username}` exists"))
+    }
+
+    fn user_exists_(&self, username: &Username) -> LowLevelResult<bool> {
         let status = Command::new("sudo")
             .args(["--user", username])
             .arg("--")
             .arg("true")
             .env_clear()
             .stderr(Stdio::null())
-            .status();
-        match status {
-            Ok(status) if status.success() => Ok(true),
-            _ => Ok(false),
+            .status()?;
+        match status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(anyhow!("`sudo --user {username} -- true` exited with {status}").into()),
         }
     }
 
     fn create_user(&self, username: &Username) -> Result<()> {
-        let status = Command::new("sudo")
+        self.create_user_(username)
+            .with_context(|| format!("failed to create user `{username}`"))
+    }
+
+    fn create_user_(&self, username: &Username) -> LowLevelResult<()> {
+        Command::new("sudo")
             .arg("--")
             .arg("adduser")
             .arg("--disabled-password")
@@ -68,17 +79,15 @@ impl User {
             .args(["--shell", &self.program.shell])
             .arg(username)
             .status()
-            .todo_context()?;
-        if !status.success() {
-            return Err(anyhow!(
-                "Failed to create user {}: \
-                sudo useradd exited with status {:?}",
-                username,
-                status.code(),
-            ));
-        }
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(anyhow!("`sudo adduser` exited with {status}"))
+                }
+            })?;
 
-        let status = Command::new("sudo")
+        Command::new("sudo")
             // See notes about `--chdir` elsewhere.
             .arg("--login")
             .args(["--user", username])
@@ -87,32 +96,39 @@ impl User {
             .arg("w")
             .env_clear()
             .status()
-            .todo_context()?;
-        if !status.success() {
-            return Err(anyhow!(
-                "Failed to create user {} work directory ~/w/: \
-                sudo mkdir exited with status {:?}",
-                username,
-                status.code(),
-            ));
-        }
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(anyhow!("`sudo ... mkdir w` exited with {status}"))
+                }
+            })
+            .with_context(|| format!("failed to create work directory for `{username}`"))?;
 
         Ok(())
     }
 
     fn kill_username(&self, username: &Username) -> Result<()> {
         // TODO: give processes a chance to handle SIGTERM first
-        let _ = Command::new("sudo")
+        Command::new("sudo")
             .arg("--")
             .arg("pkill")
             .args(["--signal", "KILL"])
             .args(["--uid", username])
             .status()
-            .todo_context()?;
-        Ok(())
+            .and_then(|status| match status.code() {
+                Some(0) | Some(1) => Ok(()),
+                _ => Err(anyhow!("`sudo pkill` exited with {status}")),
+            })
+            .with_context(|| format!("failed to kill processes for user `{username}`"))
     }
 
     fn copy_in_seeds(&self, username: &Username, seeds: &[&HostPath]) -> Result<()> {
+        self.copy_in_seeds_(username, seeds)
+            .with_context(|| format!("failed to copy seed tarball into user `{username}`"))
+    }
+
+    fn copy_in_seeds_(&self, username: &Username, seeds: &[&HostPath]) -> LowLevelResult<()> {
         if seeds.is_empty() {
             return Ok(());
         }
@@ -122,8 +138,7 @@ impl User {
             .args(["-i", "0.1"])
             .args(seeds.iter().map(|s| s.as_host_raw()))
             .stdout(Stdio::piped())
-            .scoped_spawn()
-            .todo_context()?;
+            .scoped_spawn()?;
         let mut source_stdout = source.stdout().take().unwrap();
 
         let mut dest = Command::new("sudo")
@@ -139,36 +154,61 @@ impl User {
             .arg("--ignore-zero")
             .env_clear()
             .stdin(Stdio::piped())
-            .scoped_spawn()
-            .todo_context()?;
+            .scoped_spawn()?;
 
         {
             let mut dest_stdin = dest.stdin().take().unwrap();
-            io::copy(&mut source_stdout, &mut dest_stdin).todo_context()?;
-            dest_stdin.flush().todo_context()?;
+            io::copy(&mut source_stdout, &mut dest_stdin)?;
+            dest_stdin.flush()?;
         }
 
-        let status = dest.wait().todo_context()?;
+        let status = dest.wait()?;
         if !status.success() {
             return Err(anyhow!(
-                "Failed to copy seed tarball into user {}: \
-                sudo tar exited with status {:?}",
-                username,
-                status.code(),
-            ));
+                "`sudo ... tar` exited with {status} while extracting tarball at destination"
+            )
+            .into());
         }
 
-        let status = source.wait().todo_context()?;
+        let status = source.wait()?;
         if !status.success() {
-            return Err(anyhow!(
-                "Failed to read seed tarballs for user {}: \
-                pv exited with status {:?}",
-                username,
-                status.code(),
-            ));
+            return Err(
+                anyhow!("`pv` exited with {status} while reading seed tarballs at source").into(),
+            );
         }
 
         Ok(())
+    }
+
+    fn copy_out(&self, username: &Username, path: &Path, w: &mut dyn io::Write) -> Result<()> {
+        self.copy_out_(username, path, w)
+            .with_context(|| format!("failed to copy file {path:?} from user `{username}`"))
+    }
+
+    fn copy_out_(
+        &self,
+        username: &Username,
+        path: &Path,
+        w: &mut dyn io::Write,
+    ) -> LowLevelResult<()> {
+        let mut child = Command::new("sudo")
+            // See notes about `--chdir` elsewhere.
+            .arg("--login")
+            .args(["--user", username])
+            .arg("--")
+            .arg("cat")
+            .arg(path)
+            .env_clear()
+            .stdout(Stdio::piped())
+            .scoped_spawn()?;
+        let mut stdout = child.stdout().take().unwrap();
+        io::copy(&mut stdout, w).todo_context()?;
+        let status = child.wait().todo_context()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow!("`sudo ... cat` exited with {status}").into())
+        }
     }
 }
 
@@ -180,30 +220,7 @@ impl Runner for User {
         w: &mut dyn io::Write,
     ) -> Result<()> {
         let username = self.username_from_environment(env_name);
-        let mut child = Command::new("sudo")
-            // See notes about `--chdir` elsewhere.
-            .arg("--login")
-            .args(["--user", &username])
-            .arg("--")
-            .arg("cat")
-            .arg(path)
-            .env_clear()
-            .stdout(Stdio::piped())
-            .scoped_spawn()
-            .todo_context()?;
-        let mut stdout = child.stdout().take().unwrap();
-        io::copy(&mut stdout, w).todo_context()?;
-        let status = child.wait().todo_context()?;
-        if !status.success() {
-            return Err(anyhow!(
-                "Failed to copy file {:?} from user {}: \
-                sudo cat exited with status {:?}",
-                path,
-                username,
-                status.code(),
-            ));
-        }
-        Ok(())
+        self.copy_out(&username, path, w)
     }
 
     fn copy_out_from_work(
@@ -212,7 +229,8 @@ impl Runner for User {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
-        self.copy_out_from_home(env_name, &Path::new("w").join(path), w)
+        let username = self.username_from_environment(env_name);
+        self.copy_out(&username, &Path::new("w").join(path), w)
     }
 
     fn create(&self, env_name: &EnvironmentName) -> Result<()> {
@@ -313,39 +331,39 @@ impl Runner for User {
                 .as_secs(),
         ));
 
-        println!("Saving work directory to {work_tar:?}");
-        let mut child = Command::new("sudo")
-            // See notes about `--chdir` elsewhere.
-            .arg("--login")
-            .args(["--user", &username])
-            .arg("--")
-            .arg("tar")
-            .arg("--create")
-            .arg("w")
-            .env_clear()
-            .stdout(Stdio::piped())
-            .scoped_spawn()
-            .todo_context()?;
-        let mut stdout = child.stdout().take().unwrap();
+        let save = || -> LowLevelResult<()> {
+            println!("Saving work directory to {work_tar:?}");
+            let mut child = Command::new("sudo")
+                // See notes about `--chdir` elsewhere.
+                .arg("--login")
+                .args(["--user", &username])
+                .arg("--")
+                .arg("tar")
+                .arg("--create")
+                .arg("w")
+                .env_clear()
+                .stdout(Stdio::piped())
+                .scoped_spawn()?;
+            let mut stdout = child.stdout().take().unwrap();
 
-        {
-            let mut f = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&work_tar.as_host_raw())
-                .todo_context()?;
-            io::copy(&mut stdout, &mut f).todo_context()?;
-            f.flush().todo_context()?;
-        }
-        let status = child.wait().todo_context()?;
-        if !status.success() {
-            return Err(anyhow!(
-                "Failed to tar work directory for environment {}: \
-                sudo tar exited with status {:?}",
-                env_name,
-                status.code(),
-            ));
-        }
+            {
+                let mut f = std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&work_tar.as_host_raw())
+                    .todo_context()?;
+                io::copy(&mut stdout, &mut f).todo_context()?;
+                f.flush().todo_context()?;
+            }
+
+            let status = child.wait()?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(anyhow!("`sudo ... tar` exited with {status}").into())
+            }
+        };
+        save().with_context(|| format!("Failed to tar work directory for user `{username}`"))?;
 
         let purge_and_restore = || -> Result<()> {
             self.purge(env_name)?;
@@ -358,6 +376,7 @@ impl Runner for User {
                     script: self.program.script_path.join("dev-init.sh"),
                 },
             )
+            .with_context(|| format!("failed to restore work directory from {work_tar:?}"))
         };
 
         match purge_and_restore() {
@@ -379,22 +398,20 @@ impl Runner for User {
         }
         let username = self.username_from_environment(env_name);
         self.kill_username(&username)?;
-        let status = Command::new("sudo")
+        Command::new("sudo")
             .arg("--")
             .arg("deluser")
             .arg("--remove-home")
             .arg(&username)
             .status()
-            .todo_context()?;
-        if !status.success() {
-            return Err(anyhow!(
-                "Failed to delete user {}: \
-                sudo deluser exited with status {:?}",
-                username,
-                status.code(),
-            ));
-        }
-        Ok(())
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(anyhow!("`sudo deluser` exited with {status}"))
+                }
+            })
+            .with_context(|| format!("failed to delete user `{username}`"))
     }
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
@@ -457,7 +474,7 @@ impl Runner for User {
             }
         }
 
-        let status = command.status().todo_context()?;
+        let status = command.status()?;
         if status.success() {
             Ok(())
         } else {

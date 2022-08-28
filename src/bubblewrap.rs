@@ -199,8 +199,7 @@ impl Runner for Bubblewrap {
                     .args(["-i", "0.1"])
                     .args(seeds.iter().map(|s| s.as_host_raw()))
                     .stdout(Stdio::piped())
-                    .scoped_spawn()
-                    .todo_context()?;
+                    .scoped_spawn()?;
                 let stdout = child.stdout().take().unwrap();
                 Some(Seed {
                     _child: child,
@@ -314,9 +313,7 @@ impl Runner for Bubblewrap {
             }
         }
 
-        let status = command
-            .status()
-            .context("Failed to execute bwrap process")?;
+        let status = command.status()?;
         if status.success() {
             Ok(())
         } else {
