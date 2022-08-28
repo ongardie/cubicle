@@ -101,7 +101,7 @@ impl Config {
     ///
     /// The returned error message lacks context.
     fn from_str(s: &str) -> Result<Self> {
-        let config: Config = toml::from_str(s)?;
+        let config: Config = toml::from_str(s).enough_context()?;
 
         match config.runner {
             RunnerKind::Bubblewrap => {

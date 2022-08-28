@@ -43,6 +43,7 @@ impl From<anyhow::Error> for Error {
     }
 }
 
+#[allow(unused)]
 /// Allows implicit converstions from this error type to `somehow::Error`.
 macro_rules! allowed_from {
     ($error:ty) => {
@@ -66,7 +67,6 @@ macro_rules! deprecated_from {
     };
 }
 
-allowed_from!(toml::de::Error);
 deprecated_from!(std::io::Error);
 deprecated_from!(std::string::FromUtf8Error);
 
@@ -188,6 +188,8 @@ mod tests {
     use super::Result;
     use insta::assert_snapshot;
 
+    /*
+    nothing is allowed at the moment, so this is disabled
     #[test]
     fn allowed_from() {
         let make_err = || -> Result<_> { Ok(toml::from_str("pi")?) };
@@ -195,6 +197,7 @@ mod tests {
         let debug = format!("{:?}", err);
         assert_snapshot!(debug, @"expected an equals, found eof at line 1 column 3");
     }
+    */
 
     #[test]
     fn deprecated_from() {
