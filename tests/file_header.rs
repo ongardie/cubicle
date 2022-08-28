@@ -30,7 +30,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cubicle::somehow::Result;
+use cubicle::somehow::{Context, Result};
 
 fn targets(manifest_dir: &Path) -> Result<Vec<PathBuf>> {
     #[derive(Debug, Deserialize)]
@@ -57,7 +57,8 @@ fn targets(manifest_dir: &Path) -> Result<Vec<PathBuf>> {
         .output()?;
     assert!(output.status.success(), "cargo metadata failed");
 
-    let metadata: Metadata = serde_json::from_slice(&output.stdout)?;
+    let metadata: Metadata =
+        serde_json::from_slice(&output.stdout).context("failed to parse `cargo metadata` JSON")?;
     let mut roots = Vec::new();
     for package in metadata.packages {
         for target in package.targets {

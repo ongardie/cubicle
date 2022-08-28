@@ -283,7 +283,11 @@ impl Cubicle {
                 let envs = envs
                     .map(|(name, value)| (name.0.clone(), value))
                     .collect::<BTreeMap<String, _>>();
-                println!("{}", serde_json::to_string_pretty(&envs)?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&envs)
+                        .context("failed to serialize JSON while listing environments")?
+                );
             }
 
             ListFormat::Default => {

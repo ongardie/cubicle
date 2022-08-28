@@ -449,7 +449,11 @@ impl Cubicle {
             Format::Names => unreachable!("handled above"),
 
             Format::Json => {
-                println!("{}", serde_json::to_string_pretty(&packages)?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&packages)
+                        .context("failed to serialize JSON while listing packages")?
+                );
             }
 
             Format::Default => {
