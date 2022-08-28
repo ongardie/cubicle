@@ -2,6 +2,7 @@ use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use std::cell::Cell;
 use std::collections::BTreeSet;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -837,22 +838,12 @@ impl Runner for Docker {
             }
         }
 
-        let fallback_path = std::env::join_paths(&[
-            self.container_home.join("bin").as_env_raw(),
-            // The debian:11 image hasn't gone through usrmerge, so
-            // /usr/bin and /bin are distinct there.
-            Path::new("/bin"),
-            Path::new("/sbin"),
-            Path::new("/usr/bin"),
-            Path::new("/usr/sbin"),
-        ])?
-        .into_string()
-        .map_err(|e| anyhow!("Non-UTF8 path: {:#?}", e))?;
-
         let mut command = Command::new("docker");
         command.arg("exec");
         command.args(["--env", "DISPLAY"]);
-        command.args(["--env", &format!("PATH={}", fallback_path)]);
+        command
+            .arg("--env")
+            .arg(fallback_path(&self.container_home));
         command.args(["--env", "SHELL"]);
         command.args(["--env", "USER"]);
         command.args(["--env", "TERM"]);
@@ -887,6 +878,29 @@ impl Runner for Docker {
             Err(ExitStatusError::new(status, "docker exec").into())
         }
     }
+}
+
+fn fallback_path(container_home: &EnvPath) -> OsString {
+    let home_bin = container_home.join("bin");
+    let paths = [
+        home_bin.as_env_raw(),
+        // The debian:11 image hasn't gone through usrmerge, so
+        // /usr/bin and /bin are distinct there.
+        Path::new("/bin"),
+        Path::new("/sbin"),
+        Path::new("/usr/bin"),
+        Path::new("/usr/sbin"),
+    ];
+    let joined = match std::env::join_paths(&paths) {
+        Ok(joined) => joined,
+        Err(e) => {
+            println!(
+                "Warning: unable to add container home dir ({container_home:?}) to $PATH: {e}"
+            );
+            std::env::join_paths(&paths[1..]).unwrap()
+        }
+    };
+    [OsStr::new("PATH="), &joined].into_iter().collect()
 }
 
 /// Debian packages that many packages might depend on for basic functionality.
@@ -1070,6 +1084,19 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> Result<()>
 mod tests {
     use super::*;
     use insta::assert_snapshot;
+    use std::path::PathBuf;
+
+    #[test]
+    fn fallback_path() {
+        assert_snapshot!(
+            super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/foo")).unwrap()).to_string_lossy(),
+            @"PATH=/home/foo/bin:/bin:/sbin:/usr/bin:/usr/sbin"
+        );
+        assert_snapshot!(
+            super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/fo:oo")).unwrap()).to_string_lossy(),
+            @"PATH=/bin:/sbin:/usr/bin:/usr/sbin"
+        );
+    }
 
     #[test]
     fn write_dockerfile() {
