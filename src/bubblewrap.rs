@@ -214,7 +214,7 @@ impl Runner for Bubblewrap {
             match &self.config().seccomp {
                 Path(path) => Some(
                     std::fs::File::open(path)
-                        .with_context(|| format!("Failed to open seccomp filter: {path:?}"))?,
+                        .with_context(|| format!("failed to open seccomp filter: {path:?}"))?,
                 ),
                 DangerouslyDisabled => None,
             }
