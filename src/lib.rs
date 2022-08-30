@@ -61,7 +61,10 @@ use os_util::{get_hostname, host_home_dir};
 
 mod packages;
 use packages::write_package_list_tar;
-pub use packages::{ListPackagesFormat, PackageName, PackageNameSet};
+pub use packages::{
+    ListPackagesFormat, PackageName, PackageNameSet, PackageSpec, PackageSpecs,
+    ShouldPackageUpdate, UpdatePackagesConditions,
+};
 
 mod command_ext;
 
@@ -362,7 +365,14 @@ impl Cubicle {
             Some(p) => p,
             None => PackageNameSet::from([PackageName::from_str("default").unwrap()]),
         };
-        self.update_packages(&packages, &self.scan_packages()?)?;
+        self.update_packages(
+            &packages,
+            &self.scan_packages()?,
+            UpdatePackagesConditions {
+                dependencies: ShouldPackageUpdate::IfStale,
+                named: ShouldPackageUpdate::IfStale,
+            },
+        )?;
         let packages_txt = write_package_list_tar(&packages)?;
         self.run(
             name,
@@ -452,7 +462,14 @@ impl Cubicle {
 
         match name.extract_builder_package_name() {
             None => {
-                self.update_packages(&packages, &self.scan_packages()?)?;
+                self.update_packages(
+                    &packages,
+                    &self.scan_packages()?,
+                    UpdatePackagesConditions {
+                        dependencies: ShouldPackageUpdate::IfStale,
+                        named: ShouldPackageUpdate::IfStale,
+                    },
+                )?;
             }
             Some(package_name) => {
                 let specs = self.scan_packages()?;
@@ -466,7 +483,14 @@ impl Cubicle {
                 packages.extend(spec.build_depends.iter().cloned());
                 packages.extend(spec.depends.iter().cloned());
                 changed = changed || packages.len() != start_len;
-                self.update_packages(&packages, &specs)?;
+                self.update_packages(
+                    &packages,
+                    &specs,
+                    UpdatePackagesConditions {
+                        dependencies: ShouldPackageUpdate::IfStale,
+                        named: ShouldPackageUpdate::IfStale,
+                    },
+                )?;
                 self.update_package(&package_name, spec)?;
             }
         }
@@ -620,6 +644,11 @@ impl std::convert::AsRef<OsStr> for EnvironmentName {
 }
 
 impl EnvironmentName {
+    /// Returns the name of the environment used to build the package.
+    pub fn for_builder_package(package: &PackageName) -> Self {
+        Self::from_str(&format!("package-{package}")).unwrap()
+    }
+
     fn extract_builder_package_name(&self) -> Option<PackageName> {
         self.0
             .strip_prefix("package-")

@@ -19,7 +19,7 @@ SUBCOMMANDS:
     help           Print this message or the help of the given subcommand(s)
     list           Show existing environments
     new            Create a new environment
-    packages       Show available packages
+    package        View and manage packages
     purge          Delete environment(s) and their work directories
     reset          Recreate an environment (keeping its work directory)
     tmp            Create and enter a new temporary environment

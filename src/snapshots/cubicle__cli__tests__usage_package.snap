@@ -1,0 +1,18 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-package 
+View and manage packages
+
+USAGE:
+    cub package <SUBCOMMAND>
+
+OPTIONS:
+    -h, --help    Print help information. Use --help for more details
+
+SUBCOMMANDS:
+    help      Print this message or the help of the given subcommand(s)
+    list      Show available packages
+    update    (Re-)build one or more packages
+
