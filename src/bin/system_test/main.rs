@@ -51,7 +51,10 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
     let err = cub
         .new_environment(test_env, Some(&not_exist))
         .expect_err("should not be able to use does-not-exist package in `cub new`");
-    assert_snapshot!(format!("{err:?}"), @"could not find package definition for `does-not-exist`");
+    assert_snapshot!(
+        err.debug_without_backtrace(),
+        @"could not find package definition for `does-not-exist`"
+    );
 
     let envs = cub.get_environment_names()?;
     assert!(
@@ -63,7 +66,10 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
     let err = cub
         .create_enter_tmp_environment(Some(&not_exist))
         .expect_err("should not be able to use does-not-exist package in `cub tmp`");
-    assert_snapshot!(format!("{err:?}"), @"could not find package definition for `does-not-exist`");
+    assert_snapshot!(
+        err.debug_without_backtrace(),
+        @"could not find package definition for `does-not-exist`"
+    );
     let new_envs = cub
         .get_environment_names()?
         .difference(&envs)
@@ -81,7 +87,10 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
     let err = cub
         .reset_environment(test_env, Some(&not_exist), Clean(false))
         .expect_err("should not be able to use does-not-exist package in `cub reset`");
-    assert_snapshot!(format!("{err:?}"), @"could not find package definition for `does-not-exist`");
+    assert_snapshot!(
+        err.debug_without_backtrace(),
+        @"could not find package definition for `does-not-exist`"
+    );
     cub.exec_environment(test_env, &[String::from("cat"), String::from("../foo")])
         .context("file `../foo` should still exist")?;
 
@@ -96,7 +105,10 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
             },
         )
         .expect_err("should not be able to use does-not-exist package in `cub tmp`");
-    assert_snapshot!(format!("{err:?}"), @"could not find package definition for `does-not-exist`");
+    assert_snapshot!(
+        err.debug_without_backtrace(),
+        @"could not find package definition for `does-not-exist`"
+    );
 
     Ok(())
 }

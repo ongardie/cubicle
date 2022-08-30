@@ -412,7 +412,7 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
             uses: Action::Cargo,
             with: dict! { "command" => "test" },
         },
-        env: dict! {},
+        env: dict! { "RUST_BACKTRACE" => "1" },
     });
 
     // Some checks like `cargo fmt` only need to run once, preferably on the
