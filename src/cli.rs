@@ -6,15 +6,18 @@
 
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
+use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use super::os_util::host_home_dir;
-use super::packages::{package_set_from_names, ListPackagesFormat};
-use super::{Clean, Cubicle, EnvironmentName, ListFormat, Quiet};
-use crate::somehow::{Context, Error, Result};
+use cubicle::hidden::host_home_dir;
+use cubicle::somehow::{Context, Error, Result};
+use cubicle::{
+    Clean, Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet,
+    Quiet,
+};
 
 /// Manage sandboxed development environments.
 #[derive(Debug, Parser)]
@@ -205,7 +208,7 @@ impl AsRef<Path> for PathWithVarExpansion {
 
 impl Display for PathWithVarExpansion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.sub_home_prefix(host_home_dir().as_host_raw()).fmt(f)
+        self.sub_home_prefix(host_home_dir()).fmt(f)
     }
 }
 
@@ -213,7 +216,7 @@ impl FromStr for PathWithVarExpansion {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        Ok(Self::expand_home_prefix(s, host_home_dir().as_host_raw()))
+        Ok(Self::expand_home_prefix(s, host_home_dir()))
     }
 }
 
@@ -221,9 +224,22 @@ fn default_config_path() -> PathWithVarExpansion {
     let xdg_config_home = if let Ok(path) = std::env::var("XDG_CONFIG_HOME") {
         PathBuf::from(path)
     } else {
-        host_home_dir().as_host_raw().join(".config")
+        host_home_dir().join(".config")
     };
     PathWithVarExpansion(xdg_config_home.join("cubicle.toml"))
+}
+
+fn package_set_from_names(names: Vec<String>) -> Result<PackageNameSet> {
+    let mut set: PackageNameSet = BTreeSet::new();
+    for name in names {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let name = PackageName::from_str(name)?;
+        set.insert(name);
+    }
+    Ok(set)
 }
 
 fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {

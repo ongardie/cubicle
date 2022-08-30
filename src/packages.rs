@@ -510,9 +510,13 @@ impl Cubicle {
         let reader = io::BufReader::new(buf.as_slice());
         let names = reader
             .lines()
-            .collect::<Result<Vec<String>, _>>()
+            .map(|name| match name {
+                Ok(name) => PackageName::from_str(&name),
+                Err(e) => Err(e).todo_context(),
+            })
+            .collect::<Result<PackageNameSet>>()
             .todo_context()?;
-        Ok(Some(package_set_from_names(names)?))
+        Ok(Some(names))
     }
 
     pub(super) fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<HostPath>> {
@@ -563,19 +567,6 @@ impl fmt::Display for PackageName {
 /// An ordered set of package names.
 pub type PackageNameSet = BTreeSet<PackageName>;
 
-pub fn package_set_from_names(names: Vec<String>) -> Result<PackageNameSet> {
-    let mut set: PackageNameSet = BTreeSet::new();
-    for name in names {
-        let name = name.trim();
-        if name.is_empty() {
-            continue;
-        }
-        let name = PackageName::from_str(name)?;
-        set.insert(name);
-    }
-    Ok(set)
-}
-
 /// Allowed formats for [`Cubicle::list_packages`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum ListPackagesFormat {
@@ -599,9 +590,13 @@ fn read_package_list(dir: &HostPath, path: &str) -> Result<Option<PackageNameSet
     let reader = io::BufReader::new(file);
     let names = reader
         .lines()
-        .collect::<Result<Vec<String>, _>>()
+        .map(|name| match name {
+            Ok(name) => PackageName::from_str(&name),
+            Err(e) => Err(e).todo_context(),
+        })
+        .collect::<Result<PackageNameSet>>()
         .todo_context()?;
-    Ok(Some(package_set_from_names(names)?))
+    Ok(Some(names))
 }
 
 pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::NamedTempFile> {

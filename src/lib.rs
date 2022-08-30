@@ -41,8 +41,6 @@ use somehow::{somehow as anyhow, Context, Error};
 mod newtype;
 use newtype::HostPath;
 
-pub mod cli;
-
 pub mod config;
 use config::Config;
 
@@ -703,5 +701,19 @@ fn nonzero_time(t: SystemTime) -> Option<SystemTime> {
         None
     } else {
         Some(t)
+    }
+}
+
+/// These things are public out of convenience but probably shouldn't be.
+#[doc(hidden)]
+pub mod hidden {
+    use std::path::Path;
+    /// Returns the path to the home directory on the host.
+    ///
+    /// Panics for errors locating the home directory, such as problems reading
+    /// the environment variable `HOME`.
+    // Note: This is public because the `cli` mod makes use of it.
+    pub fn host_home_dir() -> &'static Path {
+        super::host_home_dir().as_host_raw()
     }
 }
