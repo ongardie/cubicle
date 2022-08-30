@@ -1,2 +1,2 @@
-.cargo/config.toml
+.dev-init/mold-init.sh
 bin/mold
