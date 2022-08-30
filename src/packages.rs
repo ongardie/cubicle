@@ -6,7 +6,7 @@ use std::io::{self, BufRead, Write};
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use tempfile::NamedTempFile;
 
 use crate::somehow::{somehow as anyhow, Context, Error, LowLevelResult, Result};
@@ -55,9 +55,11 @@ pub enum ShouldPackageUpdate {
     Always,
 
     /// The package should be re-built if:
-    /// - It has not been successfully built for over 12 hours,
+    /// - It has not been successfully built for over
+    ///   [`Config::auto_update`](crate::Config::auto_update) time,
     /// - Its source files have been updated since it was built, or
-    /// - One of its transitive dependencies has been updated since it was built.
+    /// - One of its transitive dependencies has been updated since it was
+    ///   built.
     IfStale,
 
     /// The package should be built only if it's never successfully been built
@@ -273,10 +275,12 @@ impl Cubicle {
             Some(built) => built,
             None => return Ok(true),
         };
-        match now.duration_since(built) {
-            Ok(d) if d > Duration::from_secs(60 * 60 * 12) => return Ok(true),
-            Err(_) => return Ok(true),
-            _ => {}
+        if let Some(threshold) = self.shared.config.auto_update {
+            match now.duration_since(built) {
+                Ok(d) if d > threshold => return Ok(true),
+                Err(_) => return Ok(true),
+                _ => {}
+            }
         }
         let DirSummary { last_modified, .. } = summarize_dir(&spec.dir)?;
         if last_modified > built {
