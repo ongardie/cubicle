@@ -1,7 +1,11 @@
 //! Main Cubicle program configuration.
 
-use serde::Deserialize;
+use lazy_static::lazy_static;
+use regex::{Regex, RegexBuilder};
+use serde::{Deserialize, Deserializer};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::time::Duration;
 
 use super::RunnerKind;
 use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
@@ -13,6 +17,18 @@ use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 pub struct Config {
     /// Which runner to use.
     pub runner: RunnerKind,
+
+    /// Packages will be re-built when accessed if they haven't been built for
+    /// this amount of time.
+    ///
+    /// Set to `"never"` in TOML or `None` in code to disable.
+    ///
+    /// Default: 12 hours.
+    #[serde(
+        default = "twelve_hours",
+        deserialize_with = "deserialize_opt_duration"
+    )]
+    pub auto_update: Option<Duration>,
 
     /// Configuration specific to the Bubblewrap runner. Set to `None` for
     /// other runners.
@@ -35,6 +51,66 @@ pub struct Config {
 #[allow(missing_docs)]
 pub struct Bubblewrap {
     pub seccomp: PathOrDisabled,
+}
+
+fn twelve_hours() -> Option<Duration> {
+    Some(Duration::from_secs(60 * 60 * 12))
+}
+
+fn deserialize_opt_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    lazy_static! {
+        static ref RE: Regex = RegexBuilder::new(
+            r#"^(?x)
+            # integer or decimal
+            (?P<value>
+                [0-9]+
+                ( \. [0-9]+ )?
+            )
+            # optional space
+            \ ?
+            # required unit
+            (?P<unit>
+                s | sec s? | second s? |
+                m | min s? | minute s? |
+                h | hr s? | hour s? |
+                d | day s?
+            )
+            $"#
+        )
+        .build()
+        .unwrap();
+    }
+
+    let s = String::deserialize(deserializer)?;
+    if s == "never" {
+        return Ok(None);
+    }
+
+    match RE.captures(&s) {
+        Some(caps) => {
+            let value = caps.name("value").unwrap().as_str();
+            let value = f64::from_str(value).unwrap();
+            let unit = caps.name("unit").unwrap().as_str();
+            let multiple = f64::from(match unit.chars().next().unwrap() {
+                's' => 1,
+                'm' => 60,
+                'h' => 60 * 60,
+                'd' => 60 * 60 * 24,
+                _ => unreachable!(),
+            });
+            Ok(Some(Duration::from_secs_f64(value * multiple)))
+        }
+
+        None => Err(D::Error::custom(format!(
+            "could not parse {s:?}, expected `never` or duration like \
+            `10s`, `1.5m`, `2 hours`, `1 day`"
+        ))),
+    }
 }
 
 /// Like an `Option<PathBuf>` but more opinionated about recommending a path be
@@ -132,6 +208,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deserialize_opt_duration() {
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct Test {
+            #[serde(deserialize_with = "super::deserialize_opt_duration")]
+            value: Option<Duration>,
+        }
+
+        for (input, expected) in [
+            ("10s", 10),
+            ("0.1m", 6),
+            ("3h", 3 * 60 * 60),
+            ("10d", 10 * 24 * 60 * 60),
+            ("10 days", 10 * 24 * 60 * 60),
+            ("10.5 day", 10 * 24 * 60 * 60 + 12 * 60 * 60),
+        ] {
+            assert_eq!(
+                toml::from_str(&format!("value = '{input}'")),
+                Ok(Test {
+                    value: Some(Duration::from_secs(expected))
+                }),
+                "deserialize_opt_duration (left is actual, right is expected)"
+            );
+        }
+
+        assert_eq!(
+            toml::from_str("value = 'never'"),
+            Ok(Test { value: None }),
+            "deserialize_opt, duration('never')"
+        );
+    }
+
+    #[test]
     fn config_from_str_bad_runner() {
         assert_eq!(
             "missing field `runner`",
@@ -171,6 +279,7 @@ mod tests {
     fn config_from_str_ok() {
         let expected = Config {
             runner: RunnerKind::Docker,
+            auto_update: twelve_hours(),
             bubblewrap: None,
             docker: Docker::default(),
         };
@@ -198,6 +307,7 @@ mod tests {
         assert_eq!(
             Config {
                 runner: RunnerKind::Docker,
+                auto_update: Some(Duration::from_secs(60 * 60 * 24 * 10)),
                 bubblewrap: Some(Bubblewrap {
                     seccomp: PathOrDisabled::Path(PathBuf::from("/tmp/seccomp.bpf")),
                 }),
@@ -211,6 +321,7 @@ mod tests {
             Config::from_str(
                 "
                 runner = 'docker'
+                auto_update = '10d'
 
                 [bubblewrap]
                 seccomp = '/tmp/seccomp.bpf'

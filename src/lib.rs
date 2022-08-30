@@ -24,7 +24,7 @@
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::iter;
@@ -40,8 +40,6 @@ use somehow::{somehow as anyhow, Context, Error};
 
 mod newtype;
 use newtype::HostPath;
-
-pub mod cli;
 
 pub mod config;
 use config::Config;
@@ -63,7 +61,10 @@ use os_util::{get_hostname, host_home_dir};
 
 mod packages;
 use packages::write_package_list_tar;
-pub use packages::{ListPackagesFormat, PackageName, PackageNameSet};
+pub use packages::{
+    ListPackagesFormat, PackageName, PackageNameSet, PackageSpec, PackageSpecs,
+    ShouldPackageUpdate, UpdatePackagesConditions,
+};
 
 mod command_ext;
 
@@ -218,13 +219,14 @@ impl Cubicle {
         }
     }
 
+    /// Returns a list of existing environment names.
+    pub fn get_environment_names(&self) -> Result<BTreeSet<EnvironmentName>> {
+        Ok(self.runner.list()?.into_iter().collect())
+    }
+
     /// Corresponds to `cub list`.
     pub fn list_environments(&self, format: ListFormat) -> Result<()> {
-        let names = {
-            let mut names = self.runner.list()?;
-            names.sort_unstable();
-            names
-        };
+        let names = self.get_environment_names()?;
 
         if format == ListFormat::Names {
             // fast path for shell completions
@@ -339,45 +341,56 @@ impl Cubicle {
     pub fn new_environment(
         &self,
         name: &EnvironmentName,
-        packages: Option<PackageNameSet>,
+        packages: Option<&PackageNameSet>,
     ) -> Result<()> {
         use EnvironmentExists::*;
         match self.runner.exists(name)? {
             NoEnvironment => {}
             PartiallyExists => {
                 return Err(anyhow!(
-                    "Environment {name} in broken state (try '{} reset')",
+                    "environment {name} in broken state (try '{} reset')",
                     self.shared.script_name
                 ))
             }
             FullyExists => {
                 return Err(anyhow!(
-                    "Environment {name} already exists (did you mean '{} reset'?)",
+                    "environment {name} already exists (did you mean '{} reset'?)",
                     self.shared.script_name
                 ))
             }
         }
 
-        self.runner.create(name)?;
-
+        let default;
         let packages = match packages {
             Some(p) => p,
-            None => PackageNameSet::from([PackageName::from_str("default").unwrap()]),
+            None => {
+                default = PackageNameSet::from([PackageName::from_str("default").unwrap()]);
+                &default
+            }
         };
-        self.update_packages(&packages, &self.scan_packages()?)?;
-        let packages_txt = write_package_list_tar(&packages)?;
+        self.update_packages(
+            packages,
+            &self.scan_packages()?,
+            UpdatePackagesConditions {
+                dependencies: ShouldPackageUpdate::IfStale,
+                named: ShouldPackageUpdate::IfStale,
+            },
+        )?;
+        let packages_txt = write_package_list_tar(packages)?;
+
+        self.runner.create(name)?;
         self.run(
             name,
             &RunCommand::Init {
-                packages: &packages,
+                packages,
                 extra_seeds: &[&HostPath::try_from(packages_txt.path().to_owned())?],
             },
         )
-        .with_context(|| format!("Failed to initialize new environment {name}"))
+        .with_context(|| format!("failed to initialize new environment {name}"))
     }
 
     /// Corresponds to `cub tmp`.
-    pub fn create_enter_tmp_environment(&self, packages: Option<PackageNameSet>) -> Result<()> {
+    pub fn create_enter_tmp_environment(&self, packages: Option<&PackageNameSet>) -> Result<()> {
         let name = {
             let name = self
                 .shared
@@ -440,7 +453,7 @@ impl Cubicle {
             Some(packages) => (true, packages.clone()),
             None => match self
                 .read_package_list_from_env(name)
-                .with_context(|| format!("Failed to parse packages.txt from {name}"))?
+                .with_context(|| format!("failed to parse packages.txt from {name}"))?
             {
                 None => (
                     true,
@@ -450,11 +463,17 @@ impl Cubicle {
             },
         };
 
-        self.runner.reset(name)?;
-
         match name.extract_builder_package_name() {
             None => {
-                self.update_packages(&packages, &self.scan_packages()?)?;
+                self.update_packages(
+                    &packages,
+                    &self.scan_packages()?,
+                    UpdatePackagesConditions {
+                        dependencies: ShouldPackageUpdate::IfStale,
+                        named: ShouldPackageUpdate::IfStale,
+                    },
+                )?;
+                self.runner.reset(name)?;
             }
             Some(package_name) => {
                 let specs = self.scan_packages()?;
@@ -468,7 +487,15 @@ impl Cubicle {
                 packages.extend(spec.build_depends.iter().cloned());
                 packages.extend(spec.depends.iter().cloned());
                 changed = changed || packages.len() != start_len;
-                self.update_packages(&packages, &specs)?;
+                self.update_packages(
+                    &packages,
+                    &specs,
+                    UpdatePackagesConditions {
+                        dependencies: ShouldPackageUpdate::IfStale,
+                        named: ShouldPackageUpdate::IfStale,
+                    },
+                )?;
+                self.runner.reset(name)?;
                 self.update_package(&package_name, spec)?;
             }
         }
@@ -622,6 +649,11 @@ impl std::convert::AsRef<OsStr> for EnvironmentName {
 }
 
 impl EnvironmentName {
+    /// Returns the name of the environment used to build the package.
+    pub fn for_builder_package(package: &PackageName) -> Self {
+        Self::from_str(&format!("package-{package}")).unwrap()
+    }
+
     fn extract_builder_package_name(&self) -> Option<PackageName> {
         self.0
             .strip_prefix("package-")
@@ -703,5 +735,19 @@ fn nonzero_time(t: SystemTime) -> Option<SystemTime> {
         None
     } else {
         Some(t)
+    }
+}
+
+/// These things are public out of convenience but probably shouldn't be.
+#[doc(hidden)]
+pub mod hidden {
+    use std::path::Path;
+    /// Returns the path to the home directory on the host.
+    ///
+    /// Panics for errors locating the home directory, such as problems reading
+    /// the environment variable `HOME`.
+    // Note: This is public because the `cli` mod makes use of it.
+    pub fn host_home_dir() -> &'static Path {
+        super::host_home_dir().as_host_raw()
     }
 }

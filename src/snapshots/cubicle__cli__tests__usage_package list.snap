@@ -2,11 +2,11 @@
 source: src/cli.rs
 expression: err
 ---
-cub-packages 
+cub-package-list 
 Show available packages
 
 USAGE:
-    cub packages [OPTIONS]
+    cub package list [OPTIONS]
 
 OPTIONS:
         --format <FORMAT>    Set output format [default: default] [possible values: default, json,

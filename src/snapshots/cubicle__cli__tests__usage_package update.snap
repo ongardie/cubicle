@@ -1,0 +1,30 @@
+---
+source: src/cli.rs
+expression: err
+---
+cub-package-update 
+(Re-)build one or more packages
+
+USAGE:
+    cub package update [OPTIONS] [PACKAGES]...
+
+ARGS:
+    <PACKAGES>...
+            Package name(s)
+
+OPTIONS:
+        --clean
+            Clear out existing build environment first.
+            
+            This flag only applies to the named PACKAGES, not their dependencies.
+
+    -h, --help
+            Print help information. Use --help for more details
+
+        --skip-deps
+            Build dependencies only if required
+            
+            By default, this command will re-build dependencies if they are stale. With this flag,
+            it will only build dependencies if they are strictly needed because have never been
+            built successfully before.
+

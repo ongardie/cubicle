@@ -34,8 +34,8 @@ _cub() {
             new)
                 cmd+="__new"
                 ;;
-            packages)
-                cmd+="__packages"
+            package)
+                cmd+="__package"
                 ;;
             purge)
                 cmd+="__purge"
@@ -46,6 +46,9 @@ _cub() {
             tmp)
                 cmd+="__tmp"
                 ;;
+            update)
+                cmd+="__update"
+                ;;
             *)
                 ;;
         esac
@@ -53,7 +56,7 @@ _cub() {
 
     case "${cmd}" in
         cub)
-            opts="-c -h --config --help completions enter exec list packages new purge reset tmp help"
+            opts="-c -h --config --help completions enter exec list package new purge reset tmp help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -166,9 +169,37 @@ _cub() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        cub__packages)
-            opts="-h --format --help"
+        cub__package)
+            opts="-h --help list update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__package__help)
+            opts="-h --help <SUBCOMMAND>..."
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__package__list)
+            opts="-h --format --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -177,6 +208,20 @@ _cub() {
                     COMPREPLY=($(compgen -W "default json names" -- "${cur}"))
                     return 0
                     ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__package__update)
+            opts="-h --clean --skip-deps --help <PACKAGES>..."
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;

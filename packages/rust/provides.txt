@@ -1,4 +1,8 @@
-.cargo
-.local/share/bash-completion/completions
-.rustup
-.zfunc
+.cargo/bin/
+.cargo/env
+.cargo/registry/
+.local/share/bash-completion/completions/cargo
+.local/share/bash-completion/completions/rustup
+.rustup/
+.zfunc/_cargo
+.zfunc/_rustup

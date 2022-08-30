@@ -412,7 +412,7 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
             uses: Action::Cargo,
             with: dict! { "command" => "test" },
         },
-        env: dict! {},
+        env: dict! { "RUST_BACKTRACE" => "1" },
     });
 
     // Some checks like `cargo fmt` only need to run once, preferably on the
@@ -596,7 +596,10 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         details: Run {
             run: format!("./target/debug/system_test --config '{config}'"),
         },
-        env: dict! {"RUST_BACKTRACE" => "1"},
+        env: dict! {
+            "INSTA_WORKSPACE_ROOT" => ".",
+            "RUST_BACKTRACE" => "1",
+        },
     });
 
     let key = JobKey::new(format!("system_test-{}-{}", os.as_ident(), runner));

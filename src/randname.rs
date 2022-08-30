@@ -134,8 +134,11 @@ mod tests {
         let tmpdir_path = HostPath::try_from(tmpdir.path().canonicalize().unwrap()).unwrap();
         let mut gen = super::RandomNameGenerator::new(tmpdir_path);
         gen.eff_url = "will://not work";
-        let err = gen.download_or_open_eff_list().unwrap_err();
-        assert_snapshot!(format!("{err:?}"), @r###"
+        let err = gen
+            .download_or_open_eff_list()
+            .unwrap_err()
+            .debug_without_backtrace();
+        assert_snapshot!(err, @r###"
         error downloading word list from "will://not work"
 
         Caused by:

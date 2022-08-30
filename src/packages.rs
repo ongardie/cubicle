@@ -6,10 +6,10 @@ use std::io::{self, BufRead, Write};
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use tempfile::NamedTempFile;
 
-use crate::somehow::{somehow as anyhow, Context, Error, Result};
+use crate::somehow::{somehow as anyhow, Context, Error, LowLevelResult, Result};
 
 use super::fs_util::{
     create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, DirSummary, TarOptions,
@@ -19,17 +19,53 @@ use super::{
     EnvironmentName, HostPath, Quiet, RunCommand, Runner,
 };
 
+/// Information about a package's source files.
 pub struct PackageSpec {
     // TODO: these shouldn't need to be public
-    pub build_depends: PackageNameSet,
-    pub depends: PackageNameSet,
+    pub(super) build_depends: PackageNameSet,
+    pub(super) depends: PackageNameSet,
     dir: HostPath,
     origin: String,
     update: Option<String>,
     test: Option<String>,
 }
 
-type PackageSpecs = BTreeMap<PackageName, PackageSpec>;
+/// Information about all available package sources.
+///
+/// Some package-related methods in [`Cubicle`] need this. Use
+/// [`Cubicle::scan_packages`] to build one.
+pub type PackageSpecs = BTreeMap<PackageName, PackageSpec>;
+
+/// Used in [`Cubicle::update_packages`] to describe when packages should be
+/// updated.
+pub struct UpdatePackagesConditions {
+    /// When should the named packages' transitive dependencies and
+    /// build-dependencies be updated?
+    pub dependencies: ShouldPackageUpdate,
+    /// When should the given packages themselves be updated?
+    pub named: ShouldPackageUpdate,
+}
+
+/// Describes when a package should be updated.
+///
+/// See [`Cubicle::update_packages`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShouldPackageUpdate {
+    /// The package should be re-built.
+    Always,
+
+    /// The package should be re-built if:
+    /// - It has not been successfully built for over
+    ///   [`Config::auto_update`](crate::Config::auto_update) time,
+    /// - Its source files have been updated since it was built, or
+    /// - One of its transitive dependencies has been updated since it was
+    ///   built.
+    IfStale,
+
+    /// The package should be built only if it's never successfully been built
+    /// before.
+    IfRequired,
+}
 
 #[derive(Clone, Copy)]
 struct BuildDepends(bool);
@@ -70,7 +106,7 @@ fn transitive_depends(
 impl Cubicle {
     fn add_packages(
         &self,
-        packages: &mut BTreeMap<PackageName, PackageSpec>,
+        packages: &mut PackageSpecs,
         dir: &HostPath,
         origin: &str,
     ) -> Result<()> {
@@ -129,8 +165,9 @@ impl Cubicle {
         Ok(names)
     }
 
-    pub(super) fn scan_packages(&self) -> Result<PackageSpecs> {
-        let mut specs = BTreeMap::new();
+    /// Returns information about available package sources.
+    pub fn scan_packages(&self) -> Result<PackageSpecs> {
+        let mut specs = PackageSpecs::new();
 
         for dir in try_iterdir(&self.shared.user_package_dir)? {
             let origin = dir.to_string_lossy();
@@ -160,10 +197,13 @@ impl Cubicle {
         Ok(specs)
     }
 
-    pub(super) fn update_packages(
+    /// Rebuilds some of the given packages and their transitive dependencies,
+    /// as requested.
+    pub fn update_packages(
         &self,
         packages: &PackageNameSet,
         specs: &PackageSpecs,
+        conditions: UpdatePackagesConditions,
     ) -> Result<()> {
         let now = SystemTime::now();
         let mut todo: Vec<PackageName> =
@@ -178,17 +218,41 @@ impl Cubicle {
             for name in todo {
                 if let Some(spec) = specs.get(&name) {
                     if done.is_superset(&spec.depends) && done.is_superset(&spec.build_depends) {
-                        self.update_stale_package(specs, &name, now)?;
+                        let needs_build = {
+                            if spec.update.is_none() {
+                                false
+                            } else {
+                                let when = if packages.contains(&name) {
+                                    conditions.named
+                                } else {
+                                    conditions.dependencies
+                                };
+                                match when {
+                                    ShouldPackageUpdate::Always => true,
+                                    ShouldPackageUpdate::IfStale => {
+                                        self.package_is_stale(&name, spec, now)?
+                                    }
+                                    ShouldPackageUpdate::IfRequired => {
+                                        self.last_built(&name).is_none()
+                                    }
+                                }
+                            }
+                        };
+                        if needs_build {
+                            self.update_package(&name, spec)?;
+                        }
                         done.insert(name);
                     } else {
                         later.push(name);
                     }
+                } else {
+                    return Err(anyhow!("could not find package definition for `{name}`"));
                 }
             }
             if later.len() == start_todos {
                 later.sort();
                 return Err(anyhow!(
-                    "Package dependencies are unsatisfiable for: {later:?}"
+                    "package dependencies are unsatisfiable for: {later:?}"
                 ));
             }
             todo = later;
@@ -201,46 +265,33 @@ impl Cubicle {
         metadata.modified().ok()
     }
 
-    fn update_stale_package(
+    fn package_is_stale(
         &self,
-        specs: &PackageSpecs,
         package_name: &PackageName,
+        spec: &PackageSpec,
         now: SystemTime,
-    ) -> Result<()> {
-        let spec = match specs.get(package_name) {
-            Some(spec) => spec,
-            None => return Err(anyhow!("Could not find package {package_name} definition")),
+    ) -> Result<bool> {
+        let built = match self.last_built(package_name) {
+            Some(built) => built,
+            None => return Ok(true),
         };
-
-        let needs_build = || -> Result<bool> {
-            if spec.update.is_none() {
-                return Ok(false);
-            }
-            let built = match self.last_built(package_name) {
-                Some(built) => built,
-                None => return Ok(true),
-            };
+        if let Some(threshold) = self.shared.config.auto_update {
             match now.duration_since(built) {
-                Ok(d) if d > Duration::from_secs(60 * 60 * 12) => return Ok(true),
+                Ok(d) if d > threshold => return Ok(true),
                 Err(_) => return Ok(true),
                 _ => {}
             }
-            let DirSummary { last_modified, .. } = summarize_dir(&spec.dir)?;
-            if last_modified > built {
+        }
+        let DirSummary { last_modified, .. } = summarize_dir(&spec.dir)?;
+        if last_modified > built {
+            return Ok(true);
+        }
+        for p in spec.build_depends.union(&spec.depends) {
+            if matches!(self.last_built(p), Some(b) if b > built) {
                 return Ok(true);
             }
-            for p in spec.build_depends.union(&spec.depends) {
-                if matches!(self.last_built(p), Some(b) if b > built) {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        };
-
-        if needs_build()? {
-            self.update_package(package_name, spec)?;
         }
-        Ok(())
+        Ok(false)
     }
 
     pub(super) fn update_package(
@@ -252,9 +303,13 @@ impl Cubicle {
             .with_context(|| format!("Failed to update package: {package_name}"))
     }
 
-    fn update_package_(&self, package_name: &PackageName, spec: &PackageSpec) -> Result<()> {
+    fn update_package_(
+        &self,
+        package_name: &PackageName,
+        spec: &PackageSpec,
+    ) -> LowLevelResult<()> {
         println!("Updating {package_name} package");
-        let env_name = EnvironmentName::from_str(&format!("package-{package_name}")).unwrap();
+        let env_name = EnvironmentName::for_builder_package(package_name);
         let package_cache = &self.shared.package_cache;
 
         {
@@ -277,7 +332,8 @@ impl Cubicle {
                 EnvironmentExists::PartiallyExists => {
                     return Err(anyhow!(
                         "Environment {env_name} in broken state (partially exists)"
-                    ))
+                    )
+                    .into())
                 }
                 EnvironmentExists::FullyExists => {}
             }
@@ -297,7 +353,7 @@ impl Cubicle {
                     );
                     return Ok(());
                 }
-                return Err(e);
+                return Err(e.into());
             }
 
             // Note: the end of this block removes `tar_file` from the
@@ -320,7 +376,8 @@ impl Cubicle {
                     )
                     .todo_context()?;
                 self.runner
-                    .copy_out_from_home(&env_name, Path::new("provides.tar"), &mut file)
+                    .copy_out_from_home(&env_name, Path::new("provides.tar"), &mut file)?;
+                Ok(())
             }
 
             Some(test_script) => {
@@ -379,7 +436,7 @@ impl Cubicle {
                         );
                         return Ok(());
                     }
-                    return Err(e);
+                    return Err(e.into());
                 }
                 self.purge_environment(&test_name, Quiet(true))?;
                 std::fs::rename(
@@ -394,7 +451,7 @@ impl Cubicle {
         }
     }
 
-    /// Corresponds to `cub packages`.
+    /// Corresponds to `cub package list`.
     pub fn list_packages(&self, format: ListPackagesFormat) -> Result<()> {
         type Format = ListPackagesFormat;
 
@@ -510,9 +567,13 @@ impl Cubicle {
         let reader = io::BufReader::new(buf.as_slice());
         let names = reader
             .lines()
-            .collect::<Result<Vec<String>, _>>()
+            .map(|name| match name {
+                Ok(name) => PackageName::from_str(&name),
+                Err(e) => Err(e).todo_context(),
+            })
+            .collect::<Result<PackageNameSet>>()
             .todo_context()?;
-        Ok(Some(package_set_from_names(names)?))
+        Ok(Some(names))
     }
 
     pub(super) fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<HostPath>> {
@@ -563,19 +624,6 @@ impl fmt::Display for PackageName {
 /// An ordered set of package names.
 pub type PackageNameSet = BTreeSet<PackageName>;
 
-pub fn package_set_from_names(names: Vec<String>) -> Result<PackageNameSet> {
-    let mut set: PackageNameSet = BTreeSet::new();
-    for name in names {
-        let name = name.trim();
-        if name.is_empty() {
-            continue;
-        }
-        let name = PackageName::from_str(name)?;
-        set.insert(name);
-    }
-    Ok(set)
-}
-
 /// Allowed formats for [`Cubicle::list_packages`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum ListPackagesFormat {
@@ -599,9 +647,13 @@ fn read_package_list(dir: &HostPath, path: &str) -> Result<Option<PackageNameSet
     let reader = io::BufReader::new(file);
     let names = reader
         .lines()
-        .collect::<Result<Vec<String>, _>>()
+        .map(|name| match name {
+            Ok(name) => PackageName::from_str(&name),
+            Err(e) => Err(e).todo_context(),
+        })
+        .collect::<Result<PackageNameSet>>()
         .todo_context()?;
-    Ok(Some(package_set_from_names(names)?))
+    Ok(Some(names))
 }
 
 pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::NamedTempFile> {

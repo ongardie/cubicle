@@ -1,4 +1,3 @@
 configs
 firefox
-python
 vscodium

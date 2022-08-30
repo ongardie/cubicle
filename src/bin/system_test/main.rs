@@ -12,7 +12,11 @@
 use clap::Parser;
 use cubicle::config::Config;
 use cubicle::somehow::{somehow as anyhow, Context, Result};
-use cubicle::{Clean, Cubicle, EnvironmentName, ListFormat, PackageName, PackageNameSet, Quiet};
+use cubicle::{
+    Clean, Cubicle, EnvironmentName, ListFormat, PackageName, PackageNameSet, Quiet,
+    ShouldPackageUpdate, UpdatePackagesConditions,
+};
+use insta::assert_snapshot;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -38,6 +42,77 @@ fn rewrite<P: AsRef<Path>>(path: P) -> Result<()> {
     rewrite_(path).with_context(|| format!("Failed to rewrite {path:?}"))
 }
 
+fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> Result<()> {
+    cub.purge_environment(test_env, Quiet(false))?;
+
+    let not_exist = PackageNameSet::from([PackageName::from_str("does-not-exist")?]);
+
+    // cub new --packages=does-not-exist
+    let err = cub
+        .new_environment(test_env, Some(&not_exist))
+        .expect_err("should not be able to use does-not-exist package in `cub new`");
+    assert_snapshot!(
+        err.debug_without_backtrace(),
+        @"could not find package definition for `does-not-exist`"
+    );
+
+    let envs = cub.get_environment_names()?;
+    assert!(
+        !envs.contains(test_env),
+        "{test_env} environment should not exist"
+    );
+
+    // cub tmp --packages=does-not-exist
+    let err = cub
+        .create_enter_tmp_environment(Some(&not_exist))
+        .expect_err("should not be able to use does-not-exist package in `cub tmp`");
+    assert_snapshot!(
+        err.debug_without_backtrace(),
+        @"could not find package definition for `does-not-exist`"
+    );
+    let new_envs = cub
+        .get_environment_names()?
+        .difference(&envs)
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        new_envs.is_empty(),
+        "new tmp environment should not exist, found {new_envs:?}"
+    );
+
+    // cub reset --packages=does-not-exist
+    cub.new_environment(test_env, Some(&PackageNameSet::new()))?;
+    cub.reset_environment(test_env, Some(&not_exist), Clean(true))?;
+    cub.exec_environment(test_env, &[String::from("touch"), String::from("../foo")])?;
+    let err = cub
+        .reset_environment(test_env, Some(&not_exist), Clean(false))
+        .expect_err("should not be able to use does-not-exist package in `cub reset`");
+    assert_snapshot!(
+        err.debug_without_backtrace(),
+        @"could not find package definition for `does-not-exist`"
+    );
+    cub.exec_environment(test_env, &[String::from("cat"), String::from("../foo")])
+        .context("file `../foo` should still exist")?;
+
+    // cub package update does-not-exist
+    let err = cub
+        .update_packages(
+            &not_exist,
+            &cub.scan_packages()?,
+            UpdatePackagesConditions {
+                dependencies: ShouldPackageUpdate::Always,
+                named: ShouldPackageUpdate::Always,
+            },
+        )
+        .expect_err("should not be able to use does-not-exist package in `cub tmp`");
+    assert_snapshot!(
+        err.debug_without_backtrace(),
+        @"could not find package definition for `does-not-exist`"
+    );
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let exe = std::env::current_exe().todo_context()?;
     let project_root = match exe.ancestors().nth(3) {
@@ -54,18 +129,20 @@ fn main() -> Result<()> {
     let config = Config::read_from_file(&args.config)?;
     let cub = Cubicle::new(config)?;
 
-    let test_env = EnvironmentName::from_str("test")?;
+    let test_env = EnvironmentName::from_str("system_test")?;
     let configs_pkg = PackageName::from_str("configs")?;
 
     cub.list_environments(ListFormat::Default)?;
 
+    test_package_not_found_errors(&cub, &test_env)?;
+
     cub.purge_environment(&test_env, Quiet(false))?;
-    cub.new_environment(&test_env, Some(PackageNameSet::new()))?;
+    cub.new_environment(&test_env, Some(&PackageNameSet::new()))?;
     cub.exec_environment(&test_env, &["ls", "-l", ".."].map(String::from))?;
     cub.reset_environment(&test_env, None, Clean(false))?;
 
     cub.purge_environment(&test_env, Quiet(false))?;
-    cub.new_environment(&test_env, Some(PackageNameSet::from([configs_pkg])))?;
+    cub.new_environment(&test_env, Some(&PackageNameSet::from([configs_pkg])))?;
     cub.exec_environment(&test_env, &["ls", "-al", ".."].map(String::from))?;
     // This should cause the configs package to be rebuilt.
     rewrite(project_root.join("packages/configs/update.sh"))?;

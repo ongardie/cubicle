@@ -140,9 +140,13 @@ If the package provides any executable files within `~/.dev-init/`, these will
 be run upon creating and resetting target environments.
 
 Packages are built automatically when they are first used, and they are updated
-when they are used if 12 hours have elapsed, their package definitions have
-changed, or one of their dependencies or build-dependencies has been updated
-more recently.
+when they are used if:
+
+- 12 hours have elapsed (to change this, set `auto_update` to `never`, `1h`,
+  `3.5 days`, etc in the configuration file),
+- their package definitions have changed, or
+- one of their dependencies or build-dependencies has been updated more
+  recently.
 
 Cubicle looks for package definitions in the following locations:
 

@@ -30,6 +30,26 @@ pub type LowLevelResult<T, E = LowLevelError> = std::result::Result<T, E>;
 /// error makes sense, consider [`LowLevelError`].
 pub struct Error(anyhow::Error);
 
+impl Error {
+    /// Returns the same output as `format!("{:?}")` but without a stack
+    /// backtrace.
+    ///
+    /// This includes the message and the error chain in indented format.
+    ///
+    /// Usually when someone does `RUST_BACKTRACE=1`, we want the stack
+    /// backtrace to print. When testing error messages, however, we don't want
+    /// that.
+    pub fn debug_without_backtrace(&self) -> String {
+        use std::fmt::Write;
+        let mut buf = String::new();
+        write!(buf, "{:?}", self.0).unwrap();
+        if let Some(i) = buf.find("\n\nStack backtrace:\n") {
+            buf.truncate(i + 1);
+        }
+        buf
+    }
+}
+
 /// See [`anyhow::Error`].
 impl Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -261,9 +281,8 @@ mod tests {
             #[allow(clippy::try_err)]
             Err(MyError)?
         };
-        let err = make_err().unwrap_err();
-        let debug = format!("{:?}", err);
-        assert_snapshot!(debug, @"MyError");
+        let err = make_err().unwrap_err().debug_without_backtrace();
+        assert_snapshot!(err, @"MyError");
     }
 
     #[test]
@@ -273,9 +292,8 @@ mod tests {
             #[allow(clippy::try_err)]
             Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?
         };
-        let err = make_err().unwrap_err();
-        let debug = format!("{:?}", err);
-        assert_snapshot!(debug, @r###"
+        let err = make_err().unwrap_err().debug_without_backtrace();
+        assert_snapshot!(err, @r###"
         The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
         info. A pull request or a GitHub issue with this output and the steps to
         reproduce it would be welcome.
@@ -290,7 +308,8 @@ mod tests {
         let err: std::io::Result<f64> =
             Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
         let err: Error = err.todo_context().unwrap_err();
-        assert_snapshot!(format!("{err:?}"), @r###"
+        let err = err.debug_without_backtrace();
+        assert_snapshot!(err, @r###"
         The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
         info. A pull request or a GitHub issue with this output and the steps to
         reproduce it would be welcome.

@@ -6,15 +6,18 @@
 
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
+use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use super::os_util::host_home_dir;
-use super::packages::{package_set_from_names, ListPackagesFormat};
-use super::{Clean, Cubicle, EnvironmentName, ListFormat, Quiet};
-use crate::somehow::{Context, Error, Result};
+use cubicle::hidden::host_home_dir;
+use cubicle::somehow::{Context, Error, Result};
+use cubicle::{
+    Clean, Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet,
+    Quiet, ShouldPackageUpdate, UpdatePackagesConditions,
+};
 
 /// Manage sandboxed development environments.
 #[derive(Debug, Parser)]
@@ -85,12 +88,9 @@ enum Commands {
         format: ListFormat,
     },
 
-    /// Show available packages.
-    Packages {
-        /// Set output format.
-        #[clap(long, value_enum, default_value_t)]
-        format: ListPackagesFormat,
-    },
+    /// View and manage packages.
+    #[clap(subcommand)]
+    Package(PackageCommands),
 
     /// Create a new environment.
     #[clap(arg_required_else_help(true))]
@@ -132,6 +132,36 @@ enum Commands {
         /// Comma-separated names of packages to inject into home directory.
         #[clap(long, use_value_delimiter(true))]
         packages: Option<Vec<String>>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PackageCommands {
+    /// Show available packages.
+    List {
+        /// Set output format.
+        #[clap(long, value_enum, default_value_t)]
+        format: ListPackagesFormat,
+    },
+
+    /// (Re-)build one or more packages.
+    #[clap(arg_required_else_help(true))]
+    Update {
+        /// Clear out existing build environment first.
+        ///
+        /// This flag only applies to the named PACKAGES, not their
+        /// dependencies.
+        #[clap(long)]
+        clean: bool,
+        /// Build dependencies only if required
+        ///
+        /// By default, this command will re-build dependencies if they are
+        /// stale. With this flag, it will only build dependencies if they are
+        /// strictly needed because have never been built successfully before.
+        #[clap(long)]
+        skip_deps: bool,
+        /// Package name(s).
+        packages: Vec<String>,
     },
 }
 
@@ -205,7 +235,7 @@ impl AsRef<Path> for PathWithVarExpansion {
 
 impl Display for PathWithVarExpansion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.sub_home_prefix(host_home_dir().as_host_raw()).fmt(f)
+        self.sub_home_prefix(host_home_dir()).fmt(f)
     }
 }
 
@@ -213,7 +243,7 @@ impl FromStr for PathWithVarExpansion {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        Ok(Self::expand_home_prefix(s, host_home_dir().as_host_raw()))
+        Ok(Self::expand_home_prefix(s, host_home_dir()))
     }
 }
 
@@ -221,9 +251,22 @@ fn default_config_path() -> PathWithVarExpansion {
     let xdg_config_home = if let Ok(path) = std::env::var("XDG_CONFIG_HOME") {
         PathBuf::from(path)
     } else {
-        host_home_dir().as_host_raw().join(".config")
+        host_home_dir().join(".config")
     };
     PathWithVarExpansion(xdg_config_home.join("cubicle.toml"))
+}
+
+fn package_set_from_names(names: Vec<String>) -> Result<PackageNameSet> {
+    let mut set: PackageNameSet = BTreeSet::new();
+    for name in names {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let name = PackageName::from_str(name)?;
+        set.insert(name);
+    }
+    Ok(set)
 }
 
 fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
@@ -238,7 +281,7 @@ fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
         let mut buf: Vec<u8> = Vec::new();
         generate(shell, cmd, "cub", &mut buf);
         let buf = String::from_utf8(buf).context("error reading clap shell completion output")?;
-        let mut counts = [0; 4];
+        let mut counts = [0; 5];
         let mut write = || -> std::io::Result<()> {
             for line in buf.lines() {
                 match line {
@@ -250,16 +293,20 @@ fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
                         counts[1] += 1;
                         writeln!(out, r#"'*::names -- Environment name(s):_cub_envs' \"#)?;
                     }
+                    r#"'*::packages -- Package name(s):' \"# => {
+                        counts[2] += 1;
+                        writeln!(out, r#"'*::packages -- Package name(s):_cub_pkgs' \"#)?;
+                    }
                     r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES: ' \"# =>
                     {
-                        counts[2] += 1;
+                        counts[3] += 1;
                         writeln!(
                             out,
-                            r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs' \"#
+                            r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \"#
                         )?;
                     }
                     r#"_cub "$@""# => {
-                        counts[3] += 1;
+                        counts[4] += 1;
                         writeln!(
                             out,
                             "{}",
@@ -268,7 +315,10 @@ _cub_envs() {
     _values -w 'environments' $(cub list --format=names)
 }
 _cub_pkgs() {
-    _values -s , -w 'packages' $(cub packages --format=names)
+    _values -w 'packages' $(cub package list --format=names)
+}
+_cub_pkgs_comma() {
+    _values -s , -w 'packages' $(cub package list --format=names)
 }
 "#
                         )?;
@@ -284,7 +334,7 @@ _cub_pkgs() {
         write().context("failed to write zsh completions")?;
         debug_assert_eq!(
             counts,
-            [2, 2, 3, 1],
+            [2, 2, 1, 3, 1],
             "zsh completions not patched as expected"
         );
     } else {
@@ -307,13 +357,13 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
             packages,
         } => {
             let packages = packages.map(package_set_from_names).transpose()?;
-            program.new_environment(&name, packages)?;
+            program.new_environment(&name, packages.as_ref())?;
             if enter {
                 program.enter_environment(&name)?;
             }
             Ok(())
         }
-        Packages { format } => program.list_packages(format),
+        Package(command) => run_package_command(command, program),
         Purge { names } => {
             for name in names {
                 program.purge_environment(&name, Quiet(false))?;
@@ -334,7 +384,40 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
         }
         Tmp { packages } => {
             let packages = packages.map(package_set_from_names).transpose()?;
-            program.create_enter_tmp_environment(packages)
+            program.create_enter_tmp_environment(packages.as_ref())
+        }
+    }
+}
+
+fn run_package_command(command: PackageCommands, program: &Cubicle) -> Result<()> {
+    use PackageCommands::*;
+    match command {
+        List { format } => program.list_packages(format),
+
+        Update {
+            clean,
+            skip_deps,
+            packages,
+        } => {
+            use ShouldPackageUpdate::*;
+            let packages = package_set_from_names(packages)?;
+            if clean {
+                for package in &packages {
+                    program.purge_environment(
+                        &EnvironmentName::for_builder_package(package),
+                        Quiet(true),
+                    )?
+                }
+            }
+            let specs = program.scan_packages()?;
+            program.update_packages(
+                &packages,
+                &specs,
+                UpdatePackagesConditions {
+                    dependencies: if skip_deps { IfRequired } else { IfStale },
+                    named: Always,
+                },
+            )
         }
     }
 }
@@ -393,7 +476,9 @@ mod tests {
             "exec",
             "list",
             "new",
-            "packages",
+            "package",
+            "package list",
+            "package update",
             "purge",
             "reset",
             "tmp",

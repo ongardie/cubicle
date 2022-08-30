@@ -9,7 +9,9 @@
     clippy::unreadable_literal
 )]
 
-use cubicle::{cli, config::Config, Cubicle, Result};
+mod cli;
+
+use cubicle::{config::Config, Cubicle, Result};
 
 fn main() -> Result<()> {
     let args = cli::parse();
