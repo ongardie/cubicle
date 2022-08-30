@@ -596,7 +596,10 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         details: Run {
             run: format!("./target/debug/system_test --config '{config}'"),
         },
-        env: dict! {"RUST_BACKTRACE" => "1"},
+        env: dict! {
+            "INSTA_WORKSPACE_ROOT" => ".",
+            "RUST_BACKTRACE" => "1",
+        },
     });
 
     let key = JobKey::new(format!("system_test-{}-{}", os.as_ident(), runner));

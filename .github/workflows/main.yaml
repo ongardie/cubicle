@@ -202,6 +202,7 @@ jobs:
     - name: Run system test
       run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
       env:
+        INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
   system_test-ubuntu-20-04-bubblewrap:
     name: System tests (ubuntu-20.04, bubblewrap)
@@ -225,6 +226,7 @@ jobs:
     - name: Run system test
       run: ./target/debug/system_test --config 'src/bin/system_test/github/bubblewrap.toml'
       env:
+        INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
   system_test-ubuntu-20-04-docker:
     name: System tests (ubuntu-20.04, docker)
@@ -248,6 +250,7 @@ jobs:
     - name: Run system test
       run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
       env:
+        INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
   system_test-ubuntu-20-04-docker-bind:
     name: System tests (ubuntu-20.04, docker-bind)
@@ -271,6 +274,7 @@ jobs:
     - name: Run system test
       run: ./target/debug/system_test --config 'src/bin/system_test/github/docker-bind.toml'
       env:
+        INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
   system_test-ubuntu-20-04-user:
     name: System tests (ubuntu-20.04, user)
@@ -294,4 +298,5 @@ jobs:
     - name: Run system test
       run: ./target/debug/system_test --config 'src/bin/system_test/github/user.toml'
       env:
+        INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
