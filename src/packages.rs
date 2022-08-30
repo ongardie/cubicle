@@ -21,9 +21,8 @@ use super::{
 
 /// Information about a package's source files.
 pub struct PackageSpec {
-    // TODO: these shouldn't need to be public
-    pub(super) build_depends: PackageNameSet,
-    pub(super) depends: PackageNameSet,
+    build_depends: PackageNameSet,
+    depends: PackageNameSet,
     dir: HostPath,
     origin: String,
     update: Option<String>,
@@ -294,11 +293,7 @@ impl Cubicle {
         Ok(false)
     }
 
-    pub(super) fn update_package(
-        &self,
-        package_name: &PackageName,
-        spec: &PackageSpec,
-    ) -> Result<()> {
+    fn update_package(&self, package_name: &PackageName, spec: &PackageSpec) -> Result<()> {
         self.update_package_(package_name, spec)
             .with_context(|| format!("Failed to update package: {package_name}"))
     }
