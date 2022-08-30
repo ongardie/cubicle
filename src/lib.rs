@@ -24,7 +24,7 @@
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::iter;
@@ -219,13 +219,14 @@ impl Cubicle {
         }
     }
 
+    /// Returns a list of existing environment names.
+    pub fn get_environment_names(&self) -> Result<BTreeSet<EnvironmentName>> {
+        Ok(self.runner.list()?.into_iter().collect())
+    }
+
     /// Corresponds to `cub list`.
     pub fn list_environments(&self, format: ListFormat) -> Result<()> {
-        let names = {
-            let mut names = self.runner.list()?;
-            names.sort_unstable();
-            names
-        };
+        let names = self.get_environment_names()?;
 
         if format == ListFormat::Names {
             // fast path for shell completions
@@ -340,52 +341,56 @@ impl Cubicle {
     pub fn new_environment(
         &self,
         name: &EnvironmentName,
-        packages: Option<PackageNameSet>,
+        packages: Option<&PackageNameSet>,
     ) -> Result<()> {
         use EnvironmentExists::*;
         match self.runner.exists(name)? {
             NoEnvironment => {}
             PartiallyExists => {
                 return Err(anyhow!(
-                    "Environment {name} in broken state (try '{} reset')",
+                    "environment {name} in broken state (try '{} reset')",
                     self.shared.script_name
                 ))
             }
             FullyExists => {
                 return Err(anyhow!(
-                    "Environment {name} already exists (did you mean '{} reset'?)",
+                    "environment {name} already exists (did you mean '{} reset'?)",
                     self.shared.script_name
                 ))
             }
         }
 
-        self.runner.create(name)?;
-
+        let default;
         let packages = match packages {
             Some(p) => p,
-            None => PackageNameSet::from([PackageName::from_str("default").unwrap()]),
+            None => {
+                default = PackageNameSet::from([PackageName::from_str("default").unwrap()]);
+                &default
+            }
         };
         self.update_packages(
-            &packages,
+            packages,
             &self.scan_packages()?,
             UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::IfStale,
                 named: ShouldPackageUpdate::IfStale,
             },
         )?;
-        let packages_txt = write_package_list_tar(&packages)?;
+        let packages_txt = write_package_list_tar(packages)?;
+
+        self.runner.create(name)?;
         self.run(
             name,
             &RunCommand::Init {
-                packages: &packages,
+                packages,
                 extra_seeds: &[&HostPath::try_from(packages_txt.path().to_owned())?],
             },
         )
-        .with_context(|| format!("Failed to initialize new environment {name}"))
+        .with_context(|| format!("failed to initialize new environment {name}"))
     }
 
     /// Corresponds to `cub tmp`.
-    pub fn create_enter_tmp_environment(&self, packages: Option<PackageNameSet>) -> Result<()> {
+    pub fn create_enter_tmp_environment(&self, packages: Option<&PackageNameSet>) -> Result<()> {
         let name = {
             let name = self
                 .shared
@@ -448,7 +453,7 @@ impl Cubicle {
             Some(packages) => (true, packages.clone()),
             None => match self
                 .read_package_list_from_env(name)
-                .with_context(|| format!("Failed to parse packages.txt from {name}"))?
+                .with_context(|| format!("failed to parse packages.txt from {name}"))?
             {
                 None => (
                     true,
@@ -457,8 +462,6 @@ impl Cubicle {
                 Some(packages) => (false, packages),
             },
         };
-
-        self.runner.reset(name)?;
 
         match name.extract_builder_package_name() {
             None => {
@@ -470,6 +473,7 @@ impl Cubicle {
                         named: ShouldPackageUpdate::IfStale,
                     },
                 )?;
+                self.runner.reset(name)?;
             }
             Some(package_name) => {
                 let specs = self.scan_packages()?;
@@ -491,6 +495,7 @@ impl Cubicle {
                         named: ShouldPackageUpdate::IfStale,
                     },
                 )?;
+                self.runner.reset(name)?;
                 self.update_package(&package_name, spec)?;
             }
         }

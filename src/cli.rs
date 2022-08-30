@@ -357,7 +357,7 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
             packages,
         } => {
             let packages = packages.map(package_set_from_names).transpose()?;
-            program.new_environment(&name, packages)?;
+            program.new_environment(&name, packages.as_ref())?;
             if enter {
                 program.enter_environment(&name)?;
             }
@@ -384,7 +384,7 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
         }
         Tmp { packages } => {
             let packages = packages.map(package_set_from_names).transpose()?;
-            program.create_enter_tmp_environment(packages)
+            program.create_enter_tmp_environment(packages.as_ref())
         }
     }
 }

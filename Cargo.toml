@@ -13,6 +13,8 @@ cap-std = "0.25.2"
 clap = { version = "3.2.16", features = ["derive"] }
 clap_complete = "3.2.4"
 indoc = "1.0.7"
+# this is a dev-dependency but needed in `system_test` bin
+insta = "1.18.2"
 lazy_static = "1.4.0"
 rand = "0.8.5"
 regex = "1.6.0"
@@ -27,7 +29,6 @@ tempfile = "3.3.0"
 toml = "0.5.9"
 
 [dev-dependencies]
-insta = "1.18.2"
 
 # See https://docs.rs/insta/latest/insta/#optional-faster-runs
 [profile.dev.package.insta]
