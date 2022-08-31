@@ -48,6 +48,17 @@ impl Error {
         }
         buf
     }
+
+    /// Returns a new error with additional context.
+    ///
+    /// Note: Using [`Context::context`] on a [`Result`] is usually more
+    /// convenient.
+    pub fn context<C>(self, context: C) -> Self
+    where
+        C: Display + Send + Sync + 'static,
+    {
+        Self(self.0.context(context))
+    }
 }
 
 /// See [`anyhow::Error`].
