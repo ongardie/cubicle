@@ -109,29 +109,30 @@ new container right away and not grow attached to them.
 The current package format is pretty simple. A package definition is named
 after its directory. It must contain one or more of these files:
 
-- `update.sh`: An executable that is run in a package builder environment to
-  produce the package files. The script may download software, unpack it,
-  compile it, set up configuration files, etc. It should create an archive at
-  `~/provides.tar` that Cubicle will later unpack in the target environments'
-  home directories. Note that `update.sh` runs when the package builder
-  environment is first created and also when the package builder environment is
-  updated. The package builder environments are kept around as a form of
-  caching.
+- `package.toml`: A required [TOML](https://toml.io/)-formatted file with the
+  following keys:
 
-- `build-depends.txt`: A newline-separated list of package names on which this
-  package depends when it is built. The package builder environment will be
-  seeded with the listed packages, but other environments that depend on this
-  package will not.
+  - `depends`: An object keyed by package names with values of `{}`. Both the
+    package builder environment and the new environments that depend on this
+    package will be seeded with the listed packages.
 
-- `depends.txt`: A newline-separated list of package names on which this
-  package or its output depends. Both the package builder environment and the
-  new environments that depend on this package will be seeded with the listed
-  packages.
+  - `build_depends`: An object keyed by package names with values of `{}`. The
+    package builder environment will be seeded with the listed packages, but
+    other environments that depend on this package will not.
 
-- `test.sh`: An executable that is run in a clean environment to sanity check
-  the package output files. The test environment is seeded with the package's
-  dependencies, the package output files, and the package source directory
-  (except `update.sh`).
+- `update.sh`: An optional executable that is run in a package builder
+  environment to produce the package files. The script may download software,
+  unpack it, compile it, set up configuration files, etc. It should create an
+  archive at `~/provides.tar` that Cubicle will later unpack in the target
+  environments' home directories. Note that `update.sh` runs when the package
+  builder environment is first created and also when the package builder
+  environment is updated. The package builder environments are kept around as a
+  form of caching.
+
+- `test.sh`: An optional executable that is run in a clean environment to
+  sanity check the package output files. The test environment is seeded with
+  the package's dependencies, the package output files, and the package source
+  directory (except `update.sh`).
 
 These files and any other files in the package directory are injected into the
 work directory of the package builder environment.

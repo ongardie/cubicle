@@ -1,0 +1,4 @@
+[depends]
+configs = {}
+firefox = {}
+vscodium = {}

@@ -449,7 +449,7 @@ impl Cubicle {
             return self.runner.reset(name);
         }
 
-        let (mut changed, mut packages) = match packages {
+        let (changed, packages) = match packages {
             Some(packages) => (true, packages.clone()),
             None => match self
                 .read_package_list_from_env(name)
@@ -463,42 +463,15 @@ impl Cubicle {
             },
         };
 
-        match name.extract_builder_package_name() {
-            None => {
-                self.update_packages(
-                    &packages,
-                    &self.scan_packages()?,
-                    UpdatePackagesConditions {
-                        dependencies: ShouldPackageUpdate::IfStale,
-                        named: ShouldPackageUpdate::IfStale,
-                    },
-                )?;
-                self.runner.reset(name)?;
-            }
-            Some(package_name) => {
-                let specs = self.scan_packages()?;
-                let spec = match specs.get(&package_name) {
-                    Some(spec) => spec,
-                    None => {
-                        return Err(anyhow!("Could not find package source for {package_name}"))
-                    }
-                };
-                let start_len = packages.len();
-                packages.extend(spec.build_depends.iter().cloned());
-                packages.extend(spec.depends.iter().cloned());
-                changed = changed || packages.len() != start_len;
-                self.update_packages(
-                    &packages,
-                    &specs,
-                    UpdatePackagesConditions {
-                        dependencies: ShouldPackageUpdate::IfStale,
-                        named: ShouldPackageUpdate::IfStale,
-                    },
-                )?;
-                self.runner.reset(name)?;
-                self.update_package(&package_name, spec)?;
-            }
-        }
+        self.update_packages(
+            &packages,
+            &self.scan_packages()?,
+            UpdatePackagesConditions {
+                dependencies: ShouldPackageUpdate::IfStale,
+                named: ShouldPackageUpdate::IfStale,
+            },
+        )?;
+        self.runner.reset(name)?;
 
         let mut extra_seeds = Vec::new();
         let packages_txt;
@@ -652,12 +625,6 @@ impl EnvironmentName {
     /// Returns the name of the environment used to build the package.
     pub fn for_builder_package(package: &PackageName) -> Self {
         Self::from_str(&format!("package-{package}")).unwrap()
-    }
-
-    fn extract_builder_package_name(&self) -> Option<PackageName> {
-        self.0
-            .strip_prefix("package-")
-            .and_then(|s| PackageName::from_str(s).ok())
     }
 }
 

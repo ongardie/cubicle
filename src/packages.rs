@@ -1,5 +1,5 @@
 use clap::ValueEnum;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, BufRead, Write};
@@ -21,9 +21,8 @@ use super::{
 
 /// Information about a package's source files.
 pub struct PackageSpec {
-    // TODO: these shouldn't need to be public
-    pub(super) build_depends: PackageNameSet,
-    pub(super) depends: PackageNameSet,
+    build_depends: PackageNameSet,
+    depends: PackageNameSet,
     dir: HostPath,
     origin: String,
     update: Option<String>,
@@ -123,8 +122,35 @@ impl Cubicle {
                 continue;
             }
             let dir = dir.join(&name.0);
-            let build_depends = read_package_list(&dir, "build-depends.txt")?.unwrap_or_default();
-            let mut depends = read_package_list(&dir, "depends.txt")?.unwrap_or_default();
+
+            let manifest = match read_manifest(&dir, "package.toml").with_context(|| {
+                format!(
+                    "could not read manifest for package {name}: {:?}",
+                    dir.join("package.toml").as_host_raw()
+                )
+            })? {
+                Some(manifest) => manifest,
+                None => {
+                    println!(
+                        "Warning: no manifest found for package {name}: missing {:?}",
+                        dir.join("package.toml").as_host_raw()
+                    );
+                    continue;
+                }
+            };
+
+            let build_depends = manifest
+                .build_depends
+                .into_keys()
+                .map(|s| PackageName::from_str(&s))
+                .collect::<Result<PackageNameSet>>()
+                .todo_context()?;
+            let mut depends = manifest
+                .depends
+                .into_keys()
+                .map(|s| PackageName::from_str(&s))
+                .collect::<Result<PackageNameSet>>()
+                .todo_context()?;
             depends.insert(PackageName::from_str("auto").unwrap());
 
             let test = try_exists(&dir.join("test.sh"))
@@ -294,11 +320,7 @@ impl Cubicle {
         Ok(false)
     }
 
-    pub(super) fn update_package(
-        &self,
-        package_name: &PackageName,
-        spec: &PackageSpec,
-    ) -> Result<()> {
+    fn update_package(&self, package_name: &PackageName, spec: &PackageSpec) -> Result<()> {
         self.update_package_(package_name, spec)
             .with_context(|| format!("Failed to update package: {package_name}"))
     }
@@ -636,24 +658,37 @@ pub enum ListPackagesFormat {
     Names,
 }
 
-fn read_package_list(dir: &HostPath, path: &str) -> Result<Option<PackageNameSet>> {
-    let dir = cap_std::fs::Dir::open_ambient_dir(dir.as_host_raw(), cap_std::ambient_authority())
-        .todo_context()?;
-    let file = match dir.open(path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e).todo_context(),
+#[derive(Deserialize)]
+struct Manifest {
+    #[serde(default)]
+    depends: BTreeMap<String, Dependency>,
+    #[serde(default)]
+    build_depends: BTreeMap<String, Dependency>,
+}
+
+#[derive(Deserialize)]
+struct Dependency {}
+
+fn read_manifest(dir_path: &HostPath, path: &str) -> LowLevelResult<Option<Manifest>> {
+    let dir =
+        cap_std::fs::Dir::open_ambient_dir(dir_path.as_host_raw(), cap_std::ambient_authority())
+            .with_context(|| format!("failed to open directory {:?}", dir_path.as_host_raw()))?;
+    let buf = match dir.read(path) {
+        Ok(buf) => buf,
+        Err(e) => {
+            return if e.kind() == io::ErrorKind::NotFound {
+                Ok(None)
+            } else {
+                Err(e)
+                    .with_context(|| {
+                        format!("failed to read {:?}", dir_path.join(path).as_host_raw())
+                    })
+                    .map_err(|e| e.into())
+            }
+        }
     };
-    let reader = io::BufReader::new(file);
-    let names = reader
-        .lines()
-        .map(|name| match name {
-            Ok(name) => PackageName::from_str(&name),
-            Err(e) => Err(e).todo_context(),
-        })
-        .collect::<Result<PackageNameSet>>()
-        .todo_context()?;
-    Ok(Some(names))
+    let manifest = toml::from_slice(&buf).enough_context()?;
+    Ok(Some(manifest))
 }
 
 pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::NamedTempFile> {
