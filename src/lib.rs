@@ -36,7 +36,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod somehow;
 pub use somehow::Result;
-use somehow::{somehow as anyhow, Context, Error};
+use somehow::{somehow as anyhow, warn, Context, Error};
 
 mod newtype;
 use newtype::HostPath;
@@ -254,7 +254,7 @@ impl Cubicle {
             let summary = match self.runner.files_summary(name) {
                 Ok(summary) => summary,
                 Err(e) => {
-                    println!("Warning: Failed to summarize disk usage for {name}: {e}");
+                    warn(e.context(format!("failed to summarize disk usage for {name}")));
                     EnvFilesSummary {
                         home_dir_path: None,
                         home_dir: DirSummary::new_with_errors(),
@@ -418,7 +418,9 @@ impl Cubicle {
     /// Corresponds to `cub purge`.
     pub fn purge_environment(&self, name: &EnvironmentName, quiet: Quiet) -> Result<()> {
         if !quiet.0 && self.runner.exists(name)? == EnvironmentExists::NoEnvironment {
-            println!("Warning: environment {name} does not exist (nothing to purge)");
+            warn(anyhow!(
+                "environment {name} does not exist (nothing to purge)"
+            ));
         }
         // Call purge regardless in case it disagrees with `exists` and finds
         // something useful to do.

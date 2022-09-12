@@ -16,7 +16,7 @@ use super::newtype::EnvPath;
 use super::os_util::{get_timezone, get_uids, Uids};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
+use crate::somehow::{somehow as anyhow, warn, Context, LowLevelResult, Result};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
@@ -466,7 +466,7 @@ impl Docker {
                 })
             }
             None => Err(
-                anyhow!("Unexpected output from `docker run ... -- du ...`: {stdout:?}",).into(),
+                anyhow!("unexpected output from `docker run ... -- du ...`: {stdout:?}").into(),
             ),
         }
     }
@@ -943,12 +943,12 @@ fn fallback_path(container_home: &EnvPath) -> OsString {
         Path::new("/usr/bin"),
         Path::new("/usr/sbin"),
     ];
-    let joined = match std::env::join_paths(&paths) {
+    let joined = match std::env::join_paths(&paths)
+        .with_context(|| format!("unable to add container home dir ({container_home:?}) to $PATH"))
+    {
         Ok(joined) => joined,
         Err(e) => {
-            println!(
-                "Warning: unable to add container home dir ({container_home:?}) to $PATH: {e}"
-            );
+            warn(e);
             std::env::join_paths(&paths[1..]).unwrap()
         }
     };

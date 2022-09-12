@@ -1,9 +1,10 @@
 use lazy_static::lazy_static;
 use std::ffi::OsStr;
+use std::fmt::Write;
 use std::path::Path;
 
 use super::HostPath;
-use crate::somehow::{somehow as anyhow, Context, Error};
+use crate::somehow::{somehow as anyhow, warn, Context, Error};
 
 fn get_home_dir() -> HostPath {
     let result = match std::env::var_os("HOME") {
@@ -81,10 +82,11 @@ fn try_get_timezone() -> Option<String> {
         Err(e) => errors.push(e),
     }
 
-    println!("Warning: Falling back to UTC");
+    let mut buf = String::new();
     for e in errors {
-        println!("{:#}", e);
+        let _ = write!(&mut buf, "{:#}", e);
     }
+    warn(anyhow!("falling back to UTC: {buf}"));
 
     None
 }

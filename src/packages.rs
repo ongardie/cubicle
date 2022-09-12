@@ -9,7 +9,7 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use tempfile::NamedTempFile;
 
-use crate::somehow::{somehow as anyhow, Context, Error, LowLevelResult, Result};
+use crate::somehow::{somehow as anyhow, warn, Context, Error, LowLevelResult, Result};
 
 use super::fs_util::{
     create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, DirSummary, TarOptions,
@@ -131,10 +131,10 @@ impl Cubicle {
             })? {
                 Some(manifest) => manifest,
                 None => {
-                    println!(
-                        "Warning: no manifest found for package {name}: missing {:?}",
+                    warn(anyhow!(
+                        "no manifest found for package {name}: missing {:?}",
                         dir.join("package.toml").as_host_raw()
-                    );
+                    ));
                     continue;
                 }
             };

@@ -2,7 +2,7 @@ use rand::seq::SliceRandom;
 use std::io::{self, BufRead};
 
 use super::HostPath;
-use crate::somehow::{somehow as anyhow, Context, Result};
+use crate::somehow::{somehow as anyhow, warn, Context, Result};
 
 pub struct RandomNameGenerator {
     cache_dir: HostPath,
@@ -29,9 +29,7 @@ impl RandomNameGenerator {
         };
         match eff().context("failed to extract word from EFF list") {
             Ok(word) => return Ok(word),
-            Err(e) => {
-                println!("Warning: {e:?}");
-            }
+            Err(e) => warn(e),
         }
 
         // 2. /usr/share/dict/words
@@ -41,9 +39,7 @@ impl RandomNameGenerator {
         };
         match dict().context("failed to extract word from `/usr/share/dict/words`") {
             Ok(word) => return Ok(word),
-            Err(e) => {
-                println!("Warning: {e:?}");
-            }
+            Err(e) => warn(e),
         }
 
         // 3. Random 6 letters

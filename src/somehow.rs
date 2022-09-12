@@ -271,6 +271,10 @@ impl From<Error> for Box<dyn std::error::Error + Send + Sync + 'static> {
     }
 }
 
+pub(crate) fn warn(error: Error) {
+    println!("WARNING: {error:?}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Context, Error, Result};
