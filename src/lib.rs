@@ -106,10 +106,6 @@ struct CubicleShared {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Quiet(pub bool);
 
-/// Named boolean flag for [`Cubicle::reset_environment`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Clean(pub bool);
-
 impl Cubicle {
     /// Creates a new instance.
     ///
@@ -438,17 +434,12 @@ impl Cubicle {
         &self,
         name: &EnvironmentName,
         packages: Option<&PackageNameSet>,
-        clean: Clean,
     ) -> Result<()> {
         if self.runner.exists(name)? == EnvironmentExists::NoEnvironment {
             return Err(anyhow!(
                 "Environment {name} does not exist (did you mean '{} new'?)",
                 self.shared.script_name,
             ));
-        }
-
-        if clean.0 {
-            return self.runner.reset(name);
         }
 
         let (changed, packages) = match packages {

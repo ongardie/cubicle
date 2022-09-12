@@ -15,8 +15,8 @@ use std::str::FromStr;
 use cubicle::hidden::host_home_dir;
 use cubicle::somehow::{Context, Error, Result};
 use cubicle::{
-    Clean, Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet,
-    Quiet, ShouldPackageUpdate, UpdatePackagesConditions,
+    Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet, Quiet,
+    ShouldPackageUpdate, UpdatePackagesConditions,
 };
 
 /// Manage sandboxed development environments.
@@ -113,12 +113,9 @@ enum Commands {
         names: Vec<EnvironmentName>,
     },
 
-    /// Recreate an environment (keeping its work directory).
+    /// Recreate an environment (keeping only its work directory).
     #[clap(arg_required_else_help(true))]
     Reset {
-        /// Remove home directory and do not recreate it.
-        #[clap(long)]
-        clean: bool,
         /// Comma-separated names of packages to inject into home directory.
         #[clap(long, use_value_delimiter(true))]
         packages: Option<Vec<String>>,
@@ -371,14 +368,10 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
             Ok(())
         }
         // TODO: rename
-        Reset {
-            names,
-            clean,
-            packages,
-        } => {
+        Reset { names, packages } => {
             let packages = packages.map(package_set_from_names).transpose()?;
             for name in &names {
-                program.reset_environment(name, packages.as_ref(), Clean(clean))?;
+                program.reset_environment(name, packages.as_ref())?;
             }
             Ok(())
         }

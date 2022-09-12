@@ -125,7 +125,6 @@ _arguments "${_arguments_options[@]}" \
 (reset)
 _arguments "${_arguments_options[@]}" \
 '*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \
-'--clean[Remove home directory and do not recreate it]' \
 '-h[Print help information. Use --help for more details]' \
 '--help[Print help information. Use --help for more details]' \
 '*::names -- Environment name(s):_cub_envs' \
@@ -160,7 +159,7 @@ _cub_commands() {
 'package:View and manage packages' \
 'new:Create a new environment' \
 'purge:Delete environment(s) and their work directories' \
-'reset:Recreate an environment (keeping its work directory)' \
+'reset:Recreate an environment (keeping only its work directory)' \
 'tmp:Create and enter a new temporary environment' \
 'help:Print this message or the help of the given subcommand(s)' \
     )

@@ -21,6 +21,6 @@ SUBCOMMANDS:
     new            Create a new environment
     package        View and manage packages
     purge          Delete environment(s) and their work directories
-    reset          Recreate an environment (keeping its work directory)
+    reset          Recreate an environment (keeping only its work directory)
     tmp            Create and enter a new temporary environment
 
