@@ -32,8 +32,9 @@ else
     ./configure --prefix ~/opt/python/$version
     make -j
     make install
-    ln -fs $version ~/opt/python/latest
+    ln -fns $version ~/opt/python/latest
     ln -fs python3 ~/opt/python/latest/bin/python
+    ln -fs pip3 ~/opt/python/latest/bin/pip
 fi
 
 mkdir -p ~/opt/python/latest/sbin
