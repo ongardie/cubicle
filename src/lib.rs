@@ -48,7 +48,7 @@ mod randname;
 use randname::RandomNameGenerator;
 
 mod runner;
-use runner::{CheckedRunner, EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
+use runner::{CheckedRunner, EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
 
 mod bytes;
 use bytes::Bytes;
@@ -198,7 +198,7 @@ impl Cubicle {
                 "Environment {name} in broken state (try '{} reset')",
                 self.shared.script_name
             )),
-            FullyExists => self.run(name, &RunCommand::Interactive),
+            FullyExists => self.runner.run(name, &RunnerCommand::Interactive),
         }
     }
 
@@ -211,7 +211,7 @@ impl Cubicle {
                 "Environment {name} in broken state (try '{} reset')",
                 self.shared.script_name
             )),
-            FullyExists => self.run(name, &RunCommand::Exec(command)),
+            FullyExists => self.runner.run(name, &RunnerCommand::Exec(command)),
         }
     }
 
@@ -374,15 +374,18 @@ impl Cubicle {
         )?;
         let packages_txt = write_package_list_tar(packages)?;
 
-        self.runner.create(name)?;
-        self.run(
-            name,
-            &RunCommand::Init {
-                packages,
-                extra_seeds: &[&HostPath::try_from(packages_txt.path().to_owned())?],
-            },
-        )
-        .with_context(|| format!("failed to initialize new environment {name}"))
+        let mut seeds = self.packages_to_seeds(packages)?;
+        seeds.push(HostPath::try_from(packages_txt.path().to_owned())?);
+
+        self.runner
+            .create(
+                name,
+                &Init {
+                    seeds,
+                    script: self.shared.script_path.join("dev-init.sh"),
+                },
+            )
+            .with_context(|| format!("failed to initialize new environment {name}"))
     }
 
     /// Corresponds to `cub tmp`.
@@ -408,7 +411,7 @@ impl Cubicle {
             EnvironmentName::from_str(&format!("tmp-{name}")).unwrap()
         };
         self.new_environment(&name, packages)?;
-        self.run(&name, &RunCommand::Interactive)
+        self.runner.run(&name, &RunnerCommand::Interactive)
     }
 
     /// Corresponds to `cub purge`.
@@ -421,11 +424,6 @@ impl Cubicle {
         // Call purge regardless in case it disagrees with `exists` and finds
         // something useful to do.
         self.runner.purge(name)?;
-        assert_eq!(
-            self.runner.exists(name)?,
-            EnvironmentExists::NoEnvironment,
-            "Environment should not exist after purge"
-        );
         Ok(())
     }
 
@@ -464,56 +462,22 @@ impl Cubicle {
                 named: ShouldPackageUpdate::IfStale,
             },
         )?;
-        self.runner.reset(name)?;
+        let mut seeds = self.packages_to_seeds(&packages)?;
 
-        let mut extra_seeds = Vec::new();
-        let packages_txt;
-        let packages_txt_path;
+        let packages_txt: tempfile::NamedTempFile;
         if changed {
             packages_txt = write_package_list_tar(&packages)?;
-            packages_txt_path = HostPath::try_from(packages_txt.path().to_owned())?;
-            extra_seeds.push(&packages_txt_path);
+            seeds.push(HostPath::try_from(packages_txt.path().to_owned())?);
         }
 
-        self.run(
+        self.runner.reset(
             name,
-            &RunCommand::Init {
-                packages: &packages,
-                extra_seeds: &extra_seeds,
+            &Init {
+                seeds,
+                script: self.shared.script_path.join("dev-init.sh"),
             },
         )
     }
-
-    fn run(&self, name: &EnvironmentName, command: &RunCommand) -> Result<()> {
-        let runner_command = match command {
-            RunCommand::Interactive => RunnerCommand::Interactive,
-            RunCommand::Init {
-                packages,
-                extra_seeds,
-            } => {
-                let mut seeds = self.packages_to_seeds(packages)?;
-                for seed in extra_seeds.iter() {
-                    seeds.push((**seed).clone());
-                }
-                RunnerCommand::Init {
-                    seeds,
-                    script: self.shared.script_path.join("dev-init.sh"),
-                }
-            }
-            RunCommand::Exec(cmd) => RunnerCommand::Exec(cmd),
-        };
-
-        self.runner.run(name, &runner_command)
-    }
-}
-
-enum RunCommand<'a> {
-    Interactive,
-    Init {
-        packages: &'a PackageNameSet,
-        extra_seeds: &'a [&'a HostPath],
-    },
-    Exec(&'a [String]),
 }
 
 #[derive(Debug)]

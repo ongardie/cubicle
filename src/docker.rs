@@ -14,7 +14,7 @@ use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
 use super::os_util::{get_timezone, get_uids, Uids};
-use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
+use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, warn, Context, LowLevelResult, Result};
 
@@ -348,6 +348,35 @@ impl Docker {
         }
     }
 
+    fn init(&self, env_name: &EnvironmentName, Init { script, seeds }: &Init) -> Result<()> {
+        let container_name = self.container_from_environment(env_name);
+        self.build_base()?;
+        self.spawn(env_name)?;
+
+        let script_path = "/.cubicle-init";
+
+        let copy_init = || {
+            let status = Command::new("docker")
+                .arg("cp")
+                .arg(script.as_host_raw())
+                .arg(format!("{}:{}", container_name, script_path))
+                .status()?;
+            if !status.success() {
+                return Err(anyhow!("`docker cp` exited with {status}"));
+            }
+            Ok(())
+        };
+        copy_init().with_context(|| {
+            format!("failed to copy init script into Docker container {container_name:?}")
+        })?;
+
+        self.copy_seeds(&container_name, seeds).with_context(|| {
+            format!("failed to copy package seeds into Docker container {container_name:?}")
+        })?;
+
+        self.run(env_name, &RunnerCommand::Exec(&[script_path.to_owned()]))
+    }
+
     fn list_volumes(&self) -> Result<Vec<VolumeName>> {
         self.list_volumes_()
             .context("failed to list Docker volumes")
@@ -465,9 +494,9 @@ impl Docker {
                     last_modified: mtime,
                 })
             }
-            None => Err(
-                anyhow!("unexpected output from `docker run ... -- du ...`: {stdout:?}").into(),
-            ),
+            None => {
+                Err(anyhow!("unexpected output from `docker run ... -- du ...`: {stdout:?}").into())
+            }
         }
     }
 
@@ -508,47 +537,33 @@ impl Docker {
         Ok(())
     }
 
-    fn docker_cp_out_from_root(
+    fn copy_out_from_volume(
         &self,
-        env_name: &EnvironmentName,
-        abs_path: &EnvPath,
+        volume: VolumeName,
+        path: &Path,
         w: &mut dyn io::Write,
     ) -> LowLevelResult<()> {
-        let container_name = self.container_from_environment(env_name);
-        if !self.is_container(&container_name)? {
-            self.build_base()?;
-            self.spawn(env_name)?;
-        }
-
-        let abs_path_str = abs_path
-            .as_env_raw()
-            .to_str()
-            .ok_or_else(|| anyhow!("path not valid UTF-8: {abs_path:?}"))?;
+        // Note: This used to use `docker cp`. That's a bit annoying because (1) it
+        // requires a container to exist, and (2) Docker creates a tarfile when
+        // using stdout.
         let mut child = Command::new("docker")
-            .arg("cp")
-            .arg(format!("{container_name}:{abs_path_str}"))
-            .arg("-")
+            .arg("run")
+            .arg("--mount")
+            .arg(format!(r#""type=volume","source={volume}","target=/v""#))
+            .arg("--rm")
+            .args(["--workdir", "/v"])
+            .arg("debian:11")
+            .arg("cat")
+            .arg(path)
             .stdout(Stdio::piped())
             .scoped_spawn()?;
 
-        let stdout = child.stdout().take().unwrap();
-
-        // Unfortunately, we get a tar file here, since we specified "-".
-        let mut archive = tar::Archive::new(stdout);
-        let mut entries = archive.entries().todo_context()?;
-        let mut entry = entries
-            .next()
-            .transpose()
-            .todo_context()?
-            .ok_or_else(|| anyhow!("tar file had no entries, expected 1"))?;
-        io::copy(&mut entry, w).context("error reading/writing data")?;
-        if entries.next().is_some() {
-            return Err(anyhow!("tar file had multiple entries, expected 1").into());
-        }
+        let mut stdout = child.stdout().take().unwrap();
+        io::copy(&mut stdout, w).context("error reading/writing data")?;
 
         let status = child.wait()?;
         if !status.success() {
-            return Err(anyhow!("`docker cp` exited with {status}").into());
+            return Err(anyhow!("`docker run ... cat` exited with {status}").into());
         }
         Ok(())
     }
@@ -633,13 +648,11 @@ impl Runner for Docker {
                 Ok(())
             }
 
-            Volumes => {
-                let abs_path = self.container_home.join(path);
-                self.docker_cp_out_from_root(env_name, &abs_path, w)
-                    .with_context(|| {
-                        format!("failed to `docker cp` {path:?} from {env_name:?} home directory")
-                    })
-            }
+            Volumes => self
+                .copy_out_from_volume(self.home_volume(env_name), path, w)
+                .with_context(|| {
+                    format!("failed to copy {path:?} from {env_name:?} home directory")
+                }),
         }
     }
 
@@ -660,17 +673,15 @@ impl Runner for Docker {
                 io::copy(&mut file, w).todo_context()?;
                 Ok(())
             }
-            Volumes => {
-                let abs_path = self.container_home.join("w").join(path);
-                self.docker_cp_out_from_root(env_name, &abs_path, w)
-                    .with_context(|| {
-                        format!("failed to `docker cp` {path:?} from {env_name:?} work directory")
-                    })
-            }
+            Volumes => self
+                .copy_out_from_volume(self.work_volume(env_name), path, w)
+                .with_context(|| {
+                    format!("failed to copy {path:?} from {env_name:?} work directory")
+                }),
         }
     }
 
-    fn create(&self, env_name: &EnvironmentName) -> Result<()> {
+    fn create(&self, env_name: &EnvironmentName, init: &Init) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
         if self.is_container(&container_name)? {
             return Err(anyhow!("Docker container {container_name} already exists"));
@@ -684,13 +695,14 @@ impl Runner for Docker {
                 let host_work = work_dirs.join(env_name);
                 std::fs::create_dir_all(&host_home.as_host_raw()).todo_context()?;
                 std::fs::create_dir_all(&host_work.as_host_raw()).todo_context()?;
-                Ok(())
             }
             Volumes => {
                 self.ensure_volume_exists(&self.home_volume(env_name))?;
-                self.ensure_volume_exists(&self.work_volume(env_name))
+                self.ensure_volume_exists(&self.work_volume(env_name))?;
             }
         }
+
+        self.init(env_name, init)
     }
 
     fn exists(&self, env_name: &EnvironmentName) -> Result<EnvironmentExists> {
@@ -822,7 +834,7 @@ impl Runner for Docker {
         }
     }
 
-    fn reset(&self, name: &EnvironmentName) -> Result<()> {
+    fn reset(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
         self.stop(name)?;
         match &self.mounts {
             BindMounts { home_dirs, .. } => {
@@ -836,7 +848,7 @@ impl Runner for Docker {
                 self.ensure_volume_exists(&home_volume)?;
             }
         }
-        Ok(())
+        self.init(name, init)
     }
 
     fn purge(&self, name: &EnvironmentName) -> Result<()> {
@@ -858,37 +870,7 @@ impl Runner for Docker {
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
-        if !self.is_container(&container_name)? {
-            self.build_base()?;
-            self.spawn(env_name)?;
-        }
-
-        let script_path = EnvPath::try_from(String::from("/.cubicle-init")).unwrap();
-
-        if let RunnerCommand::Init { script, seeds } = run_command {
-            let copy_init = || {
-                let status = Command::new("docker")
-                    .arg("cp")
-                    .arg(script.as_host_raw())
-                    .arg(format!(
-                        "{}:{}",
-                        container_name,
-                        script_path.as_env_raw().to_str().unwrap()
-                    ))
-                    .status()?;
-                if !status.success() {
-                    return Err(anyhow!("`docker cp` exited with {status}"));
-                }
-                Ok(())
-            };
-            copy_init().with_context(|| {
-                format!("failed to copy init script into Docker container {container_name:?}")
-            })?;
-
-            self.copy_seeds(&container_name, seeds).with_context(|| {
-                format!("failed to copy package seeds into Docker container {container_name:?}")
-            })?;
-        }
+        assert!(self.is_container(&container_name)?);
 
         let mut command = Command::new("docker");
         command.arg("exec");
@@ -914,9 +896,6 @@ impl Runner for Docker {
         command.args([&self.program.shell, "-l"]);
         match run_command {
             RunnerCommand::Interactive => {}
-            RunnerCommand::Init { .. } => {
-                command.arg("-c").arg(script_path.as_env_raw());
-            }
             RunnerCommand::Exec(exec) => {
                 command.arg("-c");
                 command.arg(shlex::join(exec.iter().map(|a| a.as_str())));

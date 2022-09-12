@@ -8,7 +8,7 @@ use std::str::FromStr;
 use super::command_ext::{Command, ScopedChild};
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
-use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
+use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, Context, Result};
 
@@ -16,6 +16,12 @@ pub struct Bubblewrap {
     pub(super) program: Rc<CubicleShared>,
     home_dirs: HostPath,
     work_dirs: HostPath,
+}
+
+struct BwrapArgs<'a> {
+    seed: Option<ChildStdout>,
+    bind: &'a [(&'a HostPath, &'a EnvPath)],
+    run: &'a RunnerCommand<'a>,
 }
 
 impl Bubblewrap {
@@ -45,6 +51,149 @@ impl Bubblewrap {
             .bubblewrap
             .as_ref()
             .expect("Bubblewrap config needed")
+    }
+
+    fn init(&self, name: &EnvironmentName, Init { seeds, script }: &Init) -> Result<()> {
+        let mut child: ScopedChild; // this is here so its destructor will reap it later
+        let seed = if seeds.is_empty() {
+            None
+        } else {
+            println!("Packing seed tarball");
+            child = Command::new("pv")
+                .args(["-i", "0.1"])
+                .args(seeds.iter().map(|s| s.as_host_raw()))
+                .stdout(Stdio::piped())
+                .scoped_spawn()?;
+            Some(child.stdout().take().unwrap())
+        };
+
+        let init_script_str = "/cubicle-init.sh";
+        let init_script = EnvPath::try_from(init_script_str.to_owned()).unwrap();
+
+        self.bwrap(
+            name,
+            &BwrapArgs {
+                seed,
+                bind: &[(script, &init_script)],
+                run: &RunnerCommand::Exec(&[init_script_str.to_owned()]),
+            },
+        )
+    }
+
+    fn bwrap(
+        &self,
+        name: &EnvironmentName,
+        BwrapArgs { seed, bind, run }: &BwrapArgs,
+    ) -> Result<()> {
+        let host_home = self.home_dirs.join(name);
+        let host_work = self.work_dirs.join(name);
+
+        let seccomp: Option<std::fs::File> = {
+            use super::config::PathOrDisabled::*;
+            match &self.config().seccomp {
+                Path(path) => Some(
+                    std::fs::File::open(path)
+                        .with_context(|| format!("failed to open seccomp filter: {path:?}"))?,
+                ),
+                DangerouslyDisabled => None,
+            }
+        };
+
+        let mut command = Command::new("bwrap");
+
+        let env_home = EnvPath::try_from(self.program.home.as_host_raw().to_owned())?;
+
+        command.env_clear();
+        command.env(
+            "PATH",
+            match self.program.home.as_host_raw().to_str() {
+                Some(home) => format!("{home}/bin:/bin:/usr/bin:/sbin:/usr/sbin"),
+                None => String::from("/bin:/usr/bin:/sbin:/usr/sbin"),
+            },
+        );
+        command.env("HOME", env_home.as_env_raw());
+        command.env("SANDBOX", name);
+        command.env("TMPDIR", env_home.join("tmp").as_env_raw());
+        for key in ["DISPLAY", "SHELL", "TERM", "USER"] {
+            if let Ok(value) = std::env::var(key) {
+                command.env(key, value);
+            }
+        }
+
+        command.arg("--die-with-parent");
+        command.arg("--unshare-cgroup");
+        command.arg("--unshare-ipc");
+        command.arg("--unshare-pid");
+        command.arg("--unshare-uts");
+
+        command.arg("--hostname");
+        match &self.program.hostname {
+            Some(hostname) => command.arg(format!("{name}.{hostname}")),
+            None => command.arg(name),
+        };
+
+        command.args(["--symlink", "/usr/bin", "/bin"]);
+        command.args(["--dev", "/dev"]);
+
+        for (host_path, env_path) in bind.iter() {
+            command
+                .arg("--ro-bind-try")
+                .arg(host_path.as_host_raw())
+                .arg(env_path.as_env_raw());
+        }
+
+        if let Some(file) = seed {
+            command
+                .arg("--file")
+                .arg(get_fd_for_child(file).context(
+                    "failed to set up file descriptor to be inherited by bwrap for seed tarballs",
+                )?)
+                .arg("/dev/shm/seed.tar");
+        }
+        command.args(ro_bind_try("/etc"));
+        command
+            .arg("--bind")
+            .arg(host_home.as_host_raw())
+            .arg(env_home.as_env_raw());
+        command
+            .arg("--bind")
+            .arg(host_work.as_host_raw())
+            .arg(env_home.join("w").as_env_raw());
+        command.args(["--symlink", "/usr/lib", "/lib"]);
+        command.args(["--symlink", "/usr/lib64", "/lib64"]);
+        command.args(ro_bind_try("/opt"));
+        command.args(["--proc", "/proc"]);
+        command.args(["--symlink", "/usr/sbin", "/sbin"]);
+        command.args(["--tmpfs", "/tmp"]);
+        command.args(ro_bind_try("/usr"));
+        command.args(ro_bind_try("/var/lib/apt/lists"));
+        command.args(ro_bind_try("/var/lib/dpkg"));
+        if let Some(seccomp) = &seccomp {
+            command
+                .arg("--seccomp")
+                .arg(get_fd_for_child(seccomp).context(
+                    "failed to set up seccomp file descriptor to be inherited by bwrap",
+                )?);
+        }
+        command.arg("--chdir").arg(env_home.join("w").as_env_raw());
+        command.arg("--");
+        command.arg(&self.program.shell);
+        command.arg("-l");
+
+        match run {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec(exec) => {
+                command.arg("-c");
+                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
+            }
+        }
+
+        let status = command.status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ExitStatusError::new(status, "bwrap").into())
+        }
     }
 }
 
@@ -96,12 +245,12 @@ impl Runner for Bubblewrap {
         Ok(())
     }
 
-    fn create(&self, name: &EnvironmentName) -> Result<()> {
+    fn create(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
         std::fs::create_dir_all(&host_home.as_host_raw()).todo_context()?;
         std::fs::create_dir_all(&host_work.as_host_raw()).todo_context()?;
-        Ok(())
+        self.init(name, init)
     }
 
     fn exists(&self, name: &EnvironmentName) -> Result<EnvironmentExists> {
@@ -170,13 +319,13 @@ impl Runner for Bubblewrap {
         })
     }
 
-    fn reset(&self, name: &EnvironmentName) -> Result<()> {
+    fn reset(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
         rmtree(&host_home)?;
         std::fs::create_dir_all(host_home.as_host_raw()).todo_context()?;
         std::fs::create_dir_all(host_work.as_host_raw()).todo_context()?;
-        Ok(())
+        self.init(name, init)
     }
 
     fn purge(&self, name: &EnvironmentName) -> Result<()> {
@@ -184,140 +333,14 @@ impl Runner for Bubblewrap {
         rmtree(&self.work_dirs.join(name))
     }
 
-    fn run(&self, name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
-        let host_home = self.home_dirs.join(name);
-        let host_work = self.work_dirs.join(name);
-
-        struct Seed {
-            _child: ScopedChild, // this is here so its destructor will reap it later
-            stdout: ChildStdout,
-        }
-        let seed = match run_command {
-            RunnerCommand::Init { seeds, .. } if !seeds.is_empty() => {
-                println!("Packing seed tarball");
-                let mut child = Command::new("pv")
-                    .args(["-i", "0.1"])
-                    .args(seeds.iter().map(|s| s.as_host_raw()))
-                    .stdout(Stdio::piped())
-                    .scoped_spawn()?;
-                let stdout = child.stdout().take().unwrap();
-                Some(Seed {
-                    _child: child,
-                    stdout,
-                })
-            }
-            _ => None,
-        };
-
-        let seccomp: Option<std::fs::File> = {
-            use super::config::PathOrDisabled::*;
-            match &self.config().seccomp {
-                Path(path) => Some(
-                    std::fs::File::open(path)
-                        .with_context(|| format!("failed to open seccomp filter: {path:?}"))?,
-                ),
-                DangerouslyDisabled => None,
-            }
-        };
-
-        let mut command = Command::new("bwrap");
-
-        let env_home = EnvPath::try_from(self.program.home.as_host_raw().to_owned())?;
-        let init_script = EnvPath::try_from(String::from("/cubicle-init.sh"))?;
-
-        command.env_clear();
-        command.env(
-            "PATH",
-            match self.program.home.as_host_raw().to_str() {
-                Some(home) => format!("{home}/bin:/bin:/usr/bin:/sbin:/usr/sbin"),
-                None => String::from("/bin:/usr/bin:/sbin:/usr/sbin"),
+    fn run(&self, name: &EnvironmentName, run: &RunnerCommand) -> Result<()> {
+        self.bwrap(
+            name,
+            &BwrapArgs {
+                seed: None,
+                bind: &[],
+                run,
             },
-        );
-        command.env("HOME", env_home.as_env_raw());
-        command.env("SANDBOX", name);
-        command.env("TMPDIR", env_home.join("tmp").as_env_raw());
-        for key in ["DISPLAY", "SHELL", "TERM", "USER"] {
-            if let Ok(value) = std::env::var(key) {
-                command.env(key, value);
-            }
-        }
-
-        command.arg("--die-with-parent");
-        command.arg("--unshare-cgroup");
-        command.arg("--unshare-ipc");
-        command.arg("--unshare-pid");
-        command.arg("--unshare-uts");
-
-        command.arg("--hostname");
-        match &self.program.hostname {
-            Some(hostname) => command.arg(format!("{name}.{hostname}")),
-            None => command.arg(name),
-        };
-
-        command.args(["--symlink", "/usr/bin", "/bin"]);
-        command.args(["--dev", "/dev"]);
-
-        if let RunnerCommand::Init { script, .. } = run_command {
-            command
-                .arg("--ro-bind-try")
-                .arg(script.as_host_raw())
-                .arg(init_script.as_env_raw());
-        }
-
-        if let Some(Seed { stdout, .. }) = &seed {
-            command
-                .arg("--file")
-                .arg(get_fd_for_child(stdout).context(
-                    "failed to set up file descriptor to be inherited by bwrap for seed tarballs",
-                )?)
-                .arg("/dev/shm/seed.tar");
-        }
-        command.args(ro_bind_try("/etc"));
-        command
-            .arg("--bind")
-            .arg(host_home.as_host_raw())
-            .arg(env_home.as_env_raw());
-        command
-            .arg("--bind")
-            .arg(host_work.as_host_raw())
-            .arg(env_home.join("w").as_env_raw());
-        command.args(["--symlink", "/usr/lib", "/lib"]);
-        command.args(["--symlink", "/usr/lib64", "/lib64"]);
-        command.args(ro_bind_try("/opt"));
-        command.args(["--proc", "/proc"]);
-        command.args(["--symlink", "/usr/sbin", "/sbin"]);
-        command.args(["--tmpfs", "/tmp"]);
-        command.args(ro_bind_try("/usr"));
-        command.args(ro_bind_try("/var/lib/apt/lists"));
-        command.args(ro_bind_try("/var/lib/dpkg"));
-        if let Some(seccomp) = &seccomp {
-            command
-                .arg("--seccomp")
-                .arg(get_fd_for_child(seccomp).context(
-                    "failed to set up seccomp file descriptor to be inherited by bwrap",
-                )?);
-        }
-        command.arg("--chdir").arg(env_home.join("w").as_env_raw());
-        command.arg("--");
-        command.arg(&self.program.shell);
-        command.arg("-l");
-
-        match run_command {
-            RunnerCommand::Interactive => {}
-            RunnerCommand::Init { .. } => {
-                command.arg("-c").arg(init_script.as_env_raw());
-            }
-            RunnerCommand::Exec(exec) => {
-                command.arg("-c");
-                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
-            }
-        }
-
-        let status = command.status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(ExitStatusError::new(status, "bwrap").into())
-        }
+        )
     }
 }

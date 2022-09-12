@@ -14,9 +14,9 @@ use crate::somehow::{somehow as anyhow, warn, Context, Error, LowLevelResult, Re
 use super::fs_util::{
     create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, DirSummary, TarOptions,
 };
+use super::runner::{EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{
-    rel_time, time_serialize, time_serialize_opt, Bytes, Cubicle, EnvironmentExists,
-    EnvironmentName, HostPath, Quiet, RunCommand, Runner,
+    rel_time, time_serialize, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostPath,
 };
 
 /// Information about a package's source files.
@@ -322,7 +322,28 @@ impl Cubicle {
 
     fn update_package(&self, package_name: &PackageName, spec: &PackageSpec) -> Result<()> {
         self.update_package_(package_name, spec)
-            .with_context(|| format!("Failed to update package: {package_name}"))
+            .with_context(|| format!("failed to update package: {package_name}"))
+            .or_else(|e| {
+                let cached = self
+                    .shared
+                    .package_cache
+                    .join(format!("{package_name}.tar"));
+                let use_stale = match try_exists(&cached)
+                    .with_context(|| format!("error while checking if {cached:?} exists"))
+                {
+                    Ok(exists) => exists,
+                    Err(e2) => {
+                        warn(e2);
+                        false
+                    }
+                };
+                if use_stale {
+                    warn(e.context(format!("using stale version of {package_name}")));
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            })
     }
 
     fn update_package_(
@@ -332,7 +353,105 @@ impl Cubicle {
     ) -> LowLevelResult<()> {
         println!("Updating {package_name} package");
         let env_name = EnvironmentName::for_builder_package(package_name);
+        self.build_package(package_name, &env_name, spec)
+            .with_context(|| format!("error building package {package_name}"))?;
+
         let package_cache = &self.shared.package_cache;
+        std::fs::create_dir_all(&package_cache.as_host_raw())
+            .with_context(|| format!("failed to create directory {package_cache:?}"))?;
+        let package_cache_dir = cap_std::fs::Dir::open_ambient_dir(
+            &package_cache.as_host_raw(),
+            cap_std::ambient_authority(),
+        )
+        .with_context(|| format!("failed to open directory {package_cache:?}"))?;
+
+        let testing_tar_name = format!("{package_name}.testing.tar");
+        let testing_tar_abs = package_cache.join(&testing_tar_name);
+        {
+            let mut file = package_cache_dir
+                .open_with(
+                    &testing_tar_name,
+                    cap_std::fs::OpenOptions::new().create(true).write(true),
+                )
+                .with_context(|| {
+                    format!(
+                        "failed to create file for package build output: {:?}",
+                        testing_tar_abs,
+                    )
+                })?;
+            self.runner
+                .copy_out_from_home(&env_name, Path::new("provides.tar"), &mut file)
+                .with_context(|| {
+                    format!(
+                        "failed to copy package build output from `~/provides.tar` on {env_name} to {:?}",
+                        testing_tar_abs,
+                    )
+                })?;
+        }
+
+        if let Some(test_script) = &spec.test {
+            self.test_package(package_name, testing_tar_abs, test_script, spec)
+                .with_context(|| format!("error testing package {package_name}"))?;
+        }
+
+        let package_tar = format!("{package_name}.tar");
+        package_cache_dir
+            .rename(&testing_tar_name, &package_cache_dir, &package_tar)
+            .with_context(|| {
+                format!(
+                    "failed to rename {testing_tar_name:?} to {package_tar:?} in {package_cache:?}"
+                )
+            })?;
+        Ok(())
+    }
+
+    fn build_package(
+        &self,
+        package_name: &PackageName,
+        env_name: &EnvironmentName,
+        spec: &PackageSpec,
+    ) -> Result<()> {
+        let packages: PackageNameSet = spec.build_depends.union(&spec.depends).cloned().collect();
+        let mut seeds = self.packages_to_seeds(&packages)?;
+
+        let tar_file = NamedTempFile::new().todo_context()?;
+        create_tar_from_dir(
+            &spec.dir,
+            tar_file.as_file(),
+            &TarOptions {
+                prefix: Some(PathBuf::from("w")),
+                ..TarOptions::default()
+            },
+        )
+        .with_context(|| format!("failed to tar package source for {package_name}"))?;
+        seeds.push(HostPath::try_from(tar_file.path().to_owned()).unwrap());
+
+        let init = Init {
+            seeds,
+            script: self.shared.script_path.join("dev-init.sh"),
+        };
+
+        use EnvironmentExists::*;
+        match self.runner.exists(env_name)? {
+            FullyExists | PartiallyExists => self.runner.reset(env_name, &init),
+            NoEnvironment => self.runner.create(env_name, &init),
+        }
+    }
+
+    fn test_package(
+        &self,
+        package_name: &PackageName,
+        testing_tar: HostPath,
+        test_script: &str,
+        spec: &PackageSpec,
+    ) -> Result<()> {
+        println!("Testing {package_name} package");
+        let test_name = EnvironmentName::from_str(&format!("test-package-{package_name}")).unwrap();
+
+        self.runner.purge(&test_name)?;
+
+        let mut seeds = self.packages_to_seeds(&spec.depends)?;
+        seeds.push(testing_tar);
 
         {
             let tar_file = NamedTempFile::new().todo_context()?;
@@ -341,136 +460,26 @@ impl Cubicle {
                 tar_file.as_file(),
                 &TarOptions {
                     prefix: Some(PathBuf::from("w")),
-                    ..TarOptions::default()
+                    // `dev-init.sh` will run `update.sh` if it's present, but
+                    // we don't want that
+                    exclude: vec![PathBuf::from("update.sh")],
                 },
             )
-            .with_context(|| format!("Failed to tar package source for {package_name}"))?;
+            .with_context(|| format!("failed to tar package source to test {package_name}"))?;
+            seeds.push(HostPath::try_from(tar_file.path().to_owned()).unwrap());
 
-            let packages: PackageNameSet =
-                spec.build_depends.union(&spec.depends).cloned().collect();
-
-            match self.runner.exists(&env_name)? {
-                EnvironmentExists::NoEnvironment => self.runner.create(&env_name)?,
-                EnvironmentExists::PartiallyExists => {
-                    return Err(anyhow!(
-                        "Environment {env_name} in broken state (partially exists)"
-                    )
-                    .into())
-                }
-                EnvironmentExists::FullyExists => {}
-            }
-
-            if let Err(e) = self.run(
-                &env_name,
-                &RunCommand::Init {
-                    packages: &packages,
-                    extra_seeds: &[&HostPath::try_from(tar_file.path().to_owned())?],
+            self.runner.create(
+                &test_name,
+                &Init {
+                    seeds,
+                    script: self.shared.script_path.join("dev-init.sh"),
                 },
-            ) {
-                let cached = package_cache.join(format!("{package_name}.tar"));
-                if try_exists(&cached).todo_context()? {
-                    println!(
-                        "WARNING: Failed to update package {package_name}. \
-                        Keeping stale version. Error was: {e}"
-                    );
-                    return Ok(());
-                }
-                return Err(e.into());
-            }
-
-            // Note: the end of this block removes `tar_file` from the
-            // filesystem.
+            )?;
         }
 
-        std::fs::create_dir_all(&package_cache.as_host_raw()).todo_context()?;
-        let package_cache_dir = cap_std::fs::Dir::open_ambient_dir(
-            &package_cache.as_host_raw(),
-            cap_std::ambient_authority(),
-        )
-        .todo_context()?;
-
-        match &spec.test {
-            None => {
-                let mut file = package_cache_dir
-                    .open_with(
-                        &format!("{package_name}.tar"),
-                        cap_std::fs::OpenOptions::new().create(true).write(true),
-                    )
-                    .todo_context()?;
-                self.runner
-                    .copy_out_from_home(&env_name, Path::new("provides.tar"), &mut file)?;
-                Ok(())
-            }
-
-            Some(test_script) => {
-                println!("Testing {package_name} package");
-                let test_name =
-                    EnvironmentName::from_str(&format!("test-package-{package_name}")).unwrap();
-
-                let tar_file = NamedTempFile::new().todo_context()?;
-                create_tar_from_dir(
-                    &spec.dir,
-                    tar_file.as_file(),
-                    &TarOptions {
-                        prefix: Some(PathBuf::from("w")),
-                        // `dev-init.sh` will run `update.sh` if it's present, but
-                        // we don't want that
-                        exclude: vec![PathBuf::from("update.sh")],
-                    },
-                )
-                .with_context(|| format!("Failed to tar package source to test {package_name}"))?;
-
-                let testing_tar = format!("{package_name}.testing.tar");
-                {
-                    let mut file = package_cache_dir
-                        .open_with(
-                            &testing_tar,
-                            cap_std::fs::OpenOptions::new().create(true).write(true),
-                        )
-                        .todo_context()?;
-                    self.runner.copy_out_from_home(
-                        &env_name,
-                        Path::new("provides.tar"),
-                        &mut file,
-                    )?;
-                }
-
-                self.purge_environment(&test_name, Quiet(true))?;
-                self.runner.create(&test_name)?;
-                let result = self
-                    .run(
-                        &test_name,
-                        &RunCommand::Init {
-                            packages: &spec.depends,
-                            extra_seeds: &[
-                                &HostPath::try_from(tar_file.path().to_owned())?,
-                                &package_cache.join(&testing_tar),
-                            ],
-                        },
-                    )
-                    .and_then(|_| self.run(&test_name, &RunCommand::Exec(&[test_script.clone()])));
-                if let Err(e) = result {
-                    let cached = package_cache.join(format!("{package_name}.tar"));
-                    if try_exists(&cached).todo_context()? {
-                        println!(
-                            "WARNING: Updated package {package_name} failed tests. \
-                            Keeping stale version. Error was: {e}"
-                        );
-                        return Ok(());
-                    }
-                    return Err(e.into());
-                }
-                self.purge_environment(&test_name, Quiet(true))?;
-                std::fs::rename(
-                    &package_cache.join(testing_tar).as_host_raw(),
-                    &package_cache
-                        .join(format!("{package_name}.tar"))
-                        .as_host_raw(),
-                )
-                .todo_context()?;
-                Ok(())
-            }
-        }
+        self.runner
+            .run(&test_name, &RunnerCommand::Exec(&[test_script.to_owned()]))?;
+        self.runner.purge(&test_name)
     }
 
     /// Corresponds to `cub package list`.
@@ -616,8 +625,18 @@ impl Cubicle {
 ///
 /// Other than '-' and '_' and some non-ASCII characters, values of this type
 /// may not contain whitespace or special characters.
-#[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
+#[derive(Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageName(String);
+
+impl fmt::Debug for PackageName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if f.alternate() {
+            f.debug_tuple("PackageName").field(&self.0).finish()
+        } else {
+            write!(f, "`{}`", self.0)
+        }
+    }
+}
 
 impl FromStr for PackageName {
     type Err = Error;
@@ -645,6 +664,29 @@ impl fmt::Display for PackageName {
 
 /// An ordered set of package names.
 pub type PackageNameSet = BTreeSet<PackageName>;
+
+#[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
+pub struct PackageNamespace(String);
+
+impl FromStr for PackageNamespace {
+    type Err = Error;
+    fn from_str(mut s: &str) -> Result<Self> {
+        s = s.trim();
+        if s.is_empty() {
+            return Err(anyhow!("package namespace cannot be empty"));
+        }
+        if s.contains(|c: char| {
+            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
+                || c.is_control()
+                || c.is_whitespace()
+        }) {
+            return Err(anyhow!(
+                "package namespace cannot contain special characters"
+            ));
+        }
+        Ok(Self(s.to_owned()))
+    }
+}
 
 /// Allowed formats for [`Cubicle::list_packages`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
