@@ -13,8 +13,8 @@ use clap::Parser;
 use cubicle::config::Config;
 use cubicle::somehow::{somehow as anyhow, Context, Result};
 use cubicle::{
-    Cubicle, EnvironmentName, ListFormat, PackageName, PackageNameSet, Quiet, ShouldPackageUpdate,
-    UpdatePackagesConditions,
+    Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet, Quiet,
+    ShouldPackageUpdate, UpdatePackagesConditions,
 };
 use insta::assert_snapshot;
 use std::path::{Path, PathBuf};
@@ -150,6 +150,18 @@ fn main() -> Result<()> {
 
     cub.list_environments(ListFormat::Default)?;
     cub.purge_environment(&test_env, Quiet(false))?;
+
+    cub.list_packages(ListPackagesFormat::Default)?;
+    let packages = PackageNameSet::from([PackageName::from_str("no-op")?]);
+    cub.update_packages(
+        &packages,
+        &cub.scan_packages()?,
+        UpdatePackagesConditions {
+            dependencies: ShouldPackageUpdate::Always,
+            named: ShouldPackageUpdate::Always,
+        },
+    )?;
+    cub.list_packages(ListPackagesFormat::Default)?;
 
     Ok(())
 }
