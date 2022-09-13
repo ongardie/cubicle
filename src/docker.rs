@@ -1,6 +1,5 @@
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
-use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, Write};
@@ -8,7 +7,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
@@ -24,9 +23,6 @@ pub struct Docker {
     mounts: Mounts,
     base_image: ImageName,
     container_home: EnvPath,
-    /// Flag used to build the base image when it's first needed after the
-    /// program starts up, and probably not again after that.
-    built_base: Cell<bool>,
 }
 
 enum Mounts {
@@ -83,7 +79,6 @@ impl Docker {
             mounts,
             base_image,
             container_home,
-            built_base: Cell::new(false),
         })
     }
 
@@ -152,58 +147,7 @@ impl Docker {
         Ok(envs)
     }
 
-    fn base_mtime(&self) -> Result<Option<SystemTime>> {
-        self.base_mtime_().with_context(|| {
-            format!(
-                "failed to get last build time for {:?} Docker image",
-                self.base_image
-            )
-        })
-    }
-
-    fn base_mtime_(&self) -> LowLevelResult<Option<SystemTime>> {
-        let output = Command::new("docker")
-            .arg("inspect")
-            .args(["--type", "image"])
-            .args(["--format", "{{ $.Metadata.LastTagTime.Unix }}"])
-            .arg(&self.base_image)
-            .output()?;
-        let status = output.status;
-        if !status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            if status.code() == Some(1) && stderr.starts_with("Error: No such image") {
-                return Ok(None);
-            }
-            return Err(
-                anyhow!("`docker inspect ...` exited with {status} and output: {stderr}").into(),
-            );
-        }
-
-        let timestamp: String =
-            String::from_utf8(output.stdout).context("failed to read `docker inspect` output")?;
-        let timestamp: u64 = u64::from_str(timestamp.trim()).with_context(|| {
-            format!("failed to parse Unix timestamp from `docker inspect`: {timestamp:?}")
-        })?;
-        Ok(Some(UNIX_EPOCH + Duration::from_secs(timestamp)))
-    }
-
-    fn build_base(&self) -> Result<()> {
-        self.build_base_()
-            .with_context(|| format!("failed to build {} Docker image", self.base_image))
-    }
-
-    fn build_base_(&self) -> LowLevelResult<()> {
-        // These checks on the image timestamp are a little silly, since this
-        // program is short-lived. They used to make more sense when the
-        // Dockerfile was a normal file. They might well make more sense again
-        // in the future, so it's good to keep this code active.
-        let base_mtime = self.base_mtime()?.unwrap_or(UNIX_EPOCH);
-        let image_fresh =
-            base_mtime.elapsed().unwrap_or(Duration::ZERO) < Duration::from_secs(60 * 60 * 12);
-        if image_fresh && self.built_base.get() {
-            return Ok(());
-        }
-
+    fn build_base(&self, debian_packages: &BTreeSet<String>) -> LowLevelResult<()> {
         let mut child = Command::new("docker")
             .args(["build", "--tag", &self.base_image, "-"])
             .stdin(Stdio::piped())
@@ -211,11 +155,8 @@ impl Docker {
 
         {
             let mut stdin = child.stdin().take().unwrap();
-            let mut packages: BTreeSet<&str> = BTreeSet::from_iter(SLIM_PACKAGES.iter().cloned());
-            if !self.program.config.docker.slim {
-                packages.extend(NORMAL_PACKAGES);
-                packages.extend(DEPENDENCIES_PACKAGES);
-            }
+            let mut packages: BTreeSet<&str> = BASE_PACKAGES.iter().copied().collect();
+            packages.extend(debian_packages.iter().map(String::as_str));
             write_dockerfile(
                 &mut stdin,
                 DockerfileArgs {
@@ -233,16 +174,10 @@ impl Docker {
         if !status.success() {
             return Err(anyhow!("`docker build` exited with {status}").into());
         }
-        self.built_base.set(true);
         Ok(())
     }
 
-    fn spawn(&self, env_name: &EnvironmentName) -> Result<()> {
-        self.spawn_(env_name)
-            .with_context(|| format!("failed to start Docker container {env_name:?}"))
-    }
-
-    fn spawn_(&self, env_name: &EnvironmentName) -> LowLevelResult<()> {
+    fn spawn(&self, env_name: &EnvironmentName) -> LowLevelResult<()> {
         let container_name = self.container_from_environment(env_name);
         let seccomp_json = self.program.script_path.join("seccomp.json");
         let mut command = Command::new("docker");
@@ -348,10 +283,20 @@ impl Docker {
         }
     }
 
-    fn init(&self, env_name: &EnvironmentName, Init { script, seeds }: &Init) -> Result<()> {
+    fn init(
+        &self,
+        env_name: &EnvironmentName,
+        Init {
+            script,
+            seeds,
+            debian_packages,
+        }: &Init,
+    ) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
-        self.build_base()?;
-        self.spawn(env_name)?;
+        self.build_base(debian_packages)
+            .with_context(|| format!("failed to build {} Docker image", self.base_image))?;
+        self.spawn(env_name)
+            .with_context(|| format!("failed to start Docker container {env_name:?}"))?;
 
         let script_path = "/.cubicle-init";
 
@@ -936,79 +881,21 @@ fn fallback_path(container_home: &EnvPath) -> OsString {
 
 /// Debian packages that many packages might depend on for basic functionality.
 /// They are installed in the CI system.
-const SLIM_PACKAGES: &[&str] = &[
-    "curl", "git", "jq", "lz4", "procps", "pv", "sudo", "vim", "wget", "zip", "zstd", "zsh",
-];
-
-/// Debian packages that many users may like. To save time, they are not
-/// normally installed in the CI system.
-const NORMAL_PACKAGES: &[&str] = &[
-    "apt-file",
-    "bash-completion",
-    "bind9-dnsutils",
-    "build-essential",
-    "dialog",
-    "eatmydata",
-    "file",
-    "iproute2",
-    "iputils-ping",
-    "less",
-    "man-db",
-    "manpages",
-    "manpages-posix-dev",
-    "manpages-dev",
-    "net-tools",
-    "ripgrep",
-    "rsync",
-    "sqlite3",
-    "strace",
-    "time",
-    "tree",
-    "xdg-utils",
-    "zsh-autosuggestions",
-    "zsh-syntax-highlighting",
-];
-
-/// Debian packages that some of the Cubicle packages depend on. Because
-/// there's no way for them to express that yet, they go here for now.
-const DEPENDENCIES_PACKAGES: &[&str] = &[
-    // for Python
-    "build-essential",
-    "gdb",
-    "lcov",
-    "libbz2-dev",
-    "libffi-dev",
-    "libgdbm-compat-dev",
-    "libgdbm-dev",
-    "liblzma-dev",
-    "libncurses5-dev",
-    "libreadline6-dev",
-    "libsqlite3-dev",
-    "libssl-dev",
-    "lzma",
-    "lzma-dev",
-    "pkg-config",
-    "tk-dev",
-    "uuid-dev",
-    "zlib1g-dev",
-    // for firefox and vscodium
-    "libasound2",
-    "libatk-bridge2.0-0",
-    "libatk1.0-0",
-    "libcups2",
-    "libdbus-glib-1-2",
-    "libdrm2",
-    "libegl1",
-    "libgbm1",
-    "libglib2.0-0",
-    "libgtk-3-0",
-    "libnss3",
-    "libpci3",
-    "x11-utils",
-    // for mold and rust
-    "bsdmainutils",
-    "cmake",
-    "clang",
+const BASE_PACKAGES: &[&str] = &[
+    "bzip2",
+    "ca-certificates",
+    "curl",
+    "git",
+    "jq",
+    "lz4",
+    "procps",
+    "pv",
+    "sudo",
+    "vim",
+    "wget",
+    "xz-utils",
+    "zip",
+    "zstd",
 ];
 
 struct DockerfileArgs<'a> {
@@ -1079,11 +966,11 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
         w,
         r#"RUN sed -i 's/ main$/ main contrib non-free/' /etc/apt/sources.list"#
     )?;
-    writeln!(w, "RUN apt-get update && apt-get upgrade -y")?;
+    writeln!(w, "RUN apt-get update && apt-get upgrade --yes")?;
 
     // Install requested packages.
     if let Some((last, init)) = packages.split_last() {
-        writeln!(w, "RUN apt-get install -y \\")?;
+        writeln!(w, "RUN apt-get install --no-install-recommends --yes \\")?;
         for package in init {
             writeln!(w, "    {package} \\")?;
         }

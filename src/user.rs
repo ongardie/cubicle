@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::Stdio;
@@ -8,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::command_ext::Command;
 use super::fs_util::{summarize_dir, DirSummary};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
-use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
+use super::{apt, CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 
 pub struct User {
@@ -211,7 +212,22 @@ impl User {
         }
     }
 
-    fn init(&self, env_name: &EnvironmentName, Init { seeds, script }: &Init) -> Result<()> {
+    fn init(
+        &self,
+        env_name: &EnvironmentName,
+        Init {
+            seeds,
+            script,
+            debian_packages,
+        }: &Init,
+    ) -> Result<()> {
+        apt::check_satisfied(
+            &debian_packages
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<&str>>(),
+        );
+
         let username = self.username_from_environment(env_name);
         let script_tar = tempfile::NamedTempFile::new().todo_context()?;
         let mut builder = tar::Builder::new(script_tar.as_file());
@@ -395,6 +411,7 @@ impl Runner for User {
             self.init(
                 env_name,
                 &Init {
+                    debian_packages: BTreeSet::new(),
                     seeds: vec![work_tar.clone()],
                     script: self.program.script_path.join("dev-init.sh"),
                 },

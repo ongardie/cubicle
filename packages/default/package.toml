@@ -1,4 +1,4 @@
 [depends]
-configs = {}
 firefox = {}
+os-utils = {}
 vscodium = {}

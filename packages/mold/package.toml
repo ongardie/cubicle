@@ -1,0 +1,10 @@
+[depends.debian]
+clang = {}
+"libssl1.1" = {}
+zlib1g = {}
+
+[build_depends.debian]
+cmake = {}
+libssl-dev = {}
+make = {}
+zlib1g-dev = {}

@@ -5,6 +5,7 @@ use std::process::{ChildStdout, Stdio};
 use std::rc::Rc;
 use std::str::FromStr;
 
+use super::apt;
 use super::command_ext::{Command, ScopedChild};
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
@@ -53,7 +54,22 @@ impl Bubblewrap {
             .expect("Bubblewrap config needed")
     }
 
-    fn init(&self, name: &EnvironmentName, Init { seeds, script }: &Init) -> Result<()> {
+    fn init(
+        &self,
+        name: &EnvironmentName,
+        Init {
+            debian_packages,
+            seeds,
+            script,
+        }: &Init,
+    ) -> Result<()> {
+        apt::check_satisfied(
+            &debian_packages
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<&str>>(),
+        );
+
         let mut child: ScopedChild; // this is here so its destructor will reap it later
         let seed = if seeds.is_empty() {
             None

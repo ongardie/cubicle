@@ -1,1 +1,7 @@
-
+[depends.debian]
+libasound2 = {}
+libdbus-glib-1-2 = {}
+libgtk-3-0 = {}
+libnss3 = {}
+x11-utils = {}
+xdg-utils = {}

@@ -79,6 +79,8 @@ use docker::Docker;
 mod user;
 use user::User;
 
+mod apt;
+
 /// The main Cubicle program functionality.
 ///
 // This struct is split in two so that the runner may also keep a reference to
@@ -364,15 +366,17 @@ impl Cubicle {
                 &default
             }
         };
+        let specs = self.scan_packages()?;
         self.update_packages(
             packages,
-            &self.scan_packages()?,
+            &specs,
             UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::IfStale,
                 named: ShouldPackageUpdate::IfStale,
             },
         )?;
         let packages_txt = write_package_list_tar(packages)?;
+        let debian_packages = self.resolve_debian_packages(packages, &specs)?;
 
         let mut seeds = self.packages_to_seeds(packages)?;
         seeds.push(HostPath::try_from(packages_txt.path().to_owned())?);
@@ -381,6 +385,7 @@ impl Cubicle {
             .create(
                 name,
                 &Init {
+                    debian_packages,
                     seeds,
                     script: self.shared.script_path.join("dev-init.sh"),
                 },
@@ -454,14 +459,16 @@ impl Cubicle {
             },
         };
 
+        let specs = self.scan_packages()?;
         self.update_packages(
             &packages,
-            &self.scan_packages()?,
+            &specs,
             UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::IfStale,
                 named: ShouldPackageUpdate::IfStale,
             },
         )?;
+        let debian_packages = self.resolve_debian_packages(&packages, &specs)?;
         let mut seeds = self.packages_to_seeds(&packages)?;
 
         let packages_txt: tempfile::NamedTempFile;
@@ -473,6 +480,7 @@ impl Cubicle {
         self.runner.reset(
             name,
             &Init {
+                debian_packages,
                 seeds,
                 script: self.shared.script_path.join("dev-init.sh"),
             },

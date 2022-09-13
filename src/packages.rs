@@ -1,5 +1,6 @@
 use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, BufRead, Write};
@@ -17,12 +18,15 @@ use super::fs_util::{
 use super::runner::{EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{
     rel_time, time_serialize, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostPath,
+    RunnerKind,
 };
+
+mod manifest;
+use manifest::{Dependency, Manifest};
 
 /// Information about a package's source files.
 pub struct PackageSpec {
-    build_depends: PackageNameSet,
-    depends: PackageNameSet,
+    manifest: Manifest,
     dir: HostPath,
     origin: String,
     update: Option<String>,
@@ -73,36 +77,71 @@ fn transitive_depends(
     packages: &PackageNameSet,
     specs: &PackageSpecs,
     build_depends: BuildDepends,
-) -> BTreeSet<PackageName> {
+) -> Result<PackageNameSet> {
     fn visit(
         specs: &PackageSpecs,
         build_depends: BuildDepends,
         visited: &mut BTreeSet<PackageName>,
         p: &PackageName,
-    ) {
+        needed_by: Option<&PackageName>,
+    ) -> Result<()> {
         if !visited.contains(p) {
             visited.insert(p.clone());
-            if let Some(spec) = specs.get(p) {
-                for q in &spec.depends {
-                    visit(specs, build_depends, visited, q);
+            let spec = specs.get(p).ok_or_else(|| match needed_by {
+                Some(other) => {
+                    anyhow!("could not find package definition for {p:?}, needed by {other:?}")
                 }
-                if build_depends.0 {
-                    for q in &spec.build_depends {
-                        visit(specs, build_depends, visited, q);
-                    }
+                None => anyhow!("could not find package definition for {p:?}"),
+            })?;
+            for q in spec.manifest.root_depends().keys() {
+                visit(
+                    specs,
+                    build_depends,
+                    visited,
+                    &PackageName::from_str(q).expect("todo"),
+                    Some(p),
+                )?;
+            }
+            if build_depends.0 {
+                for q in spec.manifest.root_build_depends().keys() {
+                    visit(
+                        specs,
+                        build_depends,
+                        visited,
+                        &PackageName::from_str(q).expect("todo"),
+                        Some(p),
+                    )?;
                 }
             }
         }
+        Ok(())
     }
 
     let mut visited = BTreeSet::new();
     for p in packages.iter() {
-        visit(specs, build_depends, &mut visited, p);
+        visit(specs, build_depends, &mut visited, p, None)?;
     }
-    visited
+    Ok(visited)
 }
 
 impl Cubicle {
+    pub(super) fn resolve_debian_packages(
+        &self,
+        packages: &PackageNameSet,
+        specs: &PackageSpecs,
+    ) -> Result<BTreeSet<String>> {
+        let strict = match self.shared.config.runner {
+            RunnerKind::Bubblewrap => true,
+            RunnerKind::Docker => self.shared.config.docker.strict_debian_packages,
+            RunnerKind::User => true,
+        };
+        if strict {
+            strict_debian_packages(packages, specs)
+        } else {
+            all_debian_packages(specs)
+        }
+    }
+
     fn add_packages(
         &self,
         packages: &mut PackageSpecs,
@@ -123,7 +162,7 @@ impl Cubicle {
             }
             let dir = dir.join(&name.0);
 
-            let manifest = match read_manifest(&dir, "package.toml").with_context(|| {
+            let mut manifest = match Manifest::read(&dir, "package.toml").with_context(|| {
                 format!(
                     "could not read manifest for package {name}: {:?}",
                     dir.join("package.toml").as_host_raw()
@@ -139,19 +178,11 @@ impl Cubicle {
                 }
             };
 
-            let build_depends = manifest
-                .build_depends
-                .into_keys()
-                .map(|s| PackageName::from_str(&s))
-                .collect::<Result<PackageNameSet>>()
-                .todo_context()?;
-            let mut depends = manifest
+            manifest
                 .depends
-                .into_keys()
-                .map(|s| PackageName::from_str(&s))
-                .collect::<Result<PackageNameSet>>()
-                .todo_context()?;
-            depends.insert(PackageName::from_str("auto").unwrap());
+                .get_mut(PackageNamespace::root())
+                .unwrap()
+                .insert(String::from("auto"), Dependency {});
 
             let test = try_exists(&dir.join("test.sh"))
                 .todo_context()?
@@ -162,8 +193,7 @@ impl Cubicle {
             packages.insert(
                 name,
                 PackageSpec {
-                    build_depends,
-                    depends,
+                    manifest,
                     dir,
                     origin: origin.to_owned(),
                     test,
@@ -206,18 +236,16 @@ impl Cubicle {
 
         self.add_packages(&mut specs, &self.shared.code_package_dir, "built-in")?;
 
-        let auto_deps = transitive_depends(
-            &PackageNameSet::from([PackageName::from_str("auto").unwrap()]),
-            &specs,
-            BuildDepends(true),
-        );
+        let auto = PackageName::from_str("auto").unwrap();
+        let auto_deps =
+            transitive_depends(&PackageNameSet::from([auto]), &specs, BuildDepends(true))?;
         for name in auto_deps {
-            match specs.get_mut(&name) {
-                Some(spec) => {
-                    spec.depends.remove(&PackageName::from_str("auto").unwrap());
-                }
-                None => return Err(anyhow!("package auto transitively depends on {name} but definition of {name} not found")),
-            }
+            let spec = specs.get_mut(&name).unwrap();
+            spec.manifest
+                .depends
+                .get_mut(PackageNamespace::root())
+                .unwrap()
+                .remove("auto");
         }
 
         Ok(specs)
@@ -233,7 +261,7 @@ impl Cubicle {
     ) -> Result<()> {
         let now = SystemTime::now();
         let mut todo: Vec<PackageName> =
-            Vec::from_iter(transitive_depends(packages, specs, BuildDepends(true)));
+            Vec::from_iter(transitive_depends(packages, specs, BuildDepends(true))?);
         let mut done = BTreeSet::new();
         loop {
             let start_todos = todo.len();
@@ -243,7 +271,17 @@ impl Cubicle {
             let mut later = Vec::new();
             for name in todo {
                 if let Some(spec) = specs.get(&name) {
-                    if done.is_superset(&spec.depends) && done.is_superset(&spec.build_depends) {
+                    if spec
+                        .manifest
+                        .root_depends()
+                        .keys()
+                        .all(|dep| done.contains(dep.as_str()))
+                        && spec
+                            .manifest
+                            .root_build_depends()
+                            .keys()
+                            .all(|dep| done.contains(dep.as_str()))
+                    {
                         let needs_build = {
                             if spec.update.is_none() {
                                 false
@@ -265,7 +303,7 @@ impl Cubicle {
                             }
                         };
                         if needs_build {
-                            self.update_package(&name, spec)?;
+                            self.update_package(&name, spec, specs)?;
                         }
                         done.insert(name);
                     } else {
@@ -312,16 +350,27 @@ impl Cubicle {
         if last_modified > built {
             return Ok(true);
         }
-        for p in spec.build_depends.union(&spec.depends) {
-            if matches!(self.last_built(p), Some(b) if b > built) {
+        for p in spec
+            .manifest
+            .root_build_depends()
+            .keys()
+            .chain(spec.manifest.root_depends().keys())
+        {
+            let p = PackageName::from_str(p).expect("todo");
+            if matches!(self.last_built(&p), Some(b) if b > built) {
                 return Ok(true);
             }
         }
         Ok(false)
     }
 
-    fn update_package(&self, package_name: &PackageName, spec: &PackageSpec) -> Result<()> {
-        self.update_package_(package_name, spec)
+    fn update_package(
+        &self,
+        package_name: &PackageName,
+        spec: &PackageSpec,
+        specs: &PackageSpecs,
+    ) -> Result<()> {
+        self.update_package_(package_name, spec, specs)
             .with_context(|| format!("failed to update package: {package_name}"))
             .or_else(|e| {
                 let cached = self
@@ -350,10 +399,11 @@ impl Cubicle {
         &self,
         package_name: &PackageName,
         spec: &PackageSpec,
+        specs: &PackageSpecs,
     ) -> LowLevelResult<()> {
         println!("Updating {package_name} package");
         let env_name = EnvironmentName::for_builder_package(package_name);
-        self.build_package(package_name, &env_name, spec)
+        self.build_package(package_name, &env_name, spec, specs)
             .with_context(|| format!("error building package {package_name}"))?;
 
         let package_cache = &self.shared.package_cache;
@@ -390,7 +440,7 @@ impl Cubicle {
         }
 
         if let Some(test_script) = &spec.test {
-            self.test_package(package_name, testing_tar_abs, test_script, spec)
+            self.test_package(package_name, testing_tar_abs, test_script, spec, specs)
                 .with_context(|| format!("error testing package {package_name}"))?;
         }
 
@@ -410,8 +460,24 @@ impl Cubicle {
         package_name: &PackageName,
         env_name: &EnvironmentName,
         spec: &PackageSpec,
+        specs: &PackageSpecs,
     ) -> Result<()> {
-        let packages: PackageNameSet = spec.build_depends.union(&spec.depends).cloned().collect();
+        let packages: PackageNameSet = spec
+            .manifest
+            .root_build_depends()
+            .keys()
+            .chain(spec.manifest.root_depends().keys())
+            .map(|name| PackageName::from_str(name).expect("todo"))
+            .collect();
+
+        let mut debian_packages = self.resolve_debian_packages(&packages, specs)?;
+        if let Some(debian) = spec.manifest.depends.get("debian") {
+            debian_packages.extend(debian.keys().cloned());
+        }
+        if let Some(debian) = spec.manifest.build_depends.get("debian") {
+            debian_packages.extend(debian.keys().cloned());
+        }
+
         let mut seeds = self.packages_to_seeds(&packages)?;
 
         let tar_file = NamedTempFile::new().todo_context()?;
@@ -427,6 +493,7 @@ impl Cubicle {
         seeds.push(HostPath::try_from(tar_file.path().to_owned()).unwrap());
 
         let init = Init {
+            debian_packages,
             seeds,
             script: self.shared.script_path.join("dev-init.sh"),
         };
@@ -444,14 +511,26 @@ impl Cubicle {
         testing_tar: HostPath,
         test_script: &str,
         spec: &PackageSpec,
+        specs: &PackageSpecs,
     ) -> Result<()> {
         println!("Testing {package_name} package");
         let test_name = EnvironmentName::from_str(&format!("test-package-{package_name}")).unwrap();
 
         self.runner.purge(&test_name)?;
 
-        let mut seeds = self.packages_to_seeds(&spec.depends)?;
+        let packages = spec
+            .manifest
+            .root_depends()
+            .keys()
+            .map(|name| PackageName::from_str(name).expect("todo"))
+            .collect();
+        let mut seeds = self.packages_to_seeds(&packages)?;
         seeds.push(testing_tar);
+
+        let mut debian_packages = self.resolve_debian_packages(&packages, specs)?;
+        if let Some(debian) = spec.manifest.depends.get("debian") {
+            debian_packages.extend(debian.keys().cloned());
+        }
 
         {
             let tar_file = NamedTempFile::new().todo_context()?;
@@ -471,6 +550,7 @@ impl Cubicle {
             self.runner.create(
                 &test_name,
                 &Init {
+                    debian_packages,
                     seeds,
                     script: self.shared.script_path.join("dev-init.sh"),
                 },
@@ -496,10 +576,10 @@ impl Cubicle {
 
         #[derive(Debug, Serialize)]
         struct Package {
-            build_depends: Vec<String>,
+            build_depends: BTreeMap<String, Vec<String>>,
             #[serde(serialize_with = "time_serialize_opt")]
             built: Option<SystemTime>,
-            depends: Vec<String>,
+            depends: BTreeMap<String, Vec<String>>,
             #[serde(serialize_with = "time_serialize")]
             edited: SystemTime,
             dir: PathBuf,
@@ -528,12 +608,22 @@ impl Cubicle {
                     name,
                     Package {
                         build_depends: spec
+                            .manifest
                             .build_depends
-                            .iter()
-                            .map(|name| name.0.clone())
+                            .into_iter()
+                            .map(|(namespace, packages)| {
+                                (namespace.0, packages.into_keys().collect())
+                            })
                             .collect(),
                         built,
-                        depends: spec.depends.iter().map(|name| name.0.clone()).collect(),
+                        depends: spec
+                            .manifest
+                            .depends
+                            .into_iter()
+                            .map(|(namespace, packages)| {
+                                (namespace.0, packages.into_keys().collect())
+                            })
+                            .collect(),
                         dir: spec.dir.as_host_raw().to_owned(),
                         edited,
                         origin: spec.origin,
@@ -610,7 +700,7 @@ impl Cubicle {
     pub(super) fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<HostPath>> {
         let mut seeds = Vec::with_capacity(packages.len());
         let specs = self.scan_packages()?;
-        let deps = transitive_depends(packages, &specs, BuildDepends(false));
+        let deps = transitive_depends(packages, &specs, BuildDepends(false))?;
         for package in deps {
             let provides = self.shared.package_cache.join(format!("{package}.tar"));
             if try_exists(&provides).todo_context()? {
@@ -627,6 +717,18 @@ impl Cubicle {
 /// may not contain whitespace or special characters.
 #[derive(Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageName(String);
+
+impl PackageName {
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Borrow<str> for PackageName {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
 
 impl fmt::Debug for PackageName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -668,6 +770,22 @@ pub type PackageNameSet = BTreeSet<PackageName>;
 #[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageNamespace(String);
 
+impl PackageNamespace {
+    fn root() -> &'static str {
+        "cubicle"
+    }
+
+    fn root_owned() -> PackageNamespace {
+        Self(Self::root().to_owned())
+    }
+}
+
+impl Borrow<str> for PackageNamespace {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
 impl FromStr for PackageNamespace {
     type Err = Error;
     fn from_str(mut s: &str) -> Result<Self> {
@@ -698,39 +816,6 @@ pub enum ListPackagesFormat {
     Json,
     /// Newline-delimited list of package names only.
     Names,
-}
-
-#[derive(Deserialize)]
-struct Manifest {
-    #[serde(default)]
-    depends: BTreeMap<String, Dependency>,
-    #[serde(default)]
-    build_depends: BTreeMap<String, Dependency>,
-}
-
-#[derive(Deserialize)]
-struct Dependency {}
-
-fn read_manifest(dir_path: &HostPath, path: &str) -> LowLevelResult<Option<Manifest>> {
-    let dir =
-        cap_std::fs::Dir::open_ambient_dir(dir_path.as_host_raw(), cap_std::ambient_authority())
-            .with_context(|| format!("failed to open directory {:?}", dir_path.as_host_raw()))?;
-    let buf = match dir.read(path) {
-        Ok(buf) => buf,
-        Err(e) => {
-            return if e.kind() == io::ErrorKind::NotFound {
-                Ok(None)
-            } else {
-                Err(e)
-                    .with_context(|| {
-                        format!("failed to read {:?}", dir_path.join(path).as_host_raw())
-                    })
-                    .map_err(|e| e.into())
-            }
-        }
-    };
-    let manifest = toml::from_slice(&buf).enough_context()?;
-    Ok(Some(manifest))
 }
 
 pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::NamedTempFile> {
@@ -764,4 +849,52 @@ pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::Nam
         .and_then(|mut f| f.flush())
         .todo_context()?;
     Ok(file)
+}
+
+fn strict_debian_packages(
+    packages: &PackageNameSet,
+    specs: &PackageSpecs,
+) -> Result<BTreeSet<String>> {
+    fn visit(
+        specs: &PackageSpecs,
+        visited: &mut BTreeSet<PackageName>,
+        debian_packages: &mut BTreeSet<String>,
+        p: &PackageName,
+    ) {
+        if !visited.contains(p) {
+            visited.insert(p.clone());
+            let spec = specs.get(p).expect("todo");
+            if let Some(debian) = spec.manifest.depends.get("debian") {
+                debian_packages.extend(debian.keys().cloned());
+            }
+            for q in spec.manifest.root_depends().keys() {
+                visit(
+                    specs,
+                    visited,
+                    debian_packages,
+                    &PackageName::from_str(q).expect("todo"),
+                );
+            }
+        }
+    }
+
+    let mut visited = BTreeSet::new();
+    let mut debian_packages = BTreeSet::new();
+    for p in packages.iter() {
+        visit(specs, &mut visited, &mut debian_packages, p);
+    }
+    Ok(debian_packages)
+}
+
+fn all_debian_packages(specs: &PackageSpecs) -> Result<BTreeSet<String>> {
+    let mut debian_packages = BTreeSet::new();
+    for spec in specs.values() {
+        if let Some(debian) = spec.manifest.depends.get("debian") {
+            debian_packages.extend(debian.keys().cloned());
+        }
+        if let Some(debian) = spec.manifest.build_depends.get("debian") {
+            debian_packages.extend(debian.keys().cloned());
+        }
+    }
+    Ok(debian_packages)
 }

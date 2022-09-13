@@ -1,0 +1,6 @@
+[depends.debian]
+libasound2 = {}
+libdrm2 = {}
+libgbm1 = {}
+libgtk-3-0 = {}
+libnss3 = {}
