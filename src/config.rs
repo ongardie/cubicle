@@ -148,22 +148,18 @@ pub struct Docker {
     pub bind_mounts: bool,
 
     #[serde(default)]
-    pub extra_packages: Vec<String>,
+    pub strict_debian_packages: bool,
 
     #[serde(default = "cub_dash")]
     pub prefix: String,
-
-    #[serde(default)]
-    pub slim: bool,
 }
 
 impl Default for Docker {
     fn default() -> Self {
         Self {
             bind_mounts: Default::default(),
-            extra_packages: Vec::default(),
+            strict_debian_packages: false,
             prefix: cub_dash(),
-            slim: false,
         }
     }
 }
@@ -313,9 +309,8 @@ mod tests {
                 }),
                 docker: Docker {
                     bind_mounts: true,
-                    extra_packages: vec![String::from("foo"), String::from("bar")],
                     prefix: String::from("p"),
-                    slim: true,
+                    strict_debian_packages: true,
                 },
             },
             Config::from_str(
@@ -328,9 +323,8 @@ mod tests {
 
                 [docker]
                 bind_mounts = true
-                extra_packages = ['foo', 'bar']
                 prefix = 'p'
-                slim = true
+                strict_debian_packages = true
                 "
             )
             .enough_context()

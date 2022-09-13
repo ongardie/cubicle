@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::Stdio;
@@ -7,8 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::command_ext::Command;
 use super::fs_util::{summarize_dir, DirSummary};
-use super::runner::{EnvFilesSummary, EnvironmentExists, Runner, RunnerCommand};
-use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
+use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
+use super::{apt, CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 
 pub struct User {
@@ -210,6 +211,44 @@ impl User {
             Err(anyhow!("`sudo ... cat` exited with {status}").into())
         }
     }
+
+    fn init(
+        &self,
+        env_name: &EnvironmentName,
+        Init {
+            seeds,
+            script,
+            debian_packages,
+        }: &Init,
+    ) -> Result<()> {
+        apt::check_satisfied(
+            &debian_packages
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<&str>>(),
+        );
+
+        let username = self.username_from_environment(env_name);
+        let script_tar = tempfile::NamedTempFile::new().todo_context()?;
+        let mut builder = tar::Builder::new(script_tar.as_file());
+        let mut script_file = std::fs::File::open(script.as_host_raw()).todo_context()?;
+        builder
+            .append_file(".cubicle-init-script", &mut script_file)
+            .todo_context()?;
+        builder
+            .into_inner()
+            .and_then(|mut f| f.flush())
+            .todo_context()?;
+
+        let mut seeds: Vec<&HostPath> = seeds.iter().collect();
+        let script_tar_path = HostPath::try_from(script_tar.path().to_owned())?;
+        seeds.push(&script_tar_path);
+        self.copy_in_seeds(&username, &seeds)?;
+        self.run(
+            env_name,
+            &RunnerCommand::Exec(&["../.cubicle-init-script".to_owned()]),
+        )
+    }
 }
 
 impl Runner for User {
@@ -233,10 +272,10 @@ impl Runner for User {
         self.copy_out(&username, &Path::new("w").join(path), w)
     }
 
-    fn create(&self, env_name: &EnvironmentName) -> Result<()> {
+    fn create(&self, env_name: &EnvironmentName, init: &Init) -> Result<()> {
         let username = self.username_from_environment(env_name);
         self.create_user(&username)?;
-        Ok(())
+        self.init(env_name, init)
     }
 
     fn exists(&self, env_name: &EnvironmentName) -> Result<EnvironmentExists> {
@@ -317,7 +356,7 @@ impl Runner for User {
         self.kill_username(&username)
     }
 
-    fn reset(&self, env_name: &EnvironmentName) -> Result<()> {
+    fn reset(&self, env_name: &EnvironmentName, init: &Init) -> Result<()> {
         let username = self.username_from_environment(env_name);
         self.kill_username(&username)?;
 
@@ -367,11 +406,12 @@ impl Runner for User {
 
         let purge_and_restore = || -> Result<()> {
             self.purge(env_name)?;
-            self.create_user(&username)?;
+            self.create(env_name, init)?;
             println!("Restoring work directory from {work_tar:?}");
-            self.run(
+            self.init(
                 env_name,
-                &RunnerCommand::Init {
+                &Init {
+                    debian_packages: BTreeSet::new(),
                     seeds: vec![work_tar.clone()],
                     script: self.program.script_path.join("dev-init.sh"),
                 },
@@ -417,24 +457,6 @@ impl Runner for User {
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
         let username = self.username_from_environment(env_name);
 
-        if let RunnerCommand::Init { seeds, script } = run_command {
-            let script_tar = tempfile::NamedTempFile::new().todo_context()?;
-            let mut builder = tar::Builder::new(script_tar.as_file());
-            let mut script_file = std::fs::File::open(script.as_host_raw()).todo_context()?;
-            builder
-                .append_file(".cubicle-init-script", &mut script_file)
-                .todo_context()?;
-            builder
-                .into_inner()
-                .and_then(|mut f| f.flush())
-                .todo_context()?;
-
-            let mut seeds: Vec<&HostPath> = seeds.iter().collect();
-            let script_tar_path = HostPath::try_from(script_tar.path().to_owned())?;
-            seeds.push(&script_tar_path);
-            self.copy_in_seeds(&username, &seeds)?;
-        }
-
         let mut command = Command::new("sudo");
         command
             .env_clear()
@@ -461,9 +483,6 @@ impl Runner for User {
         match run_command {
             RunnerCommand::Interactive => {
                 command.args(["-c", &format!("cd w && exec {}", self.program.shell)]);
-            }
-            RunnerCommand::Init { .. } => {
-                command.args(["-c", "./.cubicle-init-script"]);
             }
             RunnerCommand::Exec(exec) => {
                 command.arg("-c");

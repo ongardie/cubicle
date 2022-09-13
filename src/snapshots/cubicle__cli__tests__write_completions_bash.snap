@@ -244,7 +244,7 @@ _cub() {
             return 0
             ;;
         cub__reset)
-            opts="-h --clean --packages --help <NAMES>..."
+            opts="-h --packages --help <NAMES>..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

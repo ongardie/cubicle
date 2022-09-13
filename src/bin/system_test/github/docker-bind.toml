@@ -3,4 +3,4 @@ runner = "docker"
 [docker]
 bind_mounts = true
 prefix = "systest-"
-slim = true
+strict_debian_packages = true

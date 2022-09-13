@@ -1,0 +1,4 @@
+[depends.debian]
+zsh = {}
+zsh-autosuggestions = {}
+zsh-syntax-highlighting = {}

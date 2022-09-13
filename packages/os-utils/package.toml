@@ -1,0 +1,23 @@
+[depends.debian]
+apt-file = {}
+bash-completion = {}
+bind9-dnsutils = {}
+build-essential = {}
+dialog = {}
+eatmydata = {}
+file = {}
+iproute2 = {}
+iputils-ping = {}
+less = {}
+man-db = {}
+manpages = {}
+manpages-posix-dev = {}
+manpages-dev = {}
+net-tools = {}
+ripgrep = {}
+rsync = {}
+sqlite3 = {}
+strace = {}
+time = {}
+tree = {}
+xdg-utils = {}

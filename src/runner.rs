@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io;
 use std::path::Path;
 
@@ -47,7 +48,7 @@ pub trait Runner {
     ///
     /// Fails if an environment already (partially or fully) exists with that
     /// name.
-    fn create(&self, name: &EnvironmentName) -> Result<()>;
+    fn create(&self, name: &EnvironmentName, init: &Init) -> Result<()>;
 
     /// Returns whether the environment fully exists, partially exists (in a
     /// likely broken state), or does not exist at all.
@@ -69,7 +70,7 @@ pub trait Runner {
     ///
     /// This tries to make partially existing environments fully exist (or
     /// returns an error saying why they can't).
-    fn reset(&self, name: &EnvironmentName) -> Result<()>;
+    fn reset(&self, name: &EnvironmentName, init: &Init) -> Result<()>;
 
     /// Stops the environment, if running, and any processes running in it, and
     /// deletes the environment completely, including its home directory and
@@ -98,12 +99,16 @@ pub struct EnvFilesSummary {
     pub work_dir: DirSummary,
 }
 
+#[derive(Debug)]
+pub struct Init {
+    pub debian_packages: BTreeSet<String>,
+    pub seeds: Vec<HostPath>,
+    pub script: HostPath,
+}
+
+#[derive(Debug)]
 pub enum RunnerCommand<'a> {
     Interactive,
-    Init {
-        seeds: Vec<HostPath>,
-        script: HostPath,
-    },
     Exec(&'a [String]),
 }
 
@@ -148,13 +153,13 @@ impl Runner for CheckedRunner {
         self.0.copy_out_from_work(name, path, w)
     }
 
-    fn create(&self, name: &EnvironmentName) -> Result<()> {
+    fn create(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
             "Environment should not exist before create"
         );
-        self.0.create(name)?;
+        self.0.create(name, init)?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
@@ -191,13 +196,13 @@ impl Runner for CheckedRunner {
         Ok(())
     }
 
-    fn reset(&self, name: &EnvironmentName) -> Result<()> {
+    fn reset(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
         assert_ne!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
             "Environment should partially or fully exist before reset"
         );
-        self.0.reset(name)?;
+        self.0.reset(name, init)?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
@@ -216,13 +221,13 @@ impl Runner for CheckedRunner {
         Ok(())
     }
 
-    fn run(&self, name: &EnvironmentName, runner_command: &RunnerCommand) -> Result<()> {
+    fn run(&self, name: &EnvironmentName, command: &RunnerCommand) -> Result<()> {
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
             "Environment should fully exist before run"
         );
-        self.0.run(name, runner_command)?;
+        self.0.run(name, command)?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,

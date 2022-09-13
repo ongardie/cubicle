@@ -11,8 +11,8 @@ RUN addgroup --gid 7331 "h#x*r" || addgroup "h#x*r" && \
     mkdir /home/"h#x*r"/w && \
     chown "h#x*r":"h#x*r" /home/"h#x*r"/w
 RUN sed -i 's/ main$/ main contrib non-free/' /etc/apt/sources.list
-RUN apt-get update && apt-get upgrade -y
-RUN apt-get install -y \
+RUN apt-get update && apt-get upgrade --yes
+RUN apt-get install --no-install-recommends --yes \
     apt-file \
     "pack#age1" \
     package2 \

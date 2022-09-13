@@ -13,7 +13,7 @@ use clap::Parser;
 use cubicle::config::Config;
 use cubicle::somehow::{somehow as anyhow, Context, Result};
 use cubicle::{
-    Clean, Cubicle, EnvironmentName, ListFormat, PackageName, PackageNameSet, Quiet,
+    Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet, Quiet,
     ShouldPackageUpdate, UpdatePackagesConditions,
 };
 use insta::assert_snapshot;
@@ -82,10 +82,9 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
 
     // cub reset --packages=does-not-exist
     cub.new_environment(test_env, Some(&PackageNameSet::new()))?;
-    cub.reset_environment(test_env, Some(&not_exist), Clean(true))?;
     cub.exec_environment(test_env, &[String::from("touch"), String::from("../foo")])?;
     let err = cub
-        .reset_environment(test_env, Some(&not_exist), Clean(false))
+        .reset_environment(test_env, Some(&not_exist))
         .expect_err("should not be able to use does-not-exist package in `cub reset`");
     assert_snapshot!(
         err.debug_without_backtrace(),
@@ -139,18 +138,30 @@ fn main() -> Result<()> {
     cub.purge_environment(&test_env, Quiet(false))?;
     cub.new_environment(&test_env, Some(&PackageNameSet::new()))?;
     cub.exec_environment(&test_env, &["ls", "-l", ".."].map(String::from))?;
-    cub.reset_environment(&test_env, None, Clean(false))?;
+    cub.reset_environment(&test_env, None)?;
 
     cub.purge_environment(&test_env, Quiet(false))?;
     cub.new_environment(&test_env, Some(&PackageNameSet::from([configs_pkg])))?;
     cub.exec_environment(&test_env, &["ls", "-al", ".."].map(String::from))?;
     // This should cause the configs package to be rebuilt.
     rewrite(project_root.join("packages/configs/update.sh"))?;
-    cub.reset_environment(&test_env, None, Clean(false))?;
+    cub.reset_environment(&test_env, None)?;
     cub.exec_environment(&test_env, &["ls", "-al", ".."].map(String::from))?;
 
     cub.list_environments(ListFormat::Default)?;
     cub.purge_environment(&test_env, Quiet(false))?;
+
+    cub.list_packages(ListPackagesFormat::Default)?;
+    let packages = PackageNameSet::from([PackageName::from_str("no-op")?]);
+    cub.update_packages(
+        &packages,
+        &cub.scan_packages()?,
+        UpdatePackagesConditions {
+            dependencies: ShouldPackageUpdate::Always,
+            named: ShouldPackageUpdate::Always,
+        },
+    )?;
+    cub.list_packages(ListPackagesFormat::Default)?;
 
     Ok(())
 }
