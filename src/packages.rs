@@ -364,19 +364,48 @@ impl Cubicle {
         Ok(false)
     }
 
+    fn package_build_failed(&self, package_name: &PackageName) -> Result<bool> {
+        let failed_marker = &self
+            .shared
+            .package_cache
+            .join(format!("{package_name}.failed"));
+        try_exists(failed_marker)
+            .with_context(|| format!("error while checking if {failed_marker:?} exists"))
+    }
+
     fn update_package(
         &self,
         package_name: &PackageName,
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> Result<()> {
-        self.update_package_(package_name, spec, specs)
+        let package_cache = &self.shared.package_cache;
+        let failed_marker = package_cache.join(format!("{package_name}.failed"));
+
+        match self
+            .update_package_(package_name, spec, specs)
             .with_context(|| format!("failed to update package: {package_name}"))
-            .or_else(|e| {
-                let cached = self
-                    .shared
-                    .package_cache
-                    .join(format!("{package_name}.tar"));
+        {
+            Ok(_) => {
+                if let Err(e) = std::fs::remove_file(failed_marker.as_host_raw()) {
+                    if e.kind() != io::ErrorKind::NotFound {
+                        return Err(e).context(format!(
+                            "failed to remove file {failed_marker:?} after \
+                            successfully updating package {package_name:?}"
+                        ));
+                    }
+                }
+                Ok(())
+            }
+            Err(update_error) => {
+                std::fs::create_dir_all(package_cache.as_host_raw())
+                    .with_context(|| format!("failed to create directory {package_cache:?}"))?;
+                if let Err(e2) = std::fs::File::create(failed_marker.as_host_raw())
+                    .with_context(|| format!("failed to create file {failed_marker:?}"))
+                {
+                    warn(e2);
+                }
+                let cached = package_cache.join(format!("{package_name}.tar"));
                 let use_stale = match try_exists(&cached)
                     .with_context(|| format!("error while checking if {cached:?} exists"))
                 {
@@ -387,12 +416,13 @@ impl Cubicle {
                     }
                 };
                 if use_stale {
-                    warn(e.context(format!("using stale version of {package_name}")));
+                    warn(update_error.context(format!("using stale version of {package_name}")));
                     Ok(())
                 } else {
-                    Err(e)
+                    Err(update_error)
                 }
-            })
+            }
+        }
     }
 
     fn update_package_(
@@ -583,6 +613,7 @@ impl Cubicle {
             #[serde(serialize_with = "time_serialize")]
             edited: SystemTime,
             dir: PathBuf,
+            last_build_failed: bool,
             origin: String,
             size: Option<u64>,
         }
@@ -604,6 +635,7 @@ impl Cubicle {
                     }
                 };
                 let edited = summarize_dir(&spec.dir)?.last_modified;
+                let last_build_failed = self.package_build_failed(&name)?;
                 Ok((
                     name,
                     Package {
@@ -626,6 +658,7 @@ impl Cubicle {
                             .collect(),
                         dir: spec.dir.as_host_raw().to_owned(),
                         edited,
+                        last_build_failed,
                         origin: spec.origin,
                         size,
                     },
@@ -653,13 +686,16 @@ impl Cubicle {
                     .unwrap();
                 let now = SystemTime::now();
                 println!(
-                    "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}",
-                    "name", "origin", "size", "built", "edited",
+                    "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
+                    "name", "origin", "size", "built", "edited", "status"
                 );
-                println!("{0:-<nw$}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}", "");
+                println!(
+                    "{0:-<nw$}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}  {0:-<8}",
+                    ""
+                );
                 for (name, package) in packages {
                     println!(
-                        "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}",
+                        "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
                         name,
                         package.origin,
                         match package.size {
@@ -671,6 +707,11 @@ impl Cubicle {
                             None => String::from("N/A"),
                         },
                         rel_time(now.duration_since(package.edited).ok()),
+                        if package.last_build_failed {
+                            "failed"
+                        } else {
+                            "ok"
+                        },
                     );
                 }
             }
