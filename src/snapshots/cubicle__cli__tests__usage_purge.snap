@@ -9,8 +9,13 @@ USAGE:
     cub purge <NAMES>...
 
 ARGS:
-    <NAMES>...    Environment name(s)
+    <NAMES>...
+            Environment name(s).
+            
+            Wildcards are allowed: `?` matches a single character and `*` matches zero or more
+            characters.
 
 OPTIONS:
-    -h, --help    Print help information. Use --help for more details
+    -h, --help
+            Print help information. Use --help for more details
 

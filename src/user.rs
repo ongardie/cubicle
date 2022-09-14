@@ -40,7 +40,7 @@ impl User {
     }
 
     fn username_from_environment(&self, env: &EnvironmentName) -> Username {
-        Username::new(format!("{}{}", self.username_prefix, env))
+        Username::new(format!("{}{}", self.username_prefix, env.as_str()))
     }
 
     fn user_exists(&self, username: &Username) -> Result<bool> {
@@ -363,7 +363,7 @@ impl Runner for User {
         std::fs::create_dir_all(&self.work_tars.as_host_raw()).todo_context()?;
         let work_tar = self.work_tars.join(format!(
             "{}-{}.tar",
-            env_name,
+            env_name.as_str(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

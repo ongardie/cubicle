@@ -6,14 +6,16 @@
 
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
+use std::borrow::Borrow;
 use std::collections::BTreeSet;
-use std::fmt::Display;
+use std::fmt::{self, Debug, Display};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use wildmatch::WildMatch;
 
 use cubicle::hidden::host_home_dir;
-use cubicle::somehow::{Context, Error, Result};
+use cubicle::somehow::{somehow as anyhow, warn, Context, Error, Result};
 use cubicle::{
     Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet, Quiet,
     ShouldPackageUpdate, UpdatePackagesConditions,
@@ -68,14 +70,20 @@ enum Commands {
     #[clap(arg_required_else_help(true))]
     Enter {
         /// Environment name.
-        name: EnvironmentName,
+        ///
+        /// Wildcards are allowed: `?` matches a single character and `*`
+        /// matches zero or more characters.
+        name: EnvironmentPattern,
     },
 
     /// Run a command in an existing environment.
     #[clap(arg_required_else_help(true))]
     Exec {
         /// Environment name.
-        name: EnvironmentName,
+        ///
+        /// Wildcards are allowed: `?` matches a single character and `*`
+        /// matches zero or more characters.
+        name: EnvironmentPattern,
         /// Command and arguments to run.
         #[clap(last = true, required(true))]
         command: Vec<String>,
@@ -99,6 +107,11 @@ enum Commands {
         #[clap(long)]
         enter: bool,
         /// Comma-separated names of packages to inject into home directory.
+        ///
+        /// If omitted, uses the "default" package.
+        ///
+        /// Wildcards are allowed: `?` matches a single character and `*`
+        /// matches zero or more characters.
         #[clap(long, use_value_delimiter(true))]
         packages: Option<Vec<String>>,
         /// New environment name.
@@ -109,24 +122,42 @@ enum Commands {
     #[clap(arg_required_else_help(true))]
     Purge {
         /// Environment name(s).
+        ///
+        /// Wildcards are allowed: `?` matches a single character and `*`
+        /// matches zero or more characters.
         #[clap(required(true))]
-        names: Vec<EnvironmentName>,
+        names: Vec<EnvironmentPattern>,
     },
 
     /// Recreate an environment (keeping only its work directory).
     #[clap(arg_required_else_help(true))]
     Reset {
         /// Comma-separated names of packages to inject into home directory.
+        ///
+        /// If omitted, uses the packages from the `package.txt` file in the
+        /// environment's work directory. This is automatically written when
+        /// the environment is created or reset.
+        ///
+        /// Wildcards are allowed: `?` matches a single character and `*`
+        /// matches zero or more characters.
         #[clap(long, use_value_delimiter(true))]
         packages: Option<Vec<String>>,
         /// Environment name(s).
+        ///
+        /// Wildcards are allowed: `?` matches a single character and `*`
+        /// matches zero or more characters.
         #[clap(required(true))]
-        names: Vec<EnvironmentName>,
+        names: Vec<EnvironmentPattern>,
     },
 
     /// Create and enter a new temporary environment.
     Tmp {
         /// Comma-separated names of packages to inject into home directory.
+        ///
+        /// If omitted, uses the "default" package.
+        ///
+        /// Wildcards are allowed: `?` matches a single character and `*`
+        /// matches zero or more characters.
         #[clap(long, use_value_delimiter(true))]
         packages: Option<Vec<String>>,
     },
@@ -150,7 +181,7 @@ enum PackageCommands {
         /// dependencies.
         #[clap(long)]
         clean: bool,
-        /// Build dependencies only if required
+        /// Build dependencies only if required.
         ///
         /// By default, this command will re-build dependencies if they are
         /// stale. With this flag, it will only build dependencies if they are
@@ -158,6 +189,9 @@ enum PackageCommands {
         #[clap(long)]
         skip_deps: bool,
         /// Package name(s).
+        ///
+        /// Wildcards are allowed: `?` matches a single character and `*`
+        /// matches zero or more characters.
         packages: Vec<String>,
     },
 }
@@ -232,7 +266,7 @@ impl AsRef<Path> for PathWithVarExpansion {
 
 impl Display for PathWithVarExpansion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.sub_home_prefix(host_home_dir()).fmt(f)
+        Display::fmt(&self.sub_home_prefix(host_home_dir()), f)
     }
 }
 
@@ -253,17 +287,33 @@ fn default_config_path() -> PathWithVarExpansion {
     PathWithVarExpansion(xdg_config_home.join("cubicle.toml"))
 }
 
-fn package_set_from_names(names: Vec<String>) -> Result<PackageNameSet> {
-    let mut set: PackageNameSet = BTreeSet::new();
-    for name in names {
-        let name = name.trim();
-        if name.is_empty() {
+fn package_set_from_patterns(
+    patterns: &[String],
+    names: BTreeSet<PackageName>,
+) -> Result<PackageNameSet> {
+    let mut unmatched = names;
+    let mut matched = PackageNameSet::new();
+    for pattern_str in patterns {
+        let pattern_str = pattern_str.trim();
+        if pattern_str.is_empty() {
             continue;
         }
-        let name = PackageName::from_str(name)?;
-        set.insert(name);
+        let pattern = GlobPattern::new(pattern_str.to_owned());
+        let start = matched.len();
+        matched.extend(drain_filter(&mut unmatched, |name| {
+            pattern.matches(name.borrow())
+        }));
+        if matched.len() == start && !matched.iter().all(|name| pattern.matches(name.borrow())) {
+            if pattern.is_pattern() {
+                warn(anyhow!(
+                    "pattern {pattern_str:?} did not match any package names"
+                ));
+            } else {
+                return Err(anyhow!("package {pattern_str:?} not found"));
+            }
+        }
     }
-    Ok(set)
+    Ok(matched)
 }
 
 fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
@@ -345,15 +395,22 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
     use Commands::*;
     match args.command {
         Completions { shell } => write_completions(shell, &mut io::stdout()),
-        Enter { name } => program.enter_environment(&name),
-        Exec { name, command } => program.exec_environment(&name, &command),
+        Enter { name } => {
+            program.enter_environment(&name.matching_environment(program.get_environment_names()?)?)
+        }
+        Exec { name, command } => program.exec_environment(
+            &name.matching_environment(program.get_environment_names()?)?,
+            &command,
+        ),
         List { format } => program.list_environments(format),
         New {
             name,
             enter,
             packages,
         } => {
-            let packages = packages.map(package_set_from_names).transpose()?;
+            let packages = packages
+                .map(|packages| package_set_from_patterns(&packages, program.get_package_names()?))
+                .transpose()?;
             program.new_environment(&name, packages.as_ref())?;
             if enter {
                 program.enter_environment(&name)?;
@@ -362,21 +419,25 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
         }
         Package(command) => run_package_command(command, program),
         Purge { names } => {
-            for name in names {
+            for name in matching_environments(&names, program.get_environment_names()?)? {
                 program.purge_environment(&name, Quiet(false))?;
             }
             Ok(())
         }
         // TODO: rename
         Reset { names, packages } => {
-            let packages = packages.map(package_set_from_names).transpose()?;
-            for name in &names {
-                program.reset_environment(name, packages.as_ref())?;
+            let packages = packages
+                .map(|packages| package_set_from_patterns(&packages, program.get_package_names()?))
+                .transpose()?;
+            for name in matching_environments(&names, program.get_environment_names()?)? {
+                program.reset_environment(&name, packages.as_ref())?;
             }
             Ok(())
         }
         Tmp { packages } => {
-            let packages = packages.map(package_set_from_names).transpose()?;
+            let packages = packages
+                .map(|packages| package_set_from_patterns(&packages, program.get_package_names()?))
+                .transpose()?;
             program.create_enter_tmp_environment(packages.as_ref())
         }
     }
@@ -393,7 +454,7 @@ fn run_package_command(command: PackageCommands, program: &Cubicle) -> Result<()
             packages,
         } => {
             use ShouldPackageUpdate::*;
-            let packages = package_set_from_names(packages)?;
+            let packages = package_set_from_patterns(&packages, program.get_package_names()?)?;
             if clean {
                 for package in &packages {
                     program.purge_environment(
@@ -413,6 +474,108 @@ fn run_package_command(command: PackageCommands, program: &Cubicle) -> Result<()
             )
         }
     }
+}
+
+#[derive(Debug)]
+struct GlobPattern {
+    str: String,
+    pattern: Option<WildMatch>,
+}
+
+impl GlobPattern {
+    fn new(str: String) -> Self {
+        let pattern = str.contains(['?', '*']).then(|| WildMatch::new(&str));
+        Self { str, pattern }
+    }
+
+    fn is_pattern(&self) -> bool {
+        self.pattern.is_some()
+    }
+
+    fn matches(&self, s: &str) -> bool {
+        match &self.pattern {
+            Some(pattern) => pattern.matches(s),
+            None => self.str == s,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct EnvironmentPattern(GlobPattern);
+
+impl Display for EnvironmentPattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Debug::fmt(&self.0.str, f)
+    }
+}
+
+impl FromStr for EnvironmentPattern {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(GlobPattern::new(s.to_owned())))
+    }
+}
+
+impl EnvironmentPattern {
+    fn matches(&self, name: &EnvironmentName) -> bool {
+        self.0.matches(name.as_ref())
+    }
+
+    fn matching_environment(&self, names: BTreeSet<EnvironmentName>) -> Result<EnvironmentName> {
+        let mut names = names.into_iter().filter(|name| self.matches(name));
+        match (names.next(), names.next()) {
+            (None, _) => {
+                if self.0.is_pattern() {
+                    Err(anyhow!("pattern {self} matched no environment names"))
+                } else {
+                    Err(anyhow!("environment {self} not found"))
+                }
+            }
+            (Some(name), None) => Ok(name),
+            (Some(_), Some(_)) => Err(anyhow!("pattern {self} matched more than 1 environment")),
+        }
+    }
+}
+
+fn matching_environments(
+    patterns: &[EnvironmentPattern],
+    names: BTreeSet<EnvironmentName>,
+) -> Result<Vec<EnvironmentName>> {
+    let mut unmatched = names;
+    let mut matched = Vec::new();
+    for pattern in patterns {
+        let start = matched.len();
+        matched.extend(drain_filter(&mut unmatched, |name| pattern.matches(name)));
+        if matched.len() == start && !matched.iter().all(|name| pattern.matches(name.borrow())) {
+            if pattern.0.is_pattern() {
+                warn(anyhow!(
+                    "pattern {pattern} did not match any environment names"
+                ));
+            } else {
+                return Err(anyhow!("environment {pattern} not found"));
+            }
+        }
+    }
+    Ok(matched)
+}
+
+// `BTreeSet::drain_filter` isn't stable yet. See <https://github.com/rust-lang/rust/issues/70530>.
+fn drain_filter<T, F>(set: &mut BTreeSet<T>, mut pred: F) -> Vec<T>
+where
+    T: Clone + Ord,
+    F: FnMut(&T) -> bool,
+{
+    let mut matches = Vec::new();
+    for x in set.iter() {
+        if pred(x) {
+            matches.push(x.clone());
+        }
+    }
+    for x in &matches {
+        set.remove(x);
+    }
+    matches
 }
 
 #[cfg(test)]
@@ -460,6 +623,44 @@ mod tests {
         );
     }
 
+    fn debug(x: &dyn Debug) -> String {
+        format!("{x:?}")
+    }
+
+    #[test]
+    fn package_set_from_patterns() {
+        let names = || {
+            PackageNameSet::from([
+                PackageName::from_str("foo").unwrap(),
+                PackageName::from_str("foobar").unwrap(),
+            ])
+        };
+        assert_eq!(
+            debug(&super::package_set_from_patterns(&[], names())),
+            "Ok({})"
+        );
+        assert_eq!(
+            debug(&super::package_set_from_patterns(
+                &[String::from("foo")],
+                names()
+            )),
+            "Ok({PackageName(\"foo\")})"
+        );
+        assert_eq!(
+            debug(&super::package_set_from_patterns(
+                &[String::from("foo*"), String::from("bar*")],
+                names()
+            )),
+            "Ok({PackageName(\"foo\"), PackageName(\"foobar\")})"
+        );
+        assert_eq!(
+            super::package_set_from_patterns(&[String::from("foo*"), String::from("baz")], names())
+                .unwrap_err()
+                .debug_without_backtrace(),
+            "package \"baz\" not found"
+        );
+    }
+
     #[test]
     fn usage() {
         for cmd in [
@@ -491,5 +692,88 @@ mod tests {
             let buf = String::from_utf8(buf).unwrap();
             assert_snapshot!(format!("write_completions_{shell}"), buf);
         }
+    }
+
+    #[test]
+    fn matching_environment() {
+        let names = || {
+            BTreeSet::<EnvironmentName>::from([
+                EnvironmentName::from_str("foo").unwrap(),
+                EnvironmentName::from_str("foobar").unwrap(),
+            ])
+        };
+        assert_eq!(
+            EnvironmentPattern::from_str("x")
+                .unwrap()
+                .matching_environment(names())
+                .unwrap_err()
+                .debug_without_backtrace(),
+            "environment \"x\" not found"
+        );
+        assert_eq!(
+            EnvironmentPattern::from_str("bar*")
+                .unwrap()
+                .matching_environment(names())
+                .unwrap_err()
+                .debug_without_backtrace(),
+            "pattern \"bar*\" matched no environment names"
+        );
+        assert_eq!(
+            EnvironmentPattern::from_str("fo?")
+                .unwrap()
+                .matching_environment(names())
+                .unwrap()
+                .to_string(),
+            "\"foo\""
+        );
+        assert_eq!(
+            EnvironmentPattern::from_str("foo*")
+                .unwrap()
+                .matching_environment(names())
+                .unwrap_err()
+                .debug_without_backtrace(),
+            "pattern \"foo*\" matched more than 1 environment"
+        );
+    }
+
+    #[test]
+    fn matching_environments() {
+        let names = || {
+            BTreeSet::<EnvironmentName>::from([
+                EnvironmentName::from_str("foo").unwrap(),
+                EnvironmentName::from_str("foobar").unwrap(),
+            ])
+        };
+        assert_eq!(debug(&super::matching_environments(&[], names())), "Ok([])");
+        assert_eq!(
+            debug(&super::matching_environments(
+                &[EnvironmentPattern::from_str("foo").unwrap()],
+                names()
+            )),
+            "Ok([EnvironmentName(\"foo\")])"
+        );
+        assert_eq!(
+            debug(&super::matching_environments(
+                &[
+                    EnvironmentPattern::from_str("foo*").unwrap(),
+                    EnvironmentPattern::from_str("bar*").unwrap(),
+                    EnvironmentPattern::from_str("*").unwrap(),
+                ],
+                names()
+            )),
+            "Ok([EnvironmentName(\"foo\"), EnvironmentName(\"foobar\")])"
+        );
+        assert_eq!(
+            super::matching_environments(
+                &[
+                    EnvironmentPattern::from_str("foo*").unwrap(),
+                    EnvironmentPattern::from_str("baz").unwrap(),
+                ],
+                names()
+            )
+            .unwrap_err()
+            .debug_without_backtrace(),
+            "environment \"baz\" not found"
+        );
     }
 }

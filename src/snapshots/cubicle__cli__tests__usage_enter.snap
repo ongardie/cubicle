@@ -9,8 +9,13 @@ USAGE:
     cub enter <NAME>
 
 ARGS:
-    <NAME>    Environment name
+    <NAME>
+            Environment name.
+            
+            Wildcards are allowed: `?` matches a single character and `*` matches zero or more
+            characters.
 
 OPTIONS:
-    -h, --help    Print help information. Use --help for more details
+    -h, --help
+            Print help information. Use --help for more details
 

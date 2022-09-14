@@ -11,7 +11,8 @@
 
 use std::fmt::{self, Debug, Display};
 
-/// The normal return type for functions that may fail with `somehow`.
+/// The normal return type for functions that may fail with
+/// [`somehow`](mod@crate::somehow).
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Return type with a [`LowLevelError`] that lacks context.
@@ -44,7 +45,7 @@ impl Error {
         let mut buf = String::new();
         write!(buf, "{:?}", self.0).unwrap();
         if let Some(i) = buf.find("\n\nStack backtrace:\n") {
-            buf.truncate(i + 1);
+            buf.truncate(i);
         }
         buf
     }
@@ -271,14 +272,34 @@ impl From<Error> for Box<dyn std::error::Error + Send + Sync + 'static> {
     }
 }
 
-pub(crate) fn warn(error: Error) {
-    println!("WARNING: {error:?}");
+/// Print a warning to stderr.
+pub fn warn(error: Error) {
+    eprintln!("WARNING: {error:?}");
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Context, Error, Result};
     use insta::assert_snapshot;
+
+    #[test]
+    fn debug_without_backtrace() {
+        assert_snapshot!(
+            somehow!("ants in pants").debug_without_backtrace(),
+            @"ants in pants"
+        );
+        assert_snapshot!(
+            somehow!("ants in pants")
+                .context("checking for ants")
+                .debug_without_backtrace(),
+            @r###"
+        checking for ants
+
+        Caused by:
+            ants in pants
+        "###
+        );
+    }
 
     #[derive(Debug)]
     struct MyError;

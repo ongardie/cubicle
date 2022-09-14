@@ -56,7 +56,7 @@ pub fn simulate_satisfy(deps: &[&str]) -> Result<Summary> {
 
     lazy_static! {
         static ref RE: Regex = RegexBuilder::new(
-            r#"^([0-9]+) upgraded, ([0-9]+) newly installed, ([0-9]+) to remove, and ([0-9]+) not upgraded.$"#
+            r#"^([0-9]+) upgraded, ([0-9]+) newly installed, ([0-9]+) to remove and ([0-9]+) not upgraded.$"#
         )
         .multi_line(true)
         .build()

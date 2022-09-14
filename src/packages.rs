@@ -2,9 +2,8 @@ use clap::ValueEnum;
 use serde::Serialize;
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
+use std::fmt::{self, Debug, Display};
 use std::io::{self, BufRead, Write};
-use std::iter;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::SystemTime;
@@ -89,9 +88,9 @@ fn transitive_depends(
             visited.insert(p.clone());
             let spec = specs.get(p).ok_or_else(|| match needed_by {
                 Some(other) => {
-                    anyhow!("could not find package definition for {p:?}, needed by {other:?}")
+                    anyhow!("could not find package definition for {p}, needed by {other}")
                 }
-                None => anyhow!("could not find package definition for {p:?}"),
+                None => anyhow!("could not find package definition for {p}"),
             })?;
             for q in spec.manifest.root_depends().keys() {
                 visit(
@@ -204,7 +203,8 @@ impl Cubicle {
         Ok(())
     }
 
-    fn scan_package_names(&self) -> Result<PackageNameSet> {
+    /// Returns a list of available packages.
+    pub fn get_package_names(&self) -> Result<PackageNameSet> {
         let mut names = PackageNameSet::new();
         let mut add = |dir: &HostPath| -> Result<()> {
             for name in try_iterdir(dir)? {
@@ -364,19 +364,48 @@ impl Cubicle {
         Ok(false)
     }
 
+    fn package_build_failed(&self, package_name: &PackageName) -> Result<bool> {
+        let failed_marker = &self
+            .shared
+            .package_cache
+            .join(format!("{package_name}.failed"));
+        try_exists(failed_marker)
+            .with_context(|| format!("error while checking if {failed_marker:?} exists"))
+    }
+
     fn update_package(
         &self,
         package_name: &PackageName,
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> Result<()> {
-        self.update_package_(package_name, spec, specs)
+        let package_cache = &self.shared.package_cache;
+        let failed_marker = package_cache.join(format!("{package_name}.failed"));
+
+        match self
+            .update_package_(package_name, spec, specs)
             .with_context(|| format!("failed to update package: {package_name}"))
-            .or_else(|e| {
-                let cached = self
-                    .shared
-                    .package_cache
-                    .join(format!("{package_name}.tar"));
+        {
+            Ok(_) => {
+                if let Err(e) = std::fs::remove_file(failed_marker.as_host_raw()) {
+                    if e.kind() != io::ErrorKind::NotFound {
+                        return Err(e).context(format!(
+                            "failed to remove file {failed_marker:?} after \
+                            successfully updating package {package_name:?}"
+                        ));
+                    }
+                }
+                Ok(())
+            }
+            Err(update_error) => {
+                std::fs::create_dir_all(package_cache.as_host_raw())
+                    .with_context(|| format!("failed to create directory {package_cache:?}"))?;
+                if let Err(e2) = std::fs::File::create(failed_marker.as_host_raw())
+                    .with_context(|| format!("failed to create file {failed_marker:?}"))
+                {
+                    warn(e2);
+                }
+                let cached = package_cache.join(format!("{package_name}.tar"));
                 let use_stale = match try_exists(&cached)
                     .with_context(|| format!("error while checking if {cached:?} exists"))
                 {
@@ -387,12 +416,13 @@ impl Cubicle {
                     }
                 };
                 if use_stale {
-                    warn(e.context(format!("using stale version of {package_name}")));
+                    warn(update_error.context(format!("using stale version of {package_name}")));
                     Ok(())
                 } else {
-                    Err(e)
+                    Err(update_error)
                 }
-            })
+            }
+        }
     }
 
     fn update_package_(
@@ -514,7 +544,8 @@ impl Cubicle {
         specs: &PackageSpecs,
     ) -> Result<()> {
         println!("Testing {package_name} package");
-        let test_name = EnvironmentName::from_str(&format!("test-package-{package_name}")).unwrap();
+        let test_name =
+            EnvironmentName::from_str(&format!("test-package-{}", package_name.as_str())).unwrap();
 
         self.runner.purge(&test_name)?;
 
@@ -562,35 +593,11 @@ impl Cubicle {
         self.runner.purge(&test_name)
     }
 
-    /// Corresponds to `cub package list`.
-    pub fn list_packages(&self, format: ListPackagesFormat) -> Result<()> {
-        type Format = ListPackagesFormat;
-
-        if format == Format::Names {
-            // fast path for shell completions
-            for name in self.scan_package_names()? {
-                println!("{}", name);
-            }
-            return Ok(());
-        }
-
-        #[derive(Debug, Serialize)]
-        struct Package {
-            build_depends: BTreeMap<String, Vec<String>>,
-            #[serde(serialize_with = "time_serialize_opt")]
-            built: Option<SystemTime>,
-            depends: BTreeMap<String, Vec<String>>,
-            #[serde(serialize_with = "time_serialize")]
-            edited: SystemTime,
-            dir: PathBuf,
-            origin: String,
-            size: Option<u64>,
-        }
-
-        let specs = self.scan_packages()?;
-        let packages = specs
+    /// Returns details of available packages.
+    pub fn get_packages(&self) -> Result<BTreeMap<PackageName, PackageDetails>> {
+        self.scan_packages()?
             .into_iter()
-            .map(|(name, spec)| -> Result<(PackageName, Package)> {
+            .map(|(name, spec)| -> Result<(PackageName, PackageDetails)> {
                 let (built, size) = {
                     match std::fs::metadata(
                         &self
@@ -604,9 +611,10 @@ impl Cubicle {
                     }
                 };
                 let edited = summarize_dir(&spec.dir)?.last_modified;
+                let last_build_failed = self.package_build_failed(&name)?;
                 Ok((
                     name,
-                    Package {
+                    PackageDetails {
                         build_depends: spec
                             .manifest
                             .build_depends
@@ -626,17 +634,27 @@ impl Cubicle {
                             .collect(),
                         dir: spec.dir.as_host_raw().to_owned(),
                         edited,
+                        last_build_failed,
                         origin: spec.origin,
                         size,
                     },
                 ))
             })
-            .collect::<Result<BTreeMap<_, _>>>()?;
+            .collect::<Result<BTreeMap<_, _>>>()
+    }
 
+    /// Corresponds to `cub package list`.
+    pub fn list_packages(&self, format: ListPackagesFormat) -> Result<()> {
+        use ListPackagesFormat::*;
         match format {
-            Format::Names => unreachable!("handled above"),
+            Names => {
+                for name in self.get_package_names()? {
+                    println!("{}", name);
+                }
+            }
 
-            Format::Json => {
+            Json => {
+                let packages = self.get_packages()?;
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&packages)
@@ -644,23 +662,26 @@ impl Cubicle {
                 );
             }
 
-            Format::Default => {
+            Default => {
+                let packages = self.get_packages()?;
                 let nw = packages
                     .keys()
-                    .map(|name| name.0.len())
-                    .chain(iter::once(10))
+                    .map(|name| name.as_str().len())
                     .max()
-                    .unwrap();
+                    .unwrap_or(10);
                 let now = SystemTime::now();
                 println!(
-                    "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}",
-                    "name", "origin", "size", "built", "edited",
+                    "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
+                    "name", "origin", "size", "built", "edited", "status"
                 );
-                println!("{0:-<nw$}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}", "");
+                println!(
+                    "{0:-<nw$}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}  {0:-<8}",
+                    ""
+                );
                 for (name, package) in packages {
                     println!(
-                        "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}",
-                        name,
+                        "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
+                        name.as_str(),
                         package.origin,
                         match package.size {
                             Some(size) => Bytes(size).to_string(),
@@ -671,6 +692,11 @@ impl Cubicle {
                             None => String::from("N/A"),
                         },
                         rel_time(now.duration_since(package.edited).ok()),
+                        if package.last_build_failed {
+                            "failed"
+                        } else {
+                            "ok"
+                        },
                     );
                 }
             }
@@ -681,7 +707,7 @@ impl Cubicle {
     pub(super) fn read_package_list_from_env(
         &self,
         name: &EnvironmentName,
-    ) -> Result<Option<PackageNameSet>> {
+    ) -> Result<PackageNameSet> {
         let mut buf = Vec::new();
         self.runner
             .copy_out_from_work(name, Path::new("packages.txt"), &mut buf)?;
@@ -694,7 +720,7 @@ impl Cubicle {
             })
             .collect::<Result<PackageNameSet>>()
             .todo_context()?;
-        Ok(Some(names))
+        Ok(names)
     }
 
     pub(super) fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<HostPath>> {
@@ -715,11 +741,12 @@ impl Cubicle {
 ///
 /// Other than '-' and '_' and some non-ASCII characters, values of this type
 /// may not contain whitespace or special characters.
-#[derive(Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageName(String);
 
 impl PackageName {
-    fn as_str(&self) -> &str {
+    /// Returns a string slice representing the package name.
+    pub fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -727,16 +754,6 @@ impl PackageName {
 impl Borrow<str> for PackageName {
     fn borrow(&self) -> &str {
         self.as_str()
-    }
-}
-
-impl fmt::Debug for PackageName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if f.alternate() {
-            f.debug_tuple("PackageName").field(&self.0).finish()
-        } else {
-            write!(f, "`{}`", self.0)
-        }
     }
 }
 
@@ -758,9 +775,9 @@ impl FromStr for PackageName {
     }
 }
 
-impl fmt::Display for PackageName {
+impl Display for PackageName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        Debug::fmt(&self.0, f)
     }
 }
 
@@ -834,7 +851,7 @@ pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::Nam
 
     let mut buf = Vec::new();
     for package in packages.iter() {
-        writeln!(buf, "{package}").todo_context()?;
+        writeln!(buf, "{}", package.as_str()).todo_context()?;
     }
     header.set_size(buf.len() as u64);
     builder
@@ -897,4 +914,35 @@ fn all_debian_packages(specs: &PackageSpecs) -> Result<BTreeSet<String>> {
         }
     }
     Ok(debian_packages)
+}
+
+/// Description of a package as returned by [`Cubicle::get_packages`].
+#[derive(Debug, Serialize)]
+#[non_exhaustive]
+pub struct PackageDetails {
+    /// Map from package namespaces to package names for packages this package
+    /// needs at build-time.
+    pub build_depends: BTreeMap<String, Vec<String>>,
+    #[serde(serialize_with = "time_serialize_opt")]
+    /// The last time the package was successfully built, if available.
+    pub built: Option<SystemTime>,
+    /// Map from package namespaces to package names for packages this package
+    /// needs at build-time and run-time.
+    pub depends: BTreeMap<String, Vec<String>>,
+    #[serde(serialize_with = "time_serialize")]
+    /// The last time the package sources were changed (or `UNIX_EPOCH` if
+    /// unavailable).
+    pub edited: SystemTime,
+    /// The path on the host to the package sources.
+    pub dir: PathBuf,
+    /// If true, the last completed build attempt failed. If false, either the
+    /// last completed build succeeded or no build has yet completed to success
+    /// or failure.
+    pub last_build_failed: bool,
+    /// Where the package sources came from. For package sources shipped with
+    /// Cubicle, this is `"built-in"`. For local packages, it is the name of
+    /// the parent directory above the package source.
+    pub origin: String,
+    /// The size of the last successful package build output, if available.
+    pub size: Option<u64>,
 }

@@ -9,9 +9,16 @@ USAGE:
     cub exec <NAME> [--] <COMMAND>...
 
 ARGS:
-    <NAME>          Environment name
-    <COMMAND>...    Command and arguments to run
+    <NAME>
+            Environment name.
+            
+            Wildcards are allowed: `?` matches a single character and `*` matches zero or more
+            characters.
+
+    <COMMAND>...
+            Command and arguments to run
 
 OPTIONS:
-    -h, --help    Print help information. Use --help for more details
+    -h, --help
+            Print help information. Use --help for more details
 

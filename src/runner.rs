@@ -134,7 +134,7 @@ impl Runner for CheckedRunner {
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
-            "Environment should fully exist before copy_out_from_home"
+            "Environment {name} should fully exist before copy_out_from_home"
         );
         self.0.copy_out_from_home(name, path, w)
     }
@@ -148,7 +148,7 @@ impl Runner for CheckedRunner {
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
-            "Environment should fully exist before copy_out_from_work"
+            "Environment {name} should fully exist before copy_out_from_work"
         );
         self.0.copy_out_from_work(name, path, w)
     }
@@ -157,13 +157,13 @@ impl Runner for CheckedRunner {
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
-            "Environment should not exist before create"
+            "Environment {name} should not exist before create"
         );
         self.0.create(name, init)?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
-            "Environment should fully exist after create"
+            "Environment {name} should fully exist after create"
         );
         Ok(())
     }
@@ -176,7 +176,7 @@ impl Runner for CheckedRunner {
         assert_ne!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
-            "Environment should partially or fully exist before files_summary"
+            "Environment {name} should partially or fully exist before files_summary"
         );
         self.0.files_summary(name)
     }
@@ -185,13 +185,13 @@ impl Runner for CheckedRunner {
         assert_ne!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
-            "Environment should fully exist before stop"
+            "Environment {name} should fully exist before stop"
         );
         self.0.stop(name)?;
         assert_ne!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
-            "Environment should fully exist after stop"
+            "Environment {name} should fully exist after stop"
         );
         Ok(())
     }
@@ -200,13 +200,13 @@ impl Runner for CheckedRunner {
         assert_ne!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
-            "Environment should partially or fully exist before reset"
+            "Environment {name} should partially or fully exist before reset"
         );
         self.0.reset(name, init)?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
-            "Environment should fully exist after reset"
+            "Environment {name} should fully exist after reset"
         );
         Ok(())
     }
@@ -216,7 +216,7 @@ impl Runner for CheckedRunner {
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
-            "Environment should not exist after purge"
+            "Environment {name} should not exist after purge"
         );
         Ok(())
     }
@@ -225,13 +225,13 @@ impl Runner for CheckedRunner {
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
-            "Environment should fully exist before run"
+            "Environment {name} should fully exist before run"
         );
         self.0.run(name, command)?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
-            "Environment should fully exist after run"
+            "Environment {name} should fully exist after run"
         );
         Ok(())
     }
