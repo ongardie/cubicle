@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 
 use super::apt;
-use super::command_ext::{Command, ScopedChild};
+use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::newtype::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
@@ -20,7 +20,7 @@ pub struct Bubblewrap {
 }
 
 struct BwrapArgs<'a> {
-    seed: Option<ChildStdout>,
+    stdin: Option<ChildStdout>,
     bind: &'a [(&'a HostPath, &'a EnvPath)],
     run: &'a RunnerCommand<'a>,
 }
@@ -70,26 +70,32 @@ impl Bubblewrap {
                 .collect::<Vec<&str>>(),
         );
 
-        let mut child: ScopedChild; // this is here so its destructor will reap it later
-        let seed = if seeds.is_empty() {
-            None
-        } else {
-            println!("Packing seed tarball");
-            child = Command::new("pv")
-                .args(["-i", "0.1"])
+        if !seeds.is_empty() {
+            println!("Copying/extracting seed tarball");
+            let mut child = Command::new("pv")
+                .args(["--interval", "0.1"])
                 .args(seeds.iter().map(|s| s.as_host_raw()))
                 .stdout(Stdio::piped())
                 .scoped_spawn()?;
-            Some(child.stdout().take().unwrap())
+            self.bwrap(
+                name,
+                BwrapArgs {
+                    stdin: child.stdout().take(),
+                    bind: &[],
+                    run: &RunnerCommand::Exec(
+                        &["tar", "--ignore-zero", "--directory", "..", "--extract"]
+                            .map(|s| s.to_owned()),
+                    ),
+                },
+            )?;
         };
 
         let init_script_str = "/cubicle-init.sh";
         let init_script = EnvPath::try_from(init_script_str.to_owned()).unwrap();
-
         self.bwrap(
             name,
-            &BwrapArgs {
-                seed,
+            BwrapArgs {
+                stdin: None,
                 bind: &[(script, &init_script)],
                 run: &RunnerCommand::Exec(&[init_script_str.to_owned()]),
             },
@@ -99,7 +105,7 @@ impl Bubblewrap {
     fn bwrap(
         &self,
         name: &EnvironmentName,
-        BwrapArgs { seed, bind, run }: &BwrapArgs,
+        BwrapArgs { stdin, bind, run }: BwrapArgs,
     ) -> Result<()> {
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
@@ -158,14 +164,6 @@ impl Bubblewrap {
                 .arg(env_path.as_env_raw());
         }
 
-        if let Some(file) = seed {
-            command
-                .arg("--file")
-                .arg(get_fd_for_child(file).context(
-                    "failed to set up file descriptor to be inherited by bwrap for seed tarballs",
-                )?)
-                .arg("/dev/shm/seed.tar");
-        }
         command.args(ro_bind_try("/etc"));
         command
             .arg("--bind")
@@ -204,7 +202,20 @@ impl Bubblewrap {
             }
         }
 
-        let status = command.status()?;
+        let status = match stdin {
+            None => command.status(),
+            Some(mut reader) => {
+                command.stdin(Stdio::piped());
+                let mut child = command.scoped_spawn()?;
+                {
+                    let mut writer = child.stdin().take().unwrap();
+                    io::copy(&mut reader, &mut writer).todo_context()?;
+                    // drop writer to close stdin
+                }
+                child.wait()
+            }
+        }?;
+
         if status.success() {
             Ok(())
         } else {
@@ -352,8 +363,8 @@ impl Runner for Bubblewrap {
     fn run(&self, name: &EnvironmentName, run: &RunnerCommand) -> Result<()> {
         self.bwrap(
             name,
-            &BwrapArgs {
-                seed: None,
+            BwrapArgs {
+                stdin: None,
                 bind: &[],
                 run,
             },

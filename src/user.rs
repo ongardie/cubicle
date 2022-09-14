@@ -134,7 +134,7 @@ impl User {
             return Ok(());
         }
 
-        println!("Copying seed tarball");
+        println!("Copying/extracting seed tarball");
         let mut source = Command::new("pv")
             .args(["-i", "0.1"])
             .args(seeds.iter().map(|s| s.as_host_raw()))
