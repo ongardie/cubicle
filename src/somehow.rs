@@ -11,7 +11,8 @@
 
 use std::fmt::{self, Debug, Display};
 
-/// The normal return type for functions that may fail with `somehow`.
+/// The normal return type for functions that may fail with
+/// [`somehow`](mod@crate::somehow).
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Return type with a [`LowLevelError`] that lacks context.

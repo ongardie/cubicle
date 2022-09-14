@@ -4,7 +4,6 @@ use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, BufRead, Write};
-use std::iter;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::SystemTime;
@@ -204,7 +203,8 @@ impl Cubicle {
         Ok(())
     }
 
-    fn scan_package_names(&self) -> Result<PackageNameSet> {
+    /// Returns a list of available packages.
+    pub fn get_package_names(&self) -> Result<PackageNameSet> {
         let mut names = PackageNameSet::new();
         let mut add = |dir: &HostPath| -> Result<()> {
             for name in try_iterdir(dir)? {
@@ -592,36 +592,11 @@ impl Cubicle {
         self.runner.purge(&test_name)
     }
 
-    /// Corresponds to `cub package list`.
-    pub fn list_packages(&self, format: ListPackagesFormat) -> Result<()> {
-        type Format = ListPackagesFormat;
-
-        if format == Format::Names {
-            // fast path for shell completions
-            for name in self.scan_package_names()? {
-                println!("{}", name);
-            }
-            return Ok(());
-        }
-
-        #[derive(Debug, Serialize)]
-        struct Package {
-            build_depends: BTreeMap<String, Vec<String>>,
-            #[serde(serialize_with = "time_serialize_opt")]
-            built: Option<SystemTime>,
-            depends: BTreeMap<String, Vec<String>>,
-            #[serde(serialize_with = "time_serialize")]
-            edited: SystemTime,
-            dir: PathBuf,
-            last_build_failed: bool,
-            origin: String,
-            size: Option<u64>,
-        }
-
-        let specs = self.scan_packages()?;
-        let packages = specs
+    /// Returns details of available packages.
+    pub fn get_packages(&self) -> Result<BTreeMap<PackageName, PackageDetails>> {
+        self.scan_packages()?
             .into_iter()
-            .map(|(name, spec)| -> Result<(PackageName, Package)> {
+            .map(|(name, spec)| -> Result<(PackageName, PackageDetails)> {
                 let (built, size) = {
                     match std::fs::metadata(
                         &self
@@ -638,7 +613,7 @@ impl Cubicle {
                 let last_build_failed = self.package_build_failed(&name)?;
                 Ok((
                     name,
-                    Package {
+                    PackageDetails {
                         build_depends: spec
                             .manifest
                             .build_depends
@@ -664,12 +639,21 @@ impl Cubicle {
                     },
                 ))
             })
-            .collect::<Result<BTreeMap<_, _>>>()?;
+            .collect::<Result<BTreeMap<_, _>>>()
+    }
 
+    /// Corresponds to `cub package list`.
+    pub fn list_packages(&self, format: ListPackagesFormat) -> Result<()> {
+        use ListPackagesFormat::*;
         match format {
-            Format::Names => unreachable!("handled above"),
+            Names => {
+                for name in self.get_package_names()? {
+                    println!("{}", name);
+                }
+            }
 
-            Format::Json => {
+            Json => {
+                let packages = self.get_packages()?;
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&packages)
@@ -677,13 +661,9 @@ impl Cubicle {
                 );
             }
 
-            Format::Default => {
-                let nw = packages
-                    .keys()
-                    .map(|name| name.0.len())
-                    .chain(iter::once(10))
-                    .max()
-                    .unwrap();
+            Default => {
+                let packages = self.get_packages()?;
+                let nw = packages.keys().map(|name| name.0.len()).max().unwrap_or(10);
                 let now = SystemTime::now();
                 println!(
                     "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
@@ -938,4 +918,35 @@ fn all_debian_packages(specs: &PackageSpecs) -> Result<BTreeSet<String>> {
         }
     }
     Ok(debian_packages)
+}
+
+/// Description of a package as returned by [`Cubicle::get_packages`].
+#[derive(Debug, Serialize)]
+#[non_exhaustive]
+pub struct PackageDetails {
+    /// Map from package namespaces to package names for packages this package
+    /// needs at build-time.
+    pub build_depends: BTreeMap<String, Vec<String>>,
+    #[serde(serialize_with = "time_serialize_opt")]
+    /// The last time the package was successfully built, if available.
+    pub built: Option<SystemTime>,
+    /// Map from package namespaces to package names for packages this package
+    /// needs at build-time and run-time.
+    pub depends: BTreeMap<String, Vec<String>>,
+    #[serde(serialize_with = "time_serialize")]
+    /// The last time the package sources were changed (or `UNIX_EPOCH` if
+    /// unavailable).
+    pub edited: SystemTime,
+    /// The path on the host to the package sources.
+    pub dir: PathBuf,
+    /// If true, the last completed build attempt failed. If false, either the
+    /// last completed build succeeded or no build has yet completed to success
+    /// or failure.
+    pub last_build_failed: bool,
+    /// Where the package sources came from. For package sources shipped with
+    /// Cubicle, this is `"built-in"`. For local packages, it is the name of
+    /// the parent directory above the package source.
+    pub origin: String,
+    /// The size of the last successful package build output, if available.
+    pub size: Option<u64>,
 }

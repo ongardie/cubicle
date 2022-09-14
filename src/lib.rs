@@ -20,14 +20,12 @@
 //! program. Skip below to learn about the the library API.
 #![doc = include_str!("../README.md")]
 
-#[doc(no_inline)]
 use clap::ValueEnum;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt;
-use std::iter;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::rc::Rc;
@@ -62,7 +60,7 @@ use os_util::{get_hostname, host_home_dir};
 mod packages;
 use packages::write_package_list_tar;
 pub use packages::{
-    ListPackagesFormat, PackageName, PackageNameSet, PackageSpec, PackageSpecs,
+    ListPackagesFormat, PackageDetails, PackageName, PackageNameSet, PackageSpec, PackageSpecs,
     ShouldPackageUpdate, UpdatePackagesConditions,
 };
 
@@ -222,36 +220,13 @@ impl Cubicle {
         Ok(self.runner.list()?.into_iter().collect())
     }
 
-    /// Corresponds to `cub list`.
-    pub fn list_environments(&self, format: ListFormat) -> Result<()> {
-        let names = self.get_environment_names()?;
-
-        if format == ListFormat::Names {
-            // fast path for shell completions
-            for name in names {
-                println!("{}", name);
-            }
-            return Ok(());
-        }
-
-        #[derive(Debug, Serialize)]
-        struct Env {
-            home_dir: Option<PathBuf>,
-            home_dir_du_error: bool,
-            home_dir_size: u64,
-            #[serde(serialize_with = "time_serialize_opt")]
-            home_dir_mtime: Option<SystemTime>,
-            work_dir: Option<PathBuf>,
-            work_dir_du_error: bool,
-            work_dir_size: u64,
-            #[serde(serialize_with = "time_serialize_opt")]
-            work_dir_mtime: Option<SystemTime>,
-        }
-
-        let envs = names.iter().map(|name| {
-            let summary = match self.runner.files_summary(name) {
-                Ok(summary) => summary,
-                Err(e) => {
+    /// Returns a detailed description of the current environments.
+    pub fn get_environments(&self) -> Result<BTreeMap<EnvironmentName, EnvironmentDetails>> {
+        Ok(self
+            .get_environment_names()?
+            .into_iter()
+            .map(|name| {
+                let summary = self.runner.files_summary(&name).unwrap_or_else(|e| {
                     warn(e.context(format!("failed to summarize disk usage for {name}")));
                     EnvFilesSummary {
                         home_dir_path: None,
@@ -259,30 +234,35 @@ impl Cubicle {
                         work_dir_path: None,
                         work_dir: DirSummary::new_with_errors(),
                     }
-                }
-            };
-            (
-                name,
-                Env {
-                    home_dir: summary.home_dir_path.map(|p| p.as_host_raw().to_owned()),
-                    home_dir_du_error: summary.home_dir.errors,
-                    home_dir_size: summary.home_dir.total_size,
-                    home_dir_mtime: nonzero_time(summary.home_dir.last_modified),
-                    work_dir: summary.work_dir_path.map(|p| p.as_host_raw().to_owned()),
-                    work_dir_du_error: summary.work_dir.errors,
-                    work_dir_size: summary.work_dir.total_size,
-                    work_dir_mtime: nonzero_time(summary.work_dir.last_modified),
-                },
-            )
-        });
+                });
+                (
+                    name,
+                    EnvironmentDetails {
+                        home_dir: summary.home_dir_path.map(|p| p.as_host_raw().to_owned()),
+                        home_dir_du_error: summary.home_dir.errors,
+                        home_dir_size: summary.home_dir.total_size,
+                        home_dir_mtime: nonzero_time(summary.home_dir.last_modified),
+                        work_dir: summary.work_dir_path.map(|p| p.as_host_raw().to_owned()),
+                        work_dir_du_error: summary.work_dir.errors,
+                        work_dir_size: summary.work_dir.total_size,
+                        work_dir_mtime: nonzero_time(summary.work_dir.last_modified),
+                    },
+                )
+            })
+            .collect())
+    }
 
+    /// Corresponds to `cub list`.
+    pub fn list_environments(&self, format: ListFormat) -> Result<()> {
         match format {
-            ListFormat::Names => unreachable!("handled above"),
+            ListFormat::Names => {
+                for name in self.get_environment_names()? {
+                    println!("{}", name);
+                }
+            }
 
             ListFormat::Json => {
-                let envs = envs
-                    .map(|(name, value)| (name.0.clone(), value))
-                    .collect::<BTreeMap<String, _>>();
+                let envs = self.get_environments()?;
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&envs)
@@ -291,12 +271,8 @@ impl Cubicle {
             }
 
             ListFormat::Default => {
-                let nw = names
-                    .iter()
-                    .map(|name| name.0.len())
-                    .chain(iter::once(10))
-                    .max()
-                    .unwrap();
+                let envs = self.get_environments()?;
+                let nw = envs.keys().map(|name| name.0.len()).max().unwrap_or(10);
                 let now = SystemTime::now();
                 println!(
                     "{:<nw$} | {:^24} | {:^24}",
@@ -331,7 +307,6 @@ impl Cubicle {
                 }
             }
         }
-
         Ok(())
     }
 
@@ -527,7 +502,7 @@ impl From<ExitStatusError> for somehow::Error {
 ///
 /// Other than '-' and '_' and some non-ASCII characters, values of this type
 /// may not contain whitespace or special characters.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct EnvironmentName(String);
 
 impl FromStr for EnvironmentName {
@@ -668,6 +643,34 @@ fn nonzero_time(t: SystemTime) -> Option<SystemTime> {
     } else {
         Some(t)
     }
+}
+
+/// Description of an environment as returned by [`Cubicle::get_environments`].
+#[derive(Debug, Serialize)]
+#[non_exhaustive]
+pub struct EnvironmentDetails {
+    /// The path on the host of the environment's home directory, if available.
+    pub home_dir: Option<PathBuf>,
+    /// If true, at least one error was encountered while calculating the
+    /// `home_dir_size` and `home_dir_mtime` fields.
+    pub home_dir_du_error: bool,
+    /// The total size in bytes of `home_dir`.
+    pub home_dir_size: u64,
+    /// The most recent time that `home_dir` or any file or directory within
+    /// it was modified.
+    #[serde(serialize_with = "time_serialize_opt")]
+    pub home_dir_mtime: Option<SystemTime>,
+    /// The path on the host of the environment's work directory, if available.
+    pub work_dir: Option<PathBuf>,
+    /// If true, at least one error was encountered while calculating the
+    /// `work_dir_size` and `work_dir_mtime` fields.
+    pub work_dir_du_error: bool,
+    /// The total size in bytes of `work_dir`.
+    pub work_dir_size: u64,
+    /// The most recent time that `work_dir` or any file or directory within
+    /// it was modified.
+    #[serde(serialize_with = "time_serialize_opt")]
+    pub work_dir_mtime: Option<SystemTime>,
 }
 
 /// These things are public out of convenience but probably shouldn't be.
