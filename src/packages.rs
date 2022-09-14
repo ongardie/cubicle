@@ -2,7 +2,7 @@ use clap::ValueEnum;
 use serde::Serialize;
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
+use std::fmt::{self, Debug, Display};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -88,9 +88,9 @@ fn transitive_depends(
             visited.insert(p.clone());
             let spec = specs.get(p).ok_or_else(|| match needed_by {
                 Some(other) => {
-                    anyhow!("could not find package definition for {p:?}, needed by {other:?}")
+                    anyhow!("could not find package definition for {p}, needed by {other}")
                 }
-                None => anyhow!("could not find package definition for {p:?}"),
+                None => anyhow!("could not find package definition for {p}"),
             })?;
             for q in spec.manifest.root_depends().keys() {
                 visit(
@@ -544,7 +544,8 @@ impl Cubicle {
         specs: &PackageSpecs,
     ) -> Result<()> {
         println!("Testing {package_name} package");
-        let test_name = EnvironmentName::from_str(&format!("test-package-{package_name}")).unwrap();
+        let test_name =
+            EnvironmentName::from_str(&format!("test-package-{}", package_name.as_str())).unwrap();
 
         self.runner.purge(&test_name)?;
 
@@ -663,7 +664,11 @@ impl Cubicle {
 
             Default => {
                 let packages = self.get_packages()?;
-                let nw = packages.keys().map(|name| name.0.len()).max().unwrap_or(10);
+                let nw = packages
+                    .keys()
+                    .map(|name| name.as_str().len())
+                    .max()
+                    .unwrap_or(10);
                 let now = SystemTime::now();
                 println!(
                     "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
@@ -676,7 +681,7 @@ impl Cubicle {
                 for (name, package) in packages {
                     println!(
                         "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
-                        name,
+                        name.as_str(),
                         package.origin,
                         match package.size {
                             Some(size) => Bytes(size).to_string(),
@@ -702,7 +707,7 @@ impl Cubicle {
     pub(super) fn read_package_list_from_env(
         &self,
         name: &EnvironmentName,
-    ) -> Result<Option<PackageNameSet>> {
+    ) -> Result<PackageNameSet> {
         let mut buf = Vec::new();
         self.runner
             .copy_out_from_work(name, Path::new("packages.txt"), &mut buf)?;
@@ -715,7 +720,7 @@ impl Cubicle {
             })
             .collect::<Result<PackageNameSet>>()
             .todo_context()?;
-        Ok(Some(names))
+        Ok(names)
     }
 
     pub(super) fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<HostPath>> {
@@ -736,11 +741,12 @@ impl Cubicle {
 ///
 /// Other than '-' and '_' and some non-ASCII characters, values of this type
 /// may not contain whitespace or special characters.
-#[derive(Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageName(String);
 
 impl PackageName {
-    fn as_str(&self) -> &str {
+    /// Returns a string slice representing the package name.
+    pub fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -748,16 +754,6 @@ impl PackageName {
 impl Borrow<str> for PackageName {
     fn borrow(&self) -> &str {
         self.as_str()
-    }
-}
-
-impl fmt::Debug for PackageName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if f.alternate() {
-            f.debug_tuple("PackageName").field(&self.0).finish()
-        } else {
-            write!(f, "`{}`", self.0)
-        }
     }
 }
 
@@ -779,9 +775,9 @@ impl FromStr for PackageName {
     }
 }
 
-impl fmt::Display for PackageName {
+impl Display for PackageName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        Debug::fmt(&self.0, f)
     }
 }
 
@@ -855,7 +851,7 @@ pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::Nam
 
     let mut buf = Vec::new();
     for package in packages.iter() {
-        writeln!(buf, "{package}").todo_context()?;
+        writeln!(buf, "{}", package.as_str()).todo_context()?;
     }
     header.set_size(buf.len() as u64);
     builder

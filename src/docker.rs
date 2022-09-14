@@ -83,17 +83,29 @@ impl Docker {
     }
 
     fn container_from_environment(&self, env: &EnvironmentName) -> ContainerName {
-        ContainerName::new(format!("{}{}", self.program.config.docker.prefix, env))
+        ContainerName::new(format!(
+            "{}{}",
+            self.program.config.docker.prefix,
+            env.as_str()
+        ))
     }
 
     fn home_volume(&self, env: &EnvironmentName) -> VolumeName {
         assert!(matches!(self.mounts, Volumes));
-        VolumeName::new(format!("{}{}-home", self.program.config.docker.prefix, env))
+        VolumeName::new(format!(
+            "{}{}-home",
+            self.program.config.docker.prefix,
+            env.as_str()
+        ))
     }
 
     fn work_volume(&self, env: &EnvironmentName) -> VolumeName {
         assert!(matches!(self.mounts, Volumes));
-        VolumeName::new(format!("{}{}-work", self.program.config.docker.prefix, env))
+        VolumeName::new(format!(
+            "{}{}-work",
+            self.program.config.docker.prefix,
+            env.as_str()
+        ))
     }
 
     fn is_container(&self, name: &ContainerName) -> Result<bool> {

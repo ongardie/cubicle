@@ -9,6 +9,14 @@ USAGE:
     cub tmp [OPTIONS]
 
 OPTIONS:
-    -h, --help                   Print help information. Use --help for more details
-        --packages <PACKAGES>    Comma-separated names of packages to inject into home directory
+    -h, --help
+            Print help information. Use --help for more details
+
+        --packages <PACKAGES>
+            Comma-separated names of packages to inject into home directory.
+            
+            If omitted, uses the "default" package.
+            
+            Wildcards are allowed: `?` matches a single character and `*` matches zero or more
+            characters.
 

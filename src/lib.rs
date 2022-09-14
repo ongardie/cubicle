@@ -25,7 +25,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
-use std::fmt;
+use std::fmt::{self, Debug, Display};
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::rc::Rc;
@@ -257,7 +257,7 @@ impl Cubicle {
         match format {
             ListFormat::Names => {
                 for name in self.get_environment_names()? {
-                    println!("{}", name);
+                    println!("{}", name.as_str());
                 }
             }
 
@@ -272,7 +272,11 @@ impl Cubicle {
 
             ListFormat::Default => {
                 let envs = self.get_environments()?;
-                let nw = envs.keys().map(|name| name.0.len()).max().unwrap_or(10);
+                let nw = envs
+                    .keys()
+                    .map(|name| name.as_str().len())
+                    .max()
+                    .unwrap_or(10);
                 let now = SystemTime::now();
                 println!(
                     "{:<nw$} | {:^24} | {:^24}",
@@ -290,7 +294,7 @@ impl Cubicle {
                 for (name, env) in envs {
                     println!(
                         "{:<nw$} | {:>9}{} {:>13} | {:>9}{} {:>13}",
-                        name,
+                        name.as_str(),
                         Bytes(env.home_dir_size).to_string(),
                         if env.home_dir_du_error { '+' } else { ' ' },
                         match env.home_dir_mtime {
@@ -420,18 +424,12 @@ impl Cubicle {
             ));
         }
 
-        let (changed, packages) = match packages {
-            Some(packages) => (true, packages.clone()),
-            None => match self
+        let changed = packages.is_some();
+        let packages = match packages {
+            Some(packages) => packages.clone(),
+            None => self
                 .read_package_list_from_env(name)
-                .with_context(|| format!("failed to parse packages.txt from {name}"))?
-            {
-                None => (
-                    true,
-                    PackageNameSet::from([PackageName::from_str("default").unwrap()]),
-                ),
-                Some(packages) => (false, packages),
-            },
+                .with_context(|| format!("failed to parse `packages.txt` from {name}"))?,
         };
 
         let specs = self.scan_packages()?;
@@ -481,7 +479,7 @@ impl ExitStatusError {
 
 impl std::error::Error for ExitStatusError {}
 
-impl fmt::Display for ExitStatusError {
+impl Display for ExitStatusError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -504,6 +502,13 @@ impl From<ExitStatusError> for somehow::Error {
 /// may not contain whitespace or special characters.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct EnvironmentName(String);
+
+impl EnvironmentName {
+    /// Returns a string slice representing the environment name.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 impl FromStr for EnvironmentName {
     type Err = Error;
@@ -537,9 +542,9 @@ impl FromStr for EnvironmentName {
     }
 }
 
-impl fmt::Display for EnvironmentName {
+impl Display for EnvironmentName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        Debug::fmt(&self.0, f)
     }
 }
 
@@ -564,7 +569,7 @@ impl std::convert::AsRef<OsStr> for EnvironmentName {
 impl EnvironmentName {
     /// Returns the name of the environment used to build the package.
     pub fn for_builder_package(package: &PackageName) -> Self {
-        Self::from_str(&format!("package-{package}")).unwrap()
+        Self::from_str(&format!("package-{}", package.as_str())).unwrap()
     }
 }
 
