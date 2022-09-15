@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::fs_util::DirSummary;
 use super::{EnvironmentName, HostPath};
-use crate::somehow::Result;
+use crate::somehow::{Context, Result};
 
 /// Manages isolated operating system environments.
 pub trait Runner {
@@ -136,7 +136,9 @@ impl Runner for CheckedRunner {
             EnvironmentExists::FullyExists,
             "Environment {name} should fully exist before copy_out_from_home"
         );
-        self.0.copy_out_from_home(name, path, w)
+        self.0.copy_out_from_home(name, path, w).with_context(|| {
+            format!("failed to copy {path:?} from environment {name} home directory")
+        })
     }
 
     fn copy_out_from_work(
@@ -150,7 +152,9 @@ impl Runner for CheckedRunner {
             EnvironmentExists::FullyExists,
             "Environment {name} should fully exist before copy_out_from_work"
         );
-        self.0.copy_out_from_work(name, path, w)
+        self.0.copy_out_from_work(name, path, w).with_context(|| {
+            format!("failed to copy {path:?} from environment {name} work directory")
+        })
     }
 
     fn create(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
@@ -159,7 +163,9 @@ impl Runner for CheckedRunner {
             EnvironmentExists::NoEnvironment,
             "Environment {name} should not exist before create"
         );
-        self.0.create(name, init)?;
+        self.0
+            .create(name, init)
+            .with_context(|| format!("failed to create environment {name}"))?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
@@ -169,7 +175,9 @@ impl Runner for CheckedRunner {
     }
 
     fn exists(&self, name: &EnvironmentName) -> Result<EnvironmentExists> {
-        self.0.exists(name)
+        self.0
+            .exists(name)
+            .with_context(|| format!("failed to check if environment {name} exists"))
     }
 
     fn files_summary(&self, name: &EnvironmentName) -> Result<EnvFilesSummary> {
@@ -178,7 +186,9 @@ impl Runner for CheckedRunner {
             EnvironmentExists::NoEnvironment,
             "Environment {name} should partially or fully exist before files_summary"
         );
-        self.0.files_summary(name)
+        self.0
+            .files_summary(name)
+            .with_context(|| format!("failed to summarize filesystem usage for environment {name}"))
     }
 
     fn stop(&self, name: &EnvironmentName) -> Result<()> {
@@ -187,7 +197,9 @@ impl Runner for CheckedRunner {
             EnvironmentExists::NoEnvironment,
             "Environment {name} should fully exist before stop"
         );
-        self.0.stop(name)?;
+        self.0
+            .stop(name)
+            .with_context(|| format!("failed to stop environment {name}"))?;
         assert_ne!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
@@ -202,7 +214,9 @@ impl Runner for CheckedRunner {
             EnvironmentExists::NoEnvironment,
             "Environment {name} should partially or fully exist before reset"
         );
-        self.0.reset(name, init)?;
+        self.0
+            .reset(name, init)
+            .with_context(|| format!("failed to reset environment {name}"))?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,
@@ -212,7 +226,9 @@ impl Runner for CheckedRunner {
     }
 
     fn purge(&self, name: &EnvironmentName) -> Result<()> {
-        self.0.purge(name)?;
+        self.0
+            .purge(name)
+            .with_context(|| format!("failed to purge environment {name}"))?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::NoEnvironment,
@@ -227,7 +243,9 @@ impl Runner for CheckedRunner {
             EnvironmentExists::FullyExists,
             "Environment {name} should fully exist before run"
         );
-        self.0.run(name, command)?;
+        self.0
+            .run(name, command)
+            .with_context(|| format!("failed to run command in environment {name}"))?;
         assert_eq!(
             self.exists(name)?,
             EnvironmentExists::FullyExists,

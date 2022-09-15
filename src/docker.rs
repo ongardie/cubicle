@@ -595,21 +595,22 @@ impl Runner for Docker {
     ) -> Result<()> {
         match &self.mounts {
             BindMounts { home_dirs, .. } => {
+                let home_dir_path = home_dirs.join(env_name);
                 let home_dir = cap_std::fs::Dir::open_ambient_dir(
-                    &home_dirs.join(env_name).as_host_raw(),
+                    &home_dir_path.as_host_raw(),
                     cap_std::ambient_authority(),
                 )
-                .todo_context()?;
-                let mut file = home_dir.open(path).todo_context()?;
-                io::copy(&mut file, w).todo_context()?;
+                .with_context(|| format!("failed to open directory {home_dir_path}"))?;
+                let mut file = home_dir
+                    .open(path)
+                    .with_context(|| format!("failed to open file {}", home_dir_path.join(path)))?;
+                io::copy(&mut file, w).context("failed to copy data")?;
                 Ok(())
             }
 
             Volumes => self
                 .copy_out_from_volume(self.home_volume(env_name), path, w)
-                .with_context(|| {
-                    format!("failed to copy {path:?} from {env_name:?} home directory")
-                }),
+                .enough_context(),
         }
     }
 
@@ -621,20 +622,21 @@ impl Runner for Docker {
     ) -> Result<()> {
         match &self.mounts {
             BindMounts { work_dirs, .. } => {
+                let work_dir_path = work_dirs.join(env_name);
                 let work_dir = cap_std::fs::Dir::open_ambient_dir(
-                    &work_dirs.join(env_name).as_host_raw(),
+                    &work_dir_path.as_host_raw(),
                     cap_std::ambient_authority(),
                 )
-                .todo_context()?;
-                let mut file = work_dir.open(path).todo_context()?;
-                io::copy(&mut file, w).todo_context()?;
+                .with_context(|| format!("failed to open directory {work_dir_path}"))?;
+                let mut file = work_dir
+                    .open(path)
+                    .with_context(|| format!("failed to open file {}", work_dir_path.join(path)))?;
+                io::copy(&mut file, w).context("failed to copy data")?;
                 Ok(())
             }
             Volumes => self
                 .copy_out_from_volume(self.work_volume(env_name), path, w)
-                .with_context(|| {
-                    format!("failed to copy {path:?} from {env_name:?} work directory")
-                }),
+                .enough_context(),
         }
     }
 

@@ -461,12 +461,7 @@ impl Cubicle {
                 })?;
             self.runner
                 .copy_out_from_home(&env_name, Path::new("provides.tar"), &mut file)
-                .with_context(|| {
-                    format!(
-                        "failed to copy package build output from `~/provides.tar` on {env_name} to {:?}",
-                        testing_tar_abs,
-                    )
-                })?;
+                .with_context(|| format!("failed to copy build output for package {package_name} to {testing_tar_abs}"))?;
         }
 
         if let Some(test_script) = &spec.test {
