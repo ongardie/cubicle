@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::io;
 use std::path::Path;
 
@@ -101,7 +100,8 @@ pub struct EnvFilesSummary {
 
 #[derive(Debug)]
 pub struct Init {
-    pub debian_packages: BTreeSet<String>,
+    pub debian_packages: Vec<String>,
+    pub env_vars: Vec<(&'static str, String)>,
     pub seeds: Vec<HostPath>,
     pub script: HostPath,
 }

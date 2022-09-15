@@ -3,12 +3,14 @@ use std::collections::BTreeMap;
 use std::io;
 use std::str::FromStr;
 
-use super::{HostPath, PackageNamespace};
+use super::{HostPath, PackageName, PackageNamespace};
 use crate::somehow::{Context, LowLevelResult, Result};
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TomlManifest {
+    #[serde(default)]
+    package_manager: bool,
     #[serde(default)]
     depends: BTreeMap<String, DependencyOrTable>,
     #[serde(default)]
@@ -29,8 +31,9 @@ pub struct Dependency {}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Manifest {
-    pub depends: BTreeMap<PackageNamespace, BTreeMap<String, Dependency>>,
-    pub build_depends: BTreeMap<PackageNamespace, BTreeMap<String, Dependency>>,
+    pub package_manager: bool,
+    pub depends: BTreeMap<PackageNamespace, BTreeMap<PackageName, Dependency>>,
+    pub build_depends: BTreeMap<PackageNamespace, BTreeMap<PackageName, Dependency>>,
 }
 
 impl Manifest {
@@ -56,14 +59,6 @@ impl Manifest {
         };
         Ok(Some(parse(&buf)?))
     }
-
-    pub fn root_depends(&self) -> &BTreeMap<String, Dependency> {
-        self.depends.get(PackageNamespace::root()).unwrap()
-    }
-
-    pub fn root_build_depends(&self) -> &BTreeMap<String, Dependency> {
-        self.build_depends.get(PackageNamespace::root()).unwrap()
-    }
 }
 
 fn parse(buf: &str) -> Result<Manifest> {
@@ -73,6 +68,7 @@ fn parse(buf: &str) -> Result<Manifest> {
 
 fn convert(manifest: TomlManifest) -> Result<Manifest> {
     Ok(Manifest {
+        package_manager: manifest.package_manager,
         depends: convert_depends(manifest.depends)?,
         build_depends: convert_depends(manifest.build_depends)?,
     })
@@ -80,21 +76,28 @@ fn convert(manifest: TomlManifest) -> Result<Manifest> {
 
 fn convert_depends(
     deps: BTreeMap<String, DependencyOrTable>,
-) -> Result<BTreeMap<PackageNamespace, BTreeMap<String, Dependency>>> {
+) -> Result<BTreeMap<PackageNamespace, BTreeMap<PackageName, Dependency>>> {
     let mut map = BTreeMap::new();
-    let mut root = BTreeMap::<String, Dependency>::new();
+    let mut root = BTreeMap::<PackageName, Dependency>::new();
     for (key, value) in deps {
         match value {
             DependencyOrTable::Dependency(dep) => {
-                root.insert(key, dep);
+                root.insert(PackageName::from_str(&key)?, dep);
             }
             DependencyOrTable::Table(table) => {
-                map.insert(PackageNamespace::from_str(&key)?, table);
+                map.insert(PackageNamespace::from_str(&key)?, convert_table(table)?);
             }
         }
     }
-    map.insert(PackageNamespace::root_owned(), root);
+    map.insert(PackageNamespace::Root, root);
     Ok(map)
+}
+
+fn convert_table(table: BTreeMap<String, Dependency>) -> Result<BTreeMap<PackageName, Dependency>> {
+    table
+        .into_iter()
+        .map(|(name, dep)| Ok((PackageName::from_str(&name)?, dep)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -106,14 +109,16 @@ mod tests {
     fn parse() {
         assert_eq!(
             Manifest {
-                depends: BTreeMap::from([(PackageNamespace::root_owned(), BTreeMap::new())]),
-                build_depends: BTreeMap::from([(PackageNamespace::root_owned(), BTreeMap::new())]),
+                package_manager: false,
+                depends: BTreeMap::from([(PackageNamespace::Root, BTreeMap::new())]),
+                build_depends: BTreeMap::from([(PackageNamespace::Root, BTreeMap::new())]),
             },
             super::parse("").unwrap()
         );
 
         assert_debug_snapshot!(
             super::parse("
+                package_manager = true
                 [depends]
                 x = {}
                 y = {}
@@ -128,30 +133,35 @@ mod tests {
             ).unwrap(),
             @r###"
         Manifest {
+            package_manager: true,
             depends: {
-                PackageNamespace(
-                    "cubicle",
-                ): {
-                    "x": Dependency,
-                    "y": Dependency,
+                Root: {
+                    PackageName(
+                        "x",
+                    ): Dependency,
+                    PackageName(
+                        "y",
+                    ): Dependency,
                 },
-                PackageNamespace(
-                    "debian",
-                ): {
-                    "ca-certificates": Dependency,
+                Debian: {
+                    PackageName(
+                        "ca-certificates",
+                    ): Dependency,
                 },
             },
             build_depends: {
-                PackageNamespace(
-                    "cubicle",
-                ): {
-                    "z": Dependency,
+                Root: {
+                    PackageName(
+                        "z",
+                    ): Dependency,
                 },
-                PackageNamespace(
-                    "debian",
-                ): {
-                    "clang": Dependency,
-                    "cmake": Dependency,
+                Debian: {
+                    PackageName(
+                        "clang",
+                    ): Dependency,
+                    PackageName(
+                        "cmake",
+                    ): Dependency,
                 },
             },
         }

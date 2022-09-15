@@ -17,7 +17,7 @@ use wildmatch::WildMatch;
 use cubicle::hidden::host_home_dir;
 use cubicle::somehow::{somehow as anyhow, warn, Context, Error, Result};
 use cubicle::{
-    Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet, Quiet,
+    Cubicle, EnvironmentName, FullPackageName, ListFormat, ListPackagesFormat, Quiet,
     ShouldPackageUpdate, UpdatePackagesConditions,
 };
 
@@ -289,28 +289,34 @@ fn default_config_path() -> PathWithVarExpansion {
 
 fn package_set_from_patterns(
     patterns: &[String],
-    names: BTreeSet<PackageName>,
-) -> Result<PackageNameSet> {
-    let mut unmatched = names;
-    let mut matched = PackageNameSet::new();
+    names: BTreeSet<FullPackageName>,
+) -> Result<BTreeSet<FullPackageName>> {
+    let names: Vec<(String, FullPackageName)> = names
+        .into_iter()
+        .map(|name| (name.unquoted(), name))
+        .collect();
+    let mut matched = BTreeSet::new();
     for pattern_str in patterns {
         let pattern_str = pattern_str.trim();
         if pattern_str.is_empty() {
             continue;
         }
         let pattern = GlobPattern::new(pattern_str.to_owned());
-        let start = matched.len();
-        matched.extend(drain_filter(&mut unmatched, |name| {
-            pattern.matches(name.borrow())
-        }));
-        if matched.len() == start && !matched.iter().all(|name| pattern.matches(name.borrow())) {
-            if pattern.is_pattern() {
+        if pattern.is_pattern() {
+            let mut matched_some = false;
+            for (unquoted, name) in &names {
+                if pattern.matches(unquoted) {
+                    matched.insert(name.clone());
+                    matched_some = true;
+                }
+            }
+            if !matched_some {
                 warn(anyhow!(
                     "pattern {pattern_str:?} did not match any package names"
                 ));
-            } else {
-                return Err(anyhow!("package {pattern_str:?} not found"));
             }
+        } else {
+            matched.insert(FullPackageName::from_str(pattern_str)?);
         }
     }
     Ok(matched)
@@ -581,7 +587,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use insta::{assert_display_snapshot, assert_snapshot};
+    use insta::{assert_debug_snapshot, assert_display_snapshot, assert_snapshot};
 
     #[test]
     fn sub_home_prefix() {
@@ -623,41 +629,87 @@ mod tests {
         );
     }
 
-    fn debug(x: &dyn Debug) -> String {
-        format!("{x:?}")
-    }
-
     #[test]
     fn package_set_from_patterns() {
         let names = || {
-            PackageNameSet::from([
-                PackageName::from_str("foo").unwrap(),
-                PackageName::from_str("foobar").unwrap(),
+            BTreeSet::from([
+                FullPackageName::from_str("foo").unwrap(),
+                FullPackageName::from_str("foobar").unwrap(),
             ])
         };
-        assert_eq!(
-            debug(&super::package_set_from_patterns(&[], names())),
-            "Ok({})"
-        );
-        assert_eq!(
-            debug(&super::package_set_from_patterns(
+        assert_debug_snapshot!(&super::package_set_from_patterns(&[], names()), @r###"
+        Ok(
+            {},
+        )
+        "###);
+        assert_debug_snapshot!(
+            &super::package_set_from_patterns(
                 &[String::from("foo")],
                 names()
-            )),
-            "Ok({PackageName(\"foo\")})"
+            ),
+            @r###"
+        Ok(
+            {
+                FullPackageName(
+                    Root,
+                    PackageName(
+                        "foo",
+                    ),
+                ),
+            },
+        )
+        "###
         );
-        assert_eq!(
-            debug(&super::package_set_from_patterns(
+        assert_debug_snapshot!(
+            &super::package_set_from_patterns(
                 &[String::from("foo*"), String::from("bar*")],
                 names()
-            )),
-            "Ok({PackageName(\"foo\"), PackageName(\"foobar\")})"
+            ),
+            @r###"
+        Ok(
+            {
+                FullPackageName(
+                    Root,
+                    PackageName(
+                        "foo",
+                    ),
+                ),
+                FullPackageName(
+                    Root,
+                    PackageName(
+                        "foobar",
+                    ),
+                ),
+            },
+        )
+        "###
         );
-        assert_eq!(
-            super::package_set_from_patterns(&[String::from("foo*"), String::from("baz")], names())
-                .unwrap_err()
-                .debug_without_backtrace(),
-            "package \"baz\" not found"
+        assert_debug_snapshot!(
+            super::package_set_from_patterns(&[String::from("foo*"), String::from("baz")], names()),
+            @r###"
+        Ok(
+            {
+                FullPackageName(
+                    Root,
+                    PackageName(
+                        "baz",
+                    ),
+                ),
+                FullPackageName(
+                    Root,
+                    PackageName(
+                        "foo",
+                    ),
+                ),
+                FullPackageName(
+                    Root,
+                    PackageName(
+                        "foobar",
+                    ),
+                ),
+            },
+        )
+        "###
         );
     }
 
@@ -744,24 +796,47 @@ mod tests {
                 EnvironmentName::from_str("foobar").unwrap(),
             ])
         };
-        assert_eq!(debug(&super::matching_environments(&[], names())), "Ok([])");
-        assert_eq!(
-            debug(&super::matching_environments(
+        assert_debug_snapshot!(&super::matching_environments(&[], names()), @r###"
+        Ok(
+            [],
+        )
+        "###);
+        assert_debug_snapshot!(
+            &super::matching_environments(
                 &[EnvironmentPattern::from_str("foo").unwrap()],
                 names()
-            )),
-            "Ok([EnvironmentName(\"foo\")])"
+            ),
+            @r###"
+        Ok(
+            [
+                EnvironmentName(
+                    "foo",
+                ),
+            ],
+        )
+        "###
         );
-        assert_eq!(
-            debug(&super::matching_environments(
+        assert_debug_snapshot!(
+            &super::matching_environments(
                 &[
                     EnvironmentPattern::from_str("foo*").unwrap(),
                     EnvironmentPattern::from_str("bar*").unwrap(),
                     EnvironmentPattern::from_str("*").unwrap(),
                 ],
                 names()
-            )),
-            "Ok([EnvironmentName(\"foo\"), EnvironmentName(\"foobar\")])"
+            ),
+            @r###"
+        Ok(
+            [
+                EnvironmentName(
+                    "foo",
+                ),
+                EnvironmentName(
+                    "foobar",
+                ),
+            ],
+        )
+        "###
         );
         assert_eq!(
             super::matching_environments(

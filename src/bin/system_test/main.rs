@@ -13,10 +13,11 @@ use clap::Parser;
 use cubicle::config::Config;
 use cubicle::somehow::{somehow as anyhow, Context, Result};
 use cubicle::{
-    Cubicle, EnvironmentName, ListFormat, ListPackagesFormat, PackageName, PackageNameSet, Quiet,
+    Cubicle, EnvironmentName, FullPackageName, ListFormat, ListPackagesFormat, Quiet,
     ShouldPackageUpdate, UpdatePackagesConditions,
 };
 use insta::assert_snapshot;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -45,7 +46,7 @@ fn rewrite<P: AsRef<Path>>(path: P) -> Result<()> {
 fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> Result<()> {
     cub.purge_environment(test_env, Quiet(false))?;
 
-    let not_exist = PackageNameSet::from([PackageName::from_str("does-not-exist")?]);
+    let not_exist = BTreeSet::from([FullPackageName::from_str("does-not-exist")?]);
 
     // cub new --packages=does-not-exist
     let err = cub
@@ -81,7 +82,7 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
     );
 
     // cub reset --packages=does-not-exist
-    cub.new_environment(test_env, Some(&PackageNameSet::new()))?;
+    cub.new_environment(test_env, Some(&BTreeSet::new()))?;
     cub.exec_environment(test_env, &[String::from("touch"), String::from("../foo")])?;
     let err = cub
         .reset_environment(test_env, Some(&not_exist))
@@ -129,19 +130,19 @@ fn main() -> Result<()> {
     let cub = Cubicle::new(config)?;
 
     let test_env = EnvironmentName::from_str("system_test")?;
-    let configs_pkg = PackageName::from_str("configs")?;
+    let configs_pkg = FullPackageName::from_str("configs")?;
 
     cub.list_environments(ListFormat::Default)?;
 
     test_package_not_found_errors(&cub, &test_env)?;
 
     cub.purge_environment(&test_env, Quiet(false))?;
-    cub.new_environment(&test_env, Some(&PackageNameSet::new()))?;
+    cub.new_environment(&test_env, Some(&BTreeSet::new()))?;
     cub.exec_environment(&test_env, &["ls", "-l", ".."].map(String::from))?;
     cub.reset_environment(&test_env, None)?;
 
     cub.purge_environment(&test_env, Quiet(false))?;
-    cub.new_environment(&test_env, Some(&PackageNameSet::from([configs_pkg])))?;
+    cub.new_environment(&test_env, Some(&BTreeSet::from([configs_pkg])))?;
     cub.exec_environment(&test_env, &["ls", "-al", ".."].map(String::from))?;
     // This should cause the configs package to be rebuilt.
     rewrite(project_root.join("packages/configs/update.sh"))?;
@@ -152,7 +153,7 @@ fn main() -> Result<()> {
     cub.purge_environment(&test_env, Quiet(false))?;
 
     cub.list_packages(ListPackagesFormat::Default)?;
-    let packages = PackageNameSet::from([PackageName::from_str("no-op")?]);
+    let packages = BTreeSet::from([FullPackageName::from_str("no-op")?]);
     cub.update_packages(
         &packages,
         &cub.scan_packages()?,

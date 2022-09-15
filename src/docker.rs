@@ -159,7 +159,7 @@ impl Docker {
         Ok(envs)
     }
 
-    fn build_base(&self, debian_packages: &BTreeSet<String>) -> LowLevelResult<()> {
+    fn build_base(&self, debian_packages: &[String]) -> LowLevelResult<()> {
         let mut child = Command::new("docker")
             .args(["build", "--tag", &self.base_image, "-"])
             .stdin(Stdio::piped())
@@ -299,9 +299,10 @@ impl Docker {
         &self,
         env_name: &EnvironmentName,
         Init {
+            debian_packages,
+            env_vars,
             script,
             seeds,
-            debian_packages,
         }: &Init,
     ) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
@@ -331,7 +332,11 @@ impl Docker {
             format!("failed to copy package seeds into Docker container {container_name:?}")
         })?;
 
-        self.run(env_name, &RunnerCommand::Exec(&[script_path.to_owned()]))
+        self.run_with_env_vars(
+            env_name,
+            &RunnerCommand::Exec(&[script_path.to_owned()]),
+            env_vars,
+        )
     }
 
     fn list_volumes(&self) -> Result<Vec<VolumeName>> {
@@ -584,6 +589,58 @@ impl Docker {
         }
         Ok(())
     }
+
+    fn run_with_env_vars(
+        &self,
+        env_name: &EnvironmentName,
+        run_command: &RunnerCommand,
+        env_vars: &[(&'static str, String)],
+    ) -> Result<()> {
+        let container_name = self.container_from_environment(env_name);
+        assert!(self.is_container(&container_name)?);
+
+        let mut command = Command::new("docker");
+        command.arg("exec");
+
+        command.args(["--env", "DISPLAY"]);
+        command
+            .arg("--env")
+            .arg(fallback_path(&self.container_home));
+        command.args(["--env", "SHELL"]);
+        command.args(["--env", "USER"]);
+        command.args(["--env", "TERM"]);
+        for (var, value) in env_vars {
+            command.arg("--env").arg(format!("{}={}", var, value));
+        }
+
+        command.arg("--interactive");
+
+        // If we really don't have a TTY, Docker will exit with status 1 when
+        // we request one.
+        if atty::is(atty::Stream::Stdin)
+            || atty::is(atty::Stream::Stdout)
+            || atty::is(atty::Stream::Stderr)
+        {
+            command.arg("--tty");
+        }
+
+        command.arg(&container_name);
+        command.args([&self.program.shell, "-l"]);
+        match run_command {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec(exec) => {
+                command.arg("-c");
+                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
+            }
+        }
+
+        let status = command.status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ExitStatusError::new(status, "docker exec").into())
+        }
+    }
 }
 
 impl Runner for Docker {
@@ -828,45 +885,7 @@ impl Runner for Docker {
     }
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
-        let container_name = self.container_from_environment(env_name);
-        assert!(self.is_container(&container_name)?);
-
-        let mut command = Command::new("docker");
-        command.arg("exec");
-        command.args(["--env", "DISPLAY"]);
-        command
-            .arg("--env")
-            .arg(fallback_path(&self.container_home));
-        command.args(["--env", "SHELL"]);
-        command.args(["--env", "USER"]);
-        command.args(["--env", "TERM"]);
-        command.arg("--interactive");
-
-        // If we really don't have a TTY, Docker will exit with status 1 when
-        // we request one.
-        if atty::is(atty::Stream::Stdin)
-            || atty::is(atty::Stream::Stdout)
-            || atty::is(atty::Stream::Stderr)
-        {
-            command.arg("--tty");
-        }
-
-        command.arg(&container_name);
-        command.args([&self.program.shell, "-l"]);
-        match run_command {
-            RunnerCommand::Interactive => {}
-            RunnerCommand::Exec(exec) => {
-                command.arg("-c");
-                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
-            }
-        }
-
-        let status = command.status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(ExitStatusError::new(status, "docker exec").into())
-        }
+        self.run_with_env_vars(env_name, run_command, &[])
     }
 }
 
