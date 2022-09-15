@@ -445,7 +445,7 @@ impl Cubicle {
         )
         .with_context(|| format!("failed to open directory {package_cache:?}"))?;
 
-        let testing_tar_name = format!("{package_name}.testing.tar");
+        let testing_tar_name = format!("{}.testing.tar", package_name.as_str());
         let testing_tar_abs = package_cache.join(&testing_tar_name);
         {
             let mut file = package_cache_dir
