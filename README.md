@@ -25,6 +25,11 @@ Cubicle can run on top of any of these isolation mechanisms, called _runners_:
   permissions. See the [User accounts-specific docs](docs/User.md) for details,
   including security implications and installation instructions.
 
+Since Cubicle environments are created and recreated often, it's helpful to
+inject configuration and program files into them. This allows you to use a new
+container right away and not grow attached to it. See <docs/Pacages.md> for
+details on Cubicle package management.
+
 Cubicle is in early stages of development and is likely to change frequently in
 incompatible ways. Users should review the Git commits to see what's changed
 before upgrading.
@@ -99,72 +104,6 @@ outside the sandbox. Cubicle may not meet this goal, at least depending on the
 environment and the enforcement mechanism used. Cubicle does offer a meaningful
 layer of security when compared to running untrusted software directly on your
 host.
-
-## Cubicle Packages
-
-Since Cubicle environments are created and recreated often, it's helpful to
-inject configuration and program files into them. This allows you to use a
-new container right away and not grow attached to them.
-
-The current package format is pretty simple. A package definition is named
-after its directory. It must contain one or more of these files:
-
-- `package.toml`: A required [TOML](https://toml.io/)-formatted file with the
-  following keys:
-
-  - `depends`: An object keyed by package names with values of `{}`. Both the
-    package builder environment and the new environments that depend on this
-    package will be seeded with the listed packages.
-
-  - `build_depends`: An object keyed by package names with values of `{}`. The
-    package builder environment will be seeded with the listed packages, but
-    other environments that depend on this package will not.
-
-- `update.sh`: An optional executable that is run in a package builder
-  environment to produce the package files. The script may download software,
-  unpack it, compile it, set up configuration files, etc. It should create an
-  archive at `~/provides.tar` that Cubicle will later unpack in the target
-  environments' home directories. Note that `update.sh` runs when the package
-  builder environment is first created and also when the package builder
-  environment is updated. The package builder environments are kept around as a
-  form of caching.
-
-- `test.sh`: An optional executable that is run in a clean environment to
-  sanity check the package output files. The test environment is seeded with
-  the package's dependencies, the package output files, and the package source
-  directory (except `update.sh`).
-
-These files and any other files in the package directory are injected into the
-work directory of the package builder environment.
-
-If the package provides any executable files within `~/.dev-init/`, these will
-be run upon creating and resetting target environments.
-
-Packages are built automatically when they are first used, and they are updated
-when they are used if:
-
-- 12 hours have elapsed (to change this, set `auto_update` to `never`, `1h`,
-  `3.5 days`, etc in the configuration file),
-- their package definitions have changed, or
-- one of their dependencies or build-dependencies has been updated more
-  recently.
-
-Cubicle looks for package definitions in the following locations:
-
-1. Local packages in `${XDG_DATA_HOME:-~/.local/share}/cubicle/packages/*/`.
-2. Built-in packages in the Cubicle source code's `packages/` directory.
-
-If a package with the same name appears in multiple locations, the first one is
-used and the others are ignored. The sort order of the names of the containing
-directories is significant for local packages, so you may want to create
-`00local` to come first.
-
-The package named "default" is used for new environments when a package list is
-not otherwise specified.
-
-The package named "auto" and its dependencies are automatically included in
-every environment except those that "auto" itself transitively depends upon.
-This is useful for configuration files, for example.
 
 ### Related Projects
 
