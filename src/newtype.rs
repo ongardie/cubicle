@@ -36,6 +36,7 @@ pub(crate) use name;
 mod private_paths {
     use crate::somehow::{somehow as anyhow, Error, Result};
     use std::ffi::OsString;
+    use std::fmt;
     use std::path::{Path, PathBuf};
 
     /// Defines a type similar to, but incompatible with, a `PathBuf`.
@@ -101,6 +102,12 @@ mod private_paths {
                 type Error = Error;
                 fn try_from(s: String) -> Result<Self> {
                     Self::try_from(PathBuf::from(s))
+                }
+            }
+
+            impl fmt::Display for $name {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    fmt::Debug::fmt(&self.0, f)
                 }
             }
         };

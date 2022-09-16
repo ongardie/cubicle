@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::Stdio;
@@ -216,9 +215,10 @@ impl User {
         &self,
         env_name: &EnvironmentName,
         Init {
+            debian_packages,
+            env_vars,
             seeds,
             script,
-            debian_packages,
         }: &Init,
     ) -> Result<()> {
         apt::check_satisfied(
@@ -244,10 +244,66 @@ impl User {
         let script_tar_path = HostPath::try_from(script_tar.path().to_owned())?;
         seeds.push(&script_tar_path);
         self.copy_in_seeds(&username, &seeds)?;
-        self.run(
+        self.run_with_env_vars(
             env_name,
             &RunnerCommand::Exec(&["../.cubicle-init-script".to_owned()]),
+            env_vars,
         )
+    }
+
+    fn run_with_env_vars(
+        &self,
+        env_name: &EnvironmentName,
+        run_command: &RunnerCommand,
+        env_vars: &[(&'static str, String)],
+    ) -> Result<()> {
+        let username = self.username_from_environment(env_name);
+
+        let mut command = Command::new("sudo");
+        command
+            .env_clear()
+            .env("SANDBOX", &env_name)
+            .env("SHELL", &self.program.shell);
+        if let Ok(display) = std::env::var("DISPLAY") {
+            command.env("DISPLAY", display);
+        }
+        if let Ok(term) = std::env::var("TERM") {
+            command.env("TERM", term);
+        }
+        for (var, value) in env_vars {
+            command.env(var, value);
+        }
+
+        command
+            // This used to use `--chdir ~//w`, but that was introduced
+            // relatively recently in sudo 1.9.3 (released 2020-09-21).
+            //
+            // The double-slash after `~` appeared to be necessary for sudo
+            // (1.9.5p2). It seems dubious, though.
+            .arg("--login")
+            .args(["--user", &username])
+            .arg("--preserve-env=SANDBOX,SHELL")
+            .arg("--")
+            .arg(&self.program.shell);
+        match run_command {
+            RunnerCommand::Interactive => {
+                command.args(["-c", &format!("cd w && exec {}", self.program.shell)]);
+            }
+            RunnerCommand::Exec(exec) => {
+                command.arg("-c");
+                command.arg(format!(
+                    "cd w && {}",
+                    shlex::join(exec.iter().map(|a| a.as_str()))
+                ));
+            }
+        }
+
+        let status = command.status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ExitStatusError::new(status, "sudo --user").into())
+        }
     }
 }
 
@@ -411,7 +467,8 @@ impl Runner for User {
             self.init(
                 env_name,
                 &Init {
-                    debian_packages: BTreeSet::new(),
+                    debian_packages: Vec::new(),
+                    env_vars: Vec::new(),
                     seeds: vec![work_tar.clone()],
                     script: self.program.script_path.join("dev-init.sh"),
                 },
@@ -455,49 +512,6 @@ impl Runner for User {
     }
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
-        let username = self.username_from_environment(env_name);
-
-        let mut command = Command::new("sudo");
-        command
-            .env_clear()
-            .env("SANDBOX", &env_name)
-            .env("SHELL", &self.program.shell);
-        if let Ok(display) = std::env::var("DISPLAY") {
-            command.env("DISPLAY", display);
-        }
-        if let Ok(term) = std::env::var("TERM") {
-            command.env("TERM", term);
-        }
-
-        command
-            // This used to use `--chdir ~//w`, but that was introduced
-            // relatively recently in sudo 1.9.3 (released 2020-09-21).
-            //
-            // The double-slash after `~` appeared to be necessary for sudo
-            // (1.9.5p2). It seems dubious, though.
-            .arg("--login")
-            .args(["--user", &username])
-            .arg("--preserve-env=SANDBOX,SHELL")
-            .arg("--")
-            .arg(&self.program.shell);
-        match run_command {
-            RunnerCommand::Interactive => {
-                command.args(["-c", &format!("cd w && exec {}", self.program.shell)]);
-            }
-            RunnerCommand::Exec(exec) => {
-                command.arg("-c");
-                command.arg(format!(
-                    "cd w && {}",
-                    shlex::join(exec.iter().map(|a| a.as_str()))
-                ));
-            }
-        }
-
-        let status = command.status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(ExitStatusError::new(status, "sudo --user").into())
-        }
+        self.run_with_env_vars(env_name, run_command, &[])
     }
 }

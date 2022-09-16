@@ -1,2 +1,0 @@
-.cargo/bin/cargo-script
-.cargo/bin/run-cargo-script

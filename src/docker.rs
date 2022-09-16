@@ -159,7 +159,7 @@ impl Docker {
         Ok(envs)
     }
 
-    fn build_base(&self, debian_packages: &BTreeSet<String>) -> LowLevelResult<()> {
+    fn build_base(&self, debian_packages: &[String]) -> LowLevelResult<()> {
         let mut child = Command::new("docker")
             .args(["build", "--tag", &self.base_image, "-"])
             .stdin(Stdio::piped())
@@ -195,10 +195,10 @@ impl Docker {
         let mut command = Command::new("docker");
         command.arg("run");
         command.arg("--detach");
-        command.args(["--env", &format!("SANDBOX={}", env_name)]);
+        command.args(["--env", &format!("SANDBOX={}", env_name.as_str())]);
         command.arg("--hostname");
         match &self.program.hostname {
-            Some(hostname) => command.arg(format!("{env_name}.{hostname}")),
+            Some(hostname) => command.arg(format!("{}.{hostname}", env_name.as_str())),
             None => command.arg(env_name),
         };
         command.arg("--init");
@@ -299,9 +299,10 @@ impl Docker {
         &self,
         env_name: &EnvironmentName,
         Init {
+            debian_packages,
+            env_vars,
             script,
             seeds,
-            debian_packages,
         }: &Init,
     ) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
@@ -331,7 +332,11 @@ impl Docker {
             format!("failed to copy package seeds into Docker container {container_name:?}")
         })?;
 
-        self.run(env_name, &RunnerCommand::Exec(&[script_path.to_owned()]))
+        self.run_with_env_vars(
+            env_name,
+            &RunnerCommand::Exec(&[script_path.to_owned()]),
+            env_vars,
+        )
     }
 
     fn list_volumes(&self) -> Result<Vec<VolumeName>> {
@@ -584,6 +589,58 @@ impl Docker {
         }
         Ok(())
     }
+
+    fn run_with_env_vars(
+        &self,
+        env_name: &EnvironmentName,
+        run_command: &RunnerCommand,
+        env_vars: &[(&'static str, String)],
+    ) -> Result<()> {
+        let container_name = self.container_from_environment(env_name);
+        assert!(self.is_container(&container_name)?);
+
+        let mut command = Command::new("docker");
+        command.arg("exec");
+
+        command.args(["--env", "DISPLAY"]);
+        command
+            .arg("--env")
+            .arg(fallback_path(&self.container_home));
+        command.args(["--env", "SHELL"]);
+        command.args(["--env", "USER"]);
+        command.args(["--env", "TERM"]);
+        for (var, value) in env_vars {
+            command.arg("--env").arg(format!("{}={}", var, value));
+        }
+
+        command.arg("--interactive");
+
+        // If we really don't have a TTY, Docker will exit with status 1 when
+        // we request one.
+        if atty::is(atty::Stream::Stdin)
+            || atty::is(atty::Stream::Stdout)
+            || atty::is(atty::Stream::Stderr)
+        {
+            command.arg("--tty");
+        }
+
+        command.arg(&container_name);
+        command.args([&self.program.shell, "-l"]);
+        match run_command {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec(exec) => {
+                command.arg("-c");
+                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
+            }
+        }
+
+        let status = command.status()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(ExitStatusError::new(status, "docker exec").into())
+        }
+    }
 }
 
 impl Runner for Docker {
@@ -595,21 +652,22 @@ impl Runner for Docker {
     ) -> Result<()> {
         match &self.mounts {
             BindMounts { home_dirs, .. } => {
+                let home_dir_path = home_dirs.join(env_name);
                 let home_dir = cap_std::fs::Dir::open_ambient_dir(
-                    &home_dirs.join(env_name).as_host_raw(),
+                    &home_dir_path.as_host_raw(),
                     cap_std::ambient_authority(),
                 )
-                .todo_context()?;
-                let mut file = home_dir.open(path).todo_context()?;
-                io::copy(&mut file, w).todo_context()?;
+                .with_context(|| format!("failed to open directory {home_dir_path}"))?;
+                let mut file = home_dir
+                    .open(path)
+                    .with_context(|| format!("failed to open file {}", home_dir_path.join(path)))?;
+                io::copy(&mut file, w).context("failed to copy data")?;
                 Ok(())
             }
 
             Volumes => self
                 .copy_out_from_volume(self.home_volume(env_name), path, w)
-                .with_context(|| {
-                    format!("failed to copy {path:?} from {env_name:?} home directory")
-                }),
+                .enough_context(),
         }
     }
 
@@ -621,20 +679,21 @@ impl Runner for Docker {
     ) -> Result<()> {
         match &self.mounts {
             BindMounts { work_dirs, .. } => {
+                let work_dir_path = work_dirs.join(env_name);
                 let work_dir = cap_std::fs::Dir::open_ambient_dir(
-                    &work_dirs.join(env_name).as_host_raw(),
+                    &work_dir_path.as_host_raw(),
                     cap_std::ambient_authority(),
                 )
-                .todo_context()?;
-                let mut file = work_dir.open(path).todo_context()?;
-                io::copy(&mut file, w).todo_context()?;
+                .with_context(|| format!("failed to open directory {work_dir_path}"))?;
+                let mut file = work_dir
+                    .open(path)
+                    .with_context(|| format!("failed to open file {}", work_dir_path.join(path)))?;
+                io::copy(&mut file, w).context("failed to copy data")?;
                 Ok(())
             }
             Volumes => self
                 .copy_out_from_volume(self.work_volume(env_name), path, w)
-                .with_context(|| {
-                    format!("failed to copy {path:?} from {env_name:?} work directory")
-                }),
+                .enough_context(),
         }
     }
 
@@ -826,45 +885,7 @@ impl Runner for Docker {
     }
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
-        let container_name = self.container_from_environment(env_name);
-        assert!(self.is_container(&container_name)?);
-
-        let mut command = Command::new("docker");
-        command.arg("exec");
-        command.args(["--env", "DISPLAY"]);
-        command
-            .arg("--env")
-            .arg(fallback_path(&self.container_home));
-        command.args(["--env", "SHELL"]);
-        command.args(["--env", "USER"]);
-        command.args(["--env", "TERM"]);
-        command.arg("--interactive");
-
-        // If we really don't have a TTY, Docker will exit with status 1 when
-        // we request one.
-        if atty::is(atty::Stream::Stdin)
-            || atty::is(atty::Stream::Stdout)
-            || atty::is(atty::Stream::Stderr)
-        {
-            command.arg("--tty");
-        }
-
-        command.arg(&container_name);
-        command.args([&self.program.shell, "-l"]);
-        match run_command {
-            RunnerCommand::Interactive => {}
-            RunnerCommand::Exec(exec) => {
-                command.arg("-c");
-                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
-            }
-        }
-
-        let status = command.status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(ExitStatusError::new(status, "docker exec").into())
-        }
+        self.run_with_env_vars(env_name, run_command, &[])
     }
 }
 

@@ -1,6 +1,7 @@
 use clap::ValueEnum;
 use serde::Serialize;
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Display};
 use std::io::{self, BufRead, Write};
@@ -15,10 +16,7 @@ use super::fs_util::{
     create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, DirSummary, TarOptions,
 };
 use super::runner::{EnvironmentExists, Init, Runner, RunnerCommand};
-use super::{
-    rel_time, time_serialize, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostPath,
-    RunnerKind,
-};
+use super::{rel_time, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostPath, RunnerKind};
 
 mod manifest;
 use manifest::{Dependency, Manifest};
@@ -73,62 +71,85 @@ pub enum ShouldPackageUpdate {
 struct BuildDepends(bool);
 
 fn transitive_depends(
-    packages: &PackageNameSet,
+    packages: &BTreeSet<FullPackageName>,
     specs: &PackageSpecs,
     build_depends: BuildDepends,
-) -> Result<PackageNameSet> {
-    fn visit(
-        specs: &PackageSpecs,
+) -> Result<BTreeSet<FullPackageName>> {
+    struct Visitor<'a> {
+        specs: &'a PackageSpecs,
         build_depends: BuildDepends,
-        visited: &mut BTreeSet<PackageName>,
-        p: &PackageName,
-        needed_by: Option<&PackageName>,
-    ) -> Result<()> {
-        if !visited.contains(p) {
-            visited.insert(p.clone());
-            let spec = specs.get(p).ok_or_else(|| match needed_by {
-                Some(other) => {
-                    anyhow!("could not find package definition for {p}, needed by {other}")
-                }
-                None => anyhow!("could not find package definition for {p}"),
-            })?;
-            for q in spec.manifest.root_depends().keys() {
-                visit(
-                    specs,
-                    build_depends,
-                    visited,
-                    &PackageName::from_str(q).expect("todo"),
-                    Some(p),
-                )?;
-            }
-            if build_depends.0 {
-                for q in spec.manifest.root_build_depends().keys() {
-                    visit(
-                        specs,
-                        build_depends,
-                        visited,
-                        &PackageName::from_str(q).expect("todo"),
-                        Some(p),
-                    )?;
-                }
-            }
-        }
-        Ok(())
+        visited: BTreeSet<FullPackageName>,
     }
 
-    let mut visited = BTreeSet::new();
-    for p in packages.iter() {
-        visit(specs, build_depends, &mut visited, p, None)?;
+    impl<'a> Visitor<'a> {
+        fn visit(
+            &mut self,
+            p: &FullPackageName,
+            needed_by: Option<&FullPackageName>,
+        ) -> Result<()> {
+            if !self.visited.contains(p) {
+                self.visited.insert(p.clone());
+                let spec = match &p.0 {
+                    PackageNamespace::Debian => {
+                        return Ok(());
+                    }
+                    PackageNamespace::Root => {
+                        self.specs.get(&p.1).ok_or_else(|| match needed_by {
+                            Some(other) => {
+                                anyhow!(
+                                    "could not find package definition for {p}, needed by {other}"
+                                )
+                            }
+                            None => anyhow!("could not find package definition for {p}"),
+                        })?
+                    }
+                    PackageNamespace::Managed(manager) => {
+                        let spec = self.specs.get(manager).ok_or_else(|| match needed_by {
+                        Some(other) => {
+                            anyhow!("could not find package definition for package manager {}, needed by {other}", p.0)
+                        }
+                        None => anyhow!("could not find package definition for {p}"),
+                    })?;
+                        if !spec.manifest.package_manager {
+                            return Err(anyhow!("package {} is not a package manager", p.0));
+                        }
+                        spec
+                    }
+                };
+                for (ns, table) in &spec.manifest.depends {
+                    for name in table.keys() {
+                        self.visit(&FullPackageName(ns.clone(), name.clone()), Some(p))?;
+                    }
+                }
+                if self.build_depends.0 {
+                    for (ns, table) in &spec.manifest.build_depends {
+                        for name in table.keys() {
+                            self.visit(&FullPackageName(ns.clone(), name.clone()), Some(p))?;
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
     }
-    Ok(visited)
+
+    let mut visitor = Visitor {
+        specs,
+        build_depends,
+        visited: BTreeSet::new(),
+    };
+    for p in packages.iter() {
+        visitor.visit(p, None)?;
+    }
+    Ok(visitor.visited)
 }
 
 impl Cubicle {
     pub(super) fn resolve_debian_packages(
         &self,
-        packages: &PackageNameSet,
+        packages: &BTreeSet<FullPackageName>,
         specs: &PackageSpecs,
-    ) -> Result<BTreeSet<String>> {
+    ) -> Result<BTreeSet<PackageName>> {
         let strict = match self.shared.config.runner {
             RunnerKind::Bubblewrap => true,
             RunnerKind::Docker => self.shared.config.docker.strict_debian_packages,
@@ -179,9 +200,9 @@ impl Cubicle {
 
             manifest
                 .depends
-                .get_mut(PackageNamespace::root())
+                .get_mut(&PackageNamespace::Root)
                 .unwrap()
-                .insert(String::from("auto"), Dependency {});
+                .insert(PackageName::from_str("auto").unwrap(), Dependency {});
 
             let test = try_exists(&dir.join("test.sh"))
                 .todo_context()?
@@ -204,12 +225,12 @@ impl Cubicle {
     }
 
     /// Returns a list of available packages.
-    pub fn get_package_names(&self) -> Result<PackageNameSet> {
-        let mut names = PackageNameSet::new();
+    pub fn get_package_names(&self) -> Result<BTreeSet<FullPackageName>> {
+        let mut names = BTreeSet::new();
         let mut add = |dir: &HostPath| -> Result<()> {
             for name in try_iterdir(dir)? {
                 if let Some(name) = name.to_str().and_then(|s| PackageName::from_str(s).ok()) {
-                    names.insert(name);
+                    names.insert(FullPackageName(PackageNamespace::Root, name));
                 }
             }
             Ok(())
@@ -218,6 +239,18 @@ impl Cubicle {
             add(&self.shared.user_package_dir.join(dir))?;
         }
         add(&self.shared.code_package_dir)?;
+
+        names.extend(
+            try_iterdir(&self.shared.package_cache)?
+                .iter()
+                .filter_map(|filename| {
+                    filename
+                        .to_str()
+                        .and_then(|filename| filename.strip_suffix(".tar"))
+                        .and_then(|prefix| FullPackageName::from_str(prefix).ok())
+                }),
+        );
+
         Ok(names)
     }
 
@@ -236,14 +269,23 @@ impl Cubicle {
 
         self.add_packages(&mut specs, &self.shared.code_package_dir, "built-in")?;
 
-        let auto = PackageName::from_str("auto").unwrap();
-        let auto_deps =
-            transitive_depends(&PackageNameSet::from([auto]), &specs, BuildDepends(true))?;
-        for name in auto_deps {
-            let spec = specs.get_mut(&name).unwrap();
+        let auto = FullPackageName::from_str("auto").unwrap();
+        let auto_deps = transitive_depends(&BTreeSet::from([auto]), &specs, BuildDepends(true))?;
+        for FullPackageName(ns, name) in &auto_deps {
+            let spec = match ns {
+                PackageNamespace::Debian => continue,
+                PackageNamespace::Root => specs.get_mut(name).ok_or_else(|| {
+                    anyhow!("package \"auto\" depends on {name} but package not found")
+                }),
+                PackageNamespace::Managed(manager) => specs.get_mut(manager).ok_or_else(|| {
+                    anyhow!(
+                        "package \"auto\" depends on package manager {ns} but package not found"
+                    )
+                }),
+            }?;
             spec.manifest
                 .depends
-                .get_mut(PackageNamespace::root())
+                .get_mut(&PackageNamespace::Root)
                 .unwrap()
                 .remove("auto");
         }
@@ -255,83 +297,109 @@ impl Cubicle {
     /// as requested.
     pub fn update_packages(
         &self,
-        packages: &PackageNameSet,
+        packages: &BTreeSet<FullPackageName>,
         specs: &PackageSpecs,
         conditions: UpdatePackagesConditions,
     ) -> Result<()> {
         let now = SystemTime::now();
-        let mut todo: Vec<PackageName> =
-            Vec::from_iter(transitive_depends(packages, specs, BuildDepends(true))?);
-        let mut done = BTreeSet::new();
+        let mut todo: Vec<FullPackageName> =
+            transitive_depends(packages, specs, BuildDepends(true))?
+                .into_iter()
+                .filter(|FullPackageName(ns, _name)| ns != &PackageNamespace::Debian)
+                .collect();
+        let mut done: BTreeSet<FullPackageName> = BTreeSet::new();
         loop {
             let start_todos = todo.len();
             if start_todos == 0 {
                 return Ok(());
             }
             let mut later = Vec::new();
-            for name in todo {
-                if let Some(spec) = specs.get(&name) {
-                    if spec
-                        .manifest
-                        .root_depends()
-                        .keys()
-                        .all(|dep| done.contains(dep.as_str()))
-                        && spec
-                            .manifest
-                            .root_build_depends()
-                            .keys()
-                            .all(|dep| done.contains(dep.as_str()))
-                    {
-                        let needs_build = {
-                            if spec.update.is_none() {
-                                false
+
+            for full_name in todo {
+                let spec = match &full_name.0 {
+                    PackageNamespace::Debian => unreachable!(),
+                    PackageNamespace::Root => specs.get(&full_name.1).ok_or_else(|| {
+                        anyhow!("could not find definition for package {}", full_name.1)
+                    })?,
+                    PackageNamespace::Managed(manager) => {
+                        let spec = specs.get(manager).ok_or_else(|| {
+                            anyhow!("could not find definition for package manager {manager}")
+                        })?;
+                        if !spec.manifest.package_manager {
+                            return Err(anyhow!("package {manager} is not a package manager"));
+                        }
+                        spec
+                    }
+                };
+
+                let deps_ready = spec
+                    .manifest
+                    .depends
+                    .iter()
+                    .chain(spec.manifest.build_depends.iter())
+                    .all(|(ns, deps)| {
+                        ns == &PackageNamespace::Debian
+                            || deps
+                                .keys()
+                                .all(|dep| done.contains(&FullPackageName(ns.clone(), dep.clone())))
+                    });
+
+                if deps_ready {
+                    let needs_build = {
+                        if spec.update.is_none() {
+                            false
+                        } else {
+                            let when = if packages.contains(&full_name) {
+                                conditions.named
                             } else {
-                                let when = if packages.contains(&name) {
-                                    conditions.named
-                                } else {
-                                    conditions.dependencies
-                                };
-                                match when {
-                                    ShouldPackageUpdate::Always => true,
-                                    ShouldPackageUpdate::IfStale => {
-                                        self.package_is_stale(&name, spec, now)?
-                                    }
-                                    ShouldPackageUpdate::IfRequired => {
-                                        self.last_built(&name).is_none()
-                                    }
+                                conditions.dependencies
+                            };
+                            match when {
+                                ShouldPackageUpdate::Always => true,
+                                ShouldPackageUpdate::IfStale => {
+                                    self.package_is_stale(&full_name, spec, now)?
+                                }
+                                ShouldPackageUpdate::IfRequired => {
+                                    self.last_built(&full_name).is_none()
                                 }
                             }
-                        };
-                        if needs_build {
-                            self.update_package(&name, spec, specs)?;
                         }
-                        done.insert(name);
-                    } else {
-                        later.push(name);
+                    };
+                    if needs_build {
+                        self.update_package(&full_name, spec, specs)?;
                     }
+                    done.insert(full_name);
                 } else {
-                    return Err(anyhow!("could not find package definition for `{name}`"));
+                    later.push(full_name);
                 }
             }
             if later.len() == start_todos {
                 later.sort();
                 return Err(anyhow!(
-                    "package dependencies are unsatisfiable for: {later:?}"
+                    "package dependencies are unsatisfiable for: {}",
+                    later
+                        .iter()
+                        .map(|full_name| full_name.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
             todo = later;
         }
     }
 
-    fn last_built(&self, name: &PackageName) -> Option<SystemTime> {
-        let path = self.shared.package_cache.join(format!("{name}.tar"));
+    fn last_built(&self, name: &FullPackageName) -> Option<SystemTime> {
+        let path = self
+            .shared
+            .package_cache
+            .join(format!("{}.tar", name.as_filename_component()));
         let metadata = std::fs::metadata(path.as_host_raw()).ok()?;
         metadata.modified().ok()
     }
 
     fn package_is_stale(
         &self,
-        package_name: &PackageName,
+        package_name: &FullPackageName,
         spec: &PackageSpec,
         now: SystemTime,
     ) -> Result<bool> {
@@ -350,37 +418,40 @@ impl Cubicle {
         if last_modified > built {
             return Ok(true);
         }
-        for p in spec
+        for (ns, table) in spec
             .manifest
-            .root_build_depends()
-            .keys()
-            .chain(spec.manifest.root_depends().keys())
+            .build_depends
+            .iter()
+            .chain(spec.manifest.depends.iter())
         {
-            let p = PackageName::from_str(p).expect("todo");
-            if matches!(self.last_built(&p), Some(b) if b > built) {
-                return Ok(true);
+            for name in table.keys() {
+                let full_name = FullPackageName(ns.clone(), name.clone());
+                if matches!(self.last_built(&full_name), Some(b) if b > built) {
+                    return Ok(true);
+                }
             }
         }
         Ok(false)
     }
 
-    fn package_build_failed(&self, package_name: &PackageName) -> Result<bool> {
+    fn package_build_failed(&self, package_name: &FullPackageName) -> Result<bool> {
         let failed_marker = &self
             .shared
             .package_cache
-            .join(format!("{package_name}.failed"));
+            .join(format!("{}.failed", package_name.as_filename_component()));
         try_exists(failed_marker)
             .with_context(|| format!("error while checking if {failed_marker:?} exists"))
     }
 
     fn update_package(
         &self,
-        package_name: &PackageName,
+        package_name: &FullPackageName,
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> Result<()> {
         let package_cache = &self.shared.package_cache;
-        let failed_marker = package_cache.join(format!("{package_name}.failed"));
+        let failed_marker =
+            package_cache.join(format!("{}.failed", package_name.as_filename_component()));
 
         match self
             .update_package_(package_name, spec, specs)
@@ -405,7 +476,8 @@ impl Cubicle {
                 {
                     warn(e2);
                 }
-                let cached = package_cache.join(format!("{package_name}.tar"));
+                let cached =
+                    package_cache.join(format!("{}.tar", package_name.as_filename_component()));
                 let use_stale = match try_exists(&cached)
                     .with_context(|| format!("error while checking if {cached:?} exists"))
                 {
@@ -427,7 +499,7 @@ impl Cubicle {
 
     fn update_package_(
         &self,
-        package_name: &PackageName,
+        package_name: &FullPackageName,
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> LowLevelResult<()> {
@@ -445,7 +517,7 @@ impl Cubicle {
         )
         .with_context(|| format!("failed to open directory {package_cache:?}"))?;
 
-        let testing_tar_name = format!("{package_name}.testing.tar");
+        let testing_tar_name = format!("{}.testing.tar", package_name.as_filename_component());
         let testing_tar_abs = package_cache.join(&testing_tar_name);
         {
             let mut file = package_cache_dir
@@ -461,12 +533,7 @@ impl Cubicle {
                 })?;
             self.runner
                 .copy_out_from_home(&env_name, Path::new("provides.tar"), &mut file)
-                .with_context(|| {
-                    format!(
-                        "failed to copy package build output from `~/provides.tar` on {env_name} to {:?}",
-                        testing_tar_abs,
-                    )
-                })?;
+                .with_context(|| format!("failed to copy build output for package {package_name} to {testing_tar_abs}"))?;
         }
 
         if let Some(test_script) = &spec.test {
@@ -474,7 +541,7 @@ impl Cubicle {
                 .with_context(|| format!("error testing package {package_name}"))?;
         }
 
-        let package_tar = format!("{package_name}.tar");
+        let package_tar = format!("{}.tar", package_name.as_filename_component());
         package_cache_dir
             .rename(&testing_tar_name, &package_cache_dir, &package_tar)
             .with_context(|| {
@@ -487,24 +554,28 @@ impl Cubicle {
 
     fn build_package(
         &self,
-        package_name: &PackageName,
+        package_name: &FullPackageName,
         env_name: &EnvironmentName,
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> Result<()> {
-        let packages: PackageNameSet = spec
+        let packages: BTreeSet<FullPackageName> = spec
             .manifest
-            .root_build_depends()
-            .keys()
-            .chain(spec.manifest.root_depends().keys())
-            .map(|name| PackageName::from_str(name).expect("todo"))
+            .build_depends
+            .iter()
+            .chain(spec.manifest.depends.iter())
+            .flat_map(|(ns, table)| {
+                table
+                    .keys()
+                    .map(|name| FullPackageName(ns.clone(), name.clone()))
+            })
             .collect();
 
         let mut debian_packages = self.resolve_debian_packages(&packages, specs)?;
-        if let Some(debian) = spec.manifest.depends.get("debian") {
+        if let Some(debian) = spec.manifest.depends.get(&PackageNamespace::Debian) {
             debian_packages.extend(debian.keys().cloned());
         }
-        if let Some(debian) = spec.manifest.build_depends.get("debian") {
+        if let Some(debian) = spec.manifest.build_depends.get(&PackageNamespace::Debian) {
             debian_packages.extend(debian.keys().cloned());
         }
 
@@ -523,7 +594,15 @@ impl Cubicle {
         seeds.push(HostPath::try_from(tar_file.path().to_owned()).unwrap());
 
         let init = Init {
-            debian_packages,
+            debian_packages: debian_packages
+                .iter()
+                .map(|name| name.as_str().to_owned())
+                .collect(),
+            env_vars: if package_name.0 == PackageNamespace::Root {
+                vec![]
+            } else {
+                vec![("PACKAGE", package_name.1.as_str().to_owned())]
+            },
             seeds,
             script: self.shared.script_path.join("dev-init.sh"),
         };
@@ -537,29 +616,37 @@ impl Cubicle {
 
     fn test_package(
         &self,
-        package_name: &PackageName,
+        package_name: &FullPackageName,
         testing_tar: HostPath,
         test_script: &str,
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> Result<()> {
         println!("Testing {package_name} package");
-        let test_name =
-            EnvironmentName::from_str(&format!("test-package-{}", package_name.as_str())).unwrap();
+        let test_name = EnvironmentName::from_str(&format!(
+            "test-{}",
+            EnvironmentName::for_builder_package(package_name).as_str()
+        ))
+        .unwrap();
 
         self.runner.purge(&test_name)?;
 
-        let packages = spec
+        let packages: BTreeSet<FullPackageName> = spec
             .manifest
-            .root_depends()
-            .keys()
-            .map(|name| PackageName::from_str(name).expect("todo"))
+            .depends
+            .iter()
+            .flat_map(|(ns, table)| {
+                table
+                    .keys()
+                    .map(|name| FullPackageName(ns.clone(), name.clone()))
+            })
             .collect();
+
         let mut seeds = self.packages_to_seeds(&packages)?;
         seeds.push(testing_tar);
 
         let mut debian_packages = self.resolve_debian_packages(&packages, specs)?;
-        if let Some(debian) = spec.manifest.depends.get("debian") {
+        if let Some(debian) = spec.manifest.depends.get(&PackageNamespace::Debian) {
             debian_packages.extend(debian.keys().cloned());
         }
 
@@ -581,7 +668,15 @@ impl Cubicle {
             self.runner.create(
                 &test_name,
                 &Init {
-                    debian_packages,
+                    debian_packages: debian_packages
+                        .iter()
+                        .map(|name| name.as_str().to_owned())
+                        .collect(),
+                    env_vars: if package_name.0 == PackageNamespace::Root {
+                        vec![]
+                    } else {
+                        vec![("PACKAGE", package_name.1.as_str().to_owned())]
+                    },
                     seeds,
                     script: self.shared.script_path.join("dev-init.sh"),
                 },
@@ -594,33 +689,41 @@ impl Cubicle {
     }
 
     /// Returns details of available packages.
-    pub fn get_packages(&self) -> Result<BTreeMap<PackageName, PackageDetails>> {
-        self.scan_packages()?
-            .into_iter()
-            .map(|(name, spec)| -> Result<(PackageName, PackageDetails)> {
-                let (built, size) = {
-                    match std::fs::metadata(
-                        &self
-                            .shared
-                            .package_cache
-                            .join(format!("{name}.tar"))
-                            .as_host_raw(),
-                    ) {
-                        Ok(metadata) => (metadata.modified().ok(), file_size(&metadata)),
-                        Err(_) => (None, None),
-                    }
-                };
-                let edited = summarize_dir(&spec.dir)?.last_modified;
-                let last_build_failed = self.package_build_failed(&name)?;
+    pub fn get_packages(&self) -> Result<BTreeMap<FullPackageName, PackageDetails>> {
+        let metadata = |name: &FullPackageName| -> (Option<SystemTime>, Option<u64>) {
+            match std::fs::metadata(
+                &self
+                    .shared
+                    .package_cache
+                    .join(format!("{}.tar", name.as_filename_component()))
+                    .as_host_raw(),
+            ) {
+                Ok(metadata) => (metadata.modified().ok(), file_size(&metadata)),
+                Err(_) => (None, None),
+            }
+        };
+
+        let root_packages = self.scan_packages()?.into_iter().map(
+            |(name, spec)| -> Result<(FullPackageName, PackageDetails)> {
+                let full_name = FullPackageName(PackageNamespace::Root, name);
+                let (built, size) = metadata(&full_name);
+                let edited = summarize_dir(&spec.dir).ok().map(|s| s.last_modified);
+                let last_build_failed = self.package_build_failed(&full_name)?;
                 Ok((
-                    name,
+                    full_name,
                     PackageDetails {
                         build_depends: spec
                             .manifest
                             .build_depends
                             .into_iter()
                             .map(|(namespace, packages)| {
-                                (namespace.0, packages.into_keys().collect())
+                                (
+                                    namespace.as_str().to_owned(),
+                                    packages
+                                        .into_keys()
+                                        .map(|name| name.as_str().to_owned())
+                                        .collect(),
+                                )
                             })
                             .collect(),
                         built,
@@ -629,18 +732,55 @@ impl Cubicle {
                             .depends
                             .into_iter()
                             .map(|(namespace, packages)| {
-                                (namespace.0, packages.into_keys().collect())
+                                (
+                                    namespace.as_str().to_owned(),
+                                    packages
+                                        .into_keys()
+                                        .map(|name| name.as_str().to_owned())
+                                        .collect(),
+                                )
                             })
                             .collect(),
-                        dir: spec.dir.as_host_raw().to_owned(),
+                        dir: Some(spec.dir.as_host_raw().to_owned()),
                         edited,
                         last_build_failed,
+                        package_manager: spec.manifest.package_manager,
                         origin: spec.origin,
                         size,
                     },
                 ))
+            },
+        );
+
+        let non_root_packages = try_iterdir(&self.shared.package_cache)?
+            .into_iter()
+            .filter_map(|filename| {
+                filename
+                    .to_str()
+                    .and_then(|filename| filename.strip_suffix(".tar"))
+                    .and_then(|prefix| FullPackageName::from_str(prefix).ok())
             })
-            .collect::<Result<BTreeMap<_, _>>>()
+            .filter(|FullPackageName(ns, _name)| ns != &PackageNamespace::Root)
+            .map(|name| {
+                let (built, size) = metadata(&name);
+                let last_build_failed = self.package_build_failed(&name)?;
+                Ok((
+                    name,
+                    PackageDetails {
+                        build_depends: BTreeMap::new(),
+                        built,
+                        depends: BTreeMap::new(),
+                        edited: None,
+                        dir: None,
+                        last_build_failed,
+                        package_manager: false,
+                        origin: String::from("N/A"),
+                        size,
+                    },
+                ))
+            });
+
+        root_packages.chain(non_root_packages).collect()
     }
 
     /// Corresponds to `cub package list`.
@@ -649,7 +789,7 @@ impl Cubicle {
         match format {
             Names => {
                 for name in self.get_package_names()? {
-                    println!("{}", name);
+                    println!("{}", name.unquoted());
                 }
             }
 
@@ -664,24 +804,31 @@ impl Cubicle {
 
             Default => {
                 let packages = self.get_packages()?;
-                let nw = packages
-                    .keys()
-                    .map(|name| name.as_str().len())
-                    .max()
-                    .unwrap_or(10);
+                let names: Vec<String> = packages
+                    .iter()
+                    .map(|(full_name, details)| {
+                        if details.package_manager {
+                            format!("{}.*", full_name.unquoted())
+                        } else {
+                            full_name.unquoted()
+                        }
+                    })
+                    .collect();
+                let nw = names.iter().map(|s| s.len()).max().unwrap_or(10);
+                let ow = packages.values().map(|p| p.origin.len()).max().unwrap_or(8);
                 let now = SystemTime::now();
                 println!(
-                    "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
+                    "{:<nw$}  {:<ow$}  {:>10}  {:>13}  {:>13}  {:>8}",
                     "name", "origin", "size", "built", "edited", "status"
                 );
                 println!(
-                    "{0:-<nw$}  {0:-<8}  {0:-<10}  {0:-<13}  {0:-<13}  {0:-<8}",
+                    "{0:-<nw$}  {0:-<ow$}  {0:-<10}  {0:-<13}  {0:-<13}  {0:-<8}",
                     ""
                 );
-                for (name, package) in packages {
+                for (name, package) in names.iter().zip(packages.values()) {
                     println!(
-                        "{:<nw$}  {:<8}  {:>10}  {:>13}  {:>13}  {:>8}",
-                        name.as_str(),
+                        "{:<nw$}  {:<ow$}  {:>10}  {:>13}  {:>13}  {:>8}",
+                        name,
                         package.origin,
                         match package.size {
                             Some(size) => Bytes(size).to_string(),
@@ -691,7 +838,10 @@ impl Cubicle {
                             Some(built) => rel_time(now.duration_since(built).ok()),
                             None => String::from("N/A"),
                         },
-                        rel_time(now.duration_since(package.edited).ok()),
+                        match package.edited {
+                            Some(edited) => rel_time(now.duration_since(edited).ok()),
+                            None => String::from("N/A"),
+                        },
                         if package.last_build_failed {
                             "failed"
                         } else {
@@ -707,28 +857,34 @@ impl Cubicle {
     pub(super) fn read_package_list_from_env(
         &self,
         name: &EnvironmentName,
-    ) -> Result<PackageNameSet> {
+    ) -> Result<BTreeSet<FullPackageName>> {
         let mut buf = Vec::new();
         self.runner
             .copy_out_from_work(name, Path::new("packages.txt"), &mut buf)?;
         let reader = io::BufReader::new(buf.as_slice());
         let names = reader
             .lines()
-            .map(|name| match name {
-                Ok(name) => PackageName::from_str(&name),
+            .map(|line| match line {
+                Ok(line) => FullPackageName::from_str(&line),
                 Err(e) => Err(e).todo_context(),
             })
-            .collect::<Result<PackageNameSet>>()
+            .collect::<Result<BTreeSet<FullPackageName>>>()
             .todo_context()?;
         Ok(names)
     }
 
-    pub(super) fn packages_to_seeds(&self, packages: &PackageNameSet) -> Result<Vec<HostPath>> {
+    pub(super) fn packages_to_seeds(
+        &self,
+        packages: &BTreeSet<FullPackageName>,
+    ) -> Result<Vec<HostPath>> {
         let mut seeds = Vec::with_capacity(packages.len());
         let specs = self.scan_packages()?;
         let deps = transitive_depends(packages, &specs, BuildDepends(false))?;
-        for package in deps {
-            let provides = self.shared.package_cache.join(format!("{package}.tar"));
+        for name in deps {
+            let provides = self
+                .shared
+                .package_cache
+                .join(format!("{}.tar", name.as_filename_component()));
             if try_exists(&provides).todo_context()? {
                 seeds.push(provides);
             }
@@ -739,7 +895,7 @@ impl Cubicle {
 
 /// The name of a potential Cubicle package.
 ///
-/// Other than '-' and '_' and some non-ASCII characters, values of this type
+/// Other than '-', '_', '.' and some non-ASCII characters, values of this type
 /// may not contain whitespace or special characters.
 #[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageName(String);
@@ -765,7 +921,7 @@ impl FromStr for PackageName {
             return Err(anyhow!("package name cannot be empty"));
         }
         if s.contains(|c: char| {
-            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
+            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_' | '.'))
                 || c.is_control()
                 || c.is_whitespace()
         }) {
@@ -781,25 +937,28 @@ impl Display for PackageName {
     }
 }
 
-/// An ordered set of package names.
-pub type PackageNameSet = BTreeSet<PackageName>;
-
-#[derive(Debug, Clone, Eq, Ord, PartialOrd, PartialEq, Serialize)]
-pub struct PackageNamespace(String);
-
-impl PackageNamespace {
-    fn root() -> &'static str {
-        "cubicle"
-    }
-
-    fn root_owned() -> PackageNamespace {
-        Self(Self::root().to_owned())
-    }
+/// A namespace for packages. See [`FullPackageName`].
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum PackageNamespace {
+    /// Top-level, normal Cubicle packages live here.
+    Root,
+    /// OS-level packages provided by Debian.
+    Debian,
+    /// A special Cubicle package that acts as a package manager to install
+    /// other packages.
+    Managed(PackageName),
 }
 
-impl Borrow<str> for PackageNamespace {
-    fn borrow(&self) -> &str {
-        &self.0
+impl PackageNamespace {
+    /// Returns the namespace as a string.
+    ///
+    /// Note that this may be surprising to users for the `Root` namespace.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Root => "root",
+            Self::Debian => "debian",
+            Self::Managed(package) => package.as_str(),
+        }
     }
 }
 
@@ -819,7 +978,84 @@ impl FromStr for PackageNamespace {
                 "package namespace cannot contain special characters"
             ));
         }
-        Ok(Self(s.to_owned()))
+        Ok(match s {
+            "cubicle" => Self::Root,
+            "debian" => Self::Debian,
+            _ => Self::Managed(PackageName::from_str(s)?),
+        })
+    }
+}
+
+impl Display for PackageNamespace {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Debug::fmt(&self.as_str(), f)
+    }
+}
+
+/// A fully-qualified package name.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FullPackageName(pub PackageNamespace, pub PackageName);
+
+impl PartialOrd for FullPackageName {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// The ordering follows that of `(package)` for the root namespace and
+/// `(namespace, package)` for other namespaces.
+impl Ord for FullPackageName {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // TODO: avoid allocations
+        self.unquoted().cmp(&other.unquoted())
+    }
+}
+
+impl Serialize for FullPackageName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.unquoted().serialize(serializer)
+    }
+}
+
+impl FullPackageName {
+    /// Returns a string representation of the name that a human can probably
+    /// decipher when standing alone.
+    pub fn unquoted(&self) -> String {
+        if self.0 == PackageNamespace::Root {
+            self.1.as_str().to_owned()
+        } else {
+            format!("{}.{}", self.0.as_str(), self.1.as_str())
+        }
+    }
+
+    fn as_filename_component(&self) -> String {
+        self.unquoted()
+    }
+}
+
+impl Display for FullPackageName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0 == PackageNamespace::Root {
+            write!(f, "{:?}", self.1.as_str())
+        } else {
+            write!(f, "\"{}.{}\"", self.0.as_str(), self.1.as_str())
+        }
+    }
+}
+
+impl FromStr for FullPackageName {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(match s.trim().split_once('.') {
+            Some((ns, name)) => Self(
+                PackageNamespace::from_str(ns)?,
+                PackageName::from_str(name)?,
+            ),
+            None => Self(PackageNamespace::Root, PackageName::from_str(s)?),
+        })
     }
 }
 
@@ -835,7 +1071,9 @@ pub enum ListPackagesFormat {
     Names,
 }
 
-pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::NamedTempFile> {
+pub fn write_package_list_tar(
+    packages: &BTreeSet<FullPackageName>,
+) -> Result<tempfile::NamedTempFile> {
     let file = tempfile::NamedTempFile::new().todo_context()?;
     let metadata = file.as_file().metadata().todo_context()?;
     let mut builder = tar::Builder::new(file.as_file());
@@ -850,8 +1088,8 @@ pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::Nam
     }
 
     let mut buf = Vec::new();
-    for package in packages.iter() {
-        writeln!(buf, "{}", package.as_str()).todo_context()?;
+    for name in packages.iter() {
+        writeln!(buf, "{}", name.unquoted()).todo_context()?;
     }
     header.set_size(buf.len() as u64);
     builder
@@ -869,47 +1107,22 @@ pub fn write_package_list_tar(packages: &PackageNameSet) -> Result<tempfile::Nam
 }
 
 fn strict_debian_packages(
-    packages: &PackageNameSet,
+    packages: &BTreeSet<FullPackageName>,
     specs: &PackageSpecs,
-) -> Result<BTreeSet<String>> {
-    fn visit(
-        specs: &PackageSpecs,
-        visited: &mut BTreeSet<PackageName>,
-        debian_packages: &mut BTreeSet<String>,
-        p: &PackageName,
-    ) {
-        if !visited.contains(p) {
-            visited.insert(p.clone());
-            let spec = specs.get(p).expect("todo");
-            if let Some(debian) = spec.manifest.depends.get("debian") {
-                debian_packages.extend(debian.keys().cloned());
-            }
-            for q in spec.manifest.root_depends().keys() {
-                visit(
-                    specs,
-                    visited,
-                    debian_packages,
-                    &PackageName::from_str(q).expect("todo"),
-                );
-            }
-        }
-    }
-
-    let mut visited = BTreeSet::new();
-    let mut debian_packages = BTreeSet::new();
-    for p in packages.iter() {
-        visit(specs, &mut visited, &mut debian_packages, p);
-    }
-    Ok(debian_packages)
+) -> Result<BTreeSet<PackageName>> {
+    Ok(transitive_depends(packages, specs, BuildDepends(false))?
+        .into_iter()
+        .filter_map(|FullPackageName(ns, name)| (ns == PackageNamespace::Debian).then_some(name))
+        .collect())
 }
 
-fn all_debian_packages(specs: &PackageSpecs) -> Result<BTreeSet<String>> {
+fn all_debian_packages(specs: &PackageSpecs) -> Result<BTreeSet<PackageName>> {
     let mut debian_packages = BTreeSet::new();
     for spec in specs.values() {
-        if let Some(debian) = spec.manifest.depends.get("debian") {
+        if let Some(debian) = spec.manifest.depends.get(&PackageNamespace::Debian) {
             debian_packages.extend(debian.keys().cloned());
         }
-        if let Some(debian) = spec.manifest.build_depends.get("debian") {
+        if let Some(debian) = spec.manifest.build_depends.get(&PackageNamespace::Debian) {
             debian_packages.extend(debian.keys().cloned());
         }
     }
@@ -929,20 +1142,37 @@ pub struct PackageDetails {
     /// Map from package namespaces to package names for packages this package
     /// needs at build-time and run-time.
     pub depends: BTreeMap<String, Vec<String>>,
-    #[serde(serialize_with = "time_serialize")]
+    #[serde(serialize_with = "time_serialize_opt")]
     /// The last time the package sources were changed (or `UNIX_EPOCH` if
     /// unavailable).
-    pub edited: SystemTime,
+    pub edited: Option<SystemTime>,
     /// The path on the host to the package sources.
-    pub dir: PathBuf,
+    pub dir: Option<PathBuf>,
     /// If true, the last completed build attempt failed. If false, either the
     /// last completed build succeeded or no build has yet completed to success
     /// or failure.
     pub last_build_failed: bool,
+    /// If false, this is a normal package. If true, it is a meta-package that
+    /// knows how to build many packages.
+    pub package_manager: bool,
     /// Where the package sources came from. For package sources shipped with
     /// Cubicle, this is `"built-in"`. For local packages, it is the name of
     /// the parent directory above the package source.
     pub origin: String,
     /// The size of the last successful package build output, if available.
     pub size: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_package_name_ord() {
+        let mut names =
+            ["d", "c.x", "c", "b", "b.a"].map(|s| FullPackageName::from_str(s).unwrap());
+        names.sort();
+
+        assert_eq!("b b.a c c.x d", names.map(|name| name.unquoted()).join(" "));
+    }
 }

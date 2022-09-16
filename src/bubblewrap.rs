@@ -20,9 +20,10 @@ pub struct Bubblewrap {
 }
 
 struct BwrapArgs<'a> {
-    stdin: Option<ChildStdout>,
     bind: &'a [(&'a HostPath, &'a EnvPath)],
+    env_vars: &'a [(&'static str, String)],
     run: &'a RunnerCommand<'a>,
+    stdin: Option<ChildStdout>,
 }
 
 impl Bubblewrap {
@@ -59,6 +60,7 @@ impl Bubblewrap {
         name: &EnvironmentName,
         Init {
             debian_packages,
+            env_vars,
             seeds,
             script,
         }: &Init,
@@ -80,12 +82,13 @@ impl Bubblewrap {
             self.bwrap(
                 name,
                 BwrapArgs {
-                    stdin: child.stdout().take(),
                     bind: &[],
+                    env_vars: &[],
                     run: &RunnerCommand::Exec(
                         &["tar", "--ignore-zero", "--directory", "..", "--extract"]
                             .map(|s| s.to_owned()),
                     ),
+                    stdin: child.stdout().take(),
                 },
             )?;
         };
@@ -95,9 +98,10 @@ impl Bubblewrap {
         self.bwrap(
             name,
             BwrapArgs {
-                stdin: None,
                 bind: &[(script, &init_script)],
+                env_vars,
                 run: &RunnerCommand::Exec(&[init_script_str.to_owned()]),
+                stdin: None,
             },
         )
     }
@@ -105,7 +109,12 @@ impl Bubblewrap {
     fn bwrap(
         &self,
         name: &EnvironmentName,
-        BwrapArgs { stdin, bind, run }: BwrapArgs,
+        BwrapArgs {
+            bind,
+            env_vars,
+            run,
+            stdin,
+        }: BwrapArgs,
     ) -> Result<()> {
         let host_home = self.home_dirs.join(name);
         let host_work = self.work_dirs.join(name);
@@ -140,6 +149,9 @@ impl Bubblewrap {
             if let Ok(value) = std::env::var(key) {
                 command.env(key, value);
             }
+        }
+        for (var, value) in env_vars {
+            command.env(var, value);
         }
 
         command.arg("--die-with-parent");
@@ -364,9 +376,10 @@ impl Runner for Bubblewrap {
         self.bwrap(
             name,
             BwrapArgs {
-                stdin: None,
+                env_vars: &[],
                 bind: &[],
                 run,
+                stdin: None,
             },
         )
     }

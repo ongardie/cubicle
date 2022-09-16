@@ -60,8 +60,8 @@ use os_util::{get_hostname, host_home_dir};
 mod packages;
 use packages::write_package_list_tar;
 pub use packages::{
-    ListPackagesFormat, PackageDetails, PackageName, PackageNameSet, PackageSpec, PackageSpecs,
-    ShouldPackageUpdate, UpdatePackagesConditions,
+    FullPackageName, ListPackagesFormat, PackageDetails, PackageName, PackageNamespace,
+    PackageSpec, PackageSpecs, ShouldPackageUpdate, UpdatePackagesConditions,
 };
 
 mod command_ext;
@@ -318,7 +318,7 @@ impl Cubicle {
     pub fn new_environment(
         &self,
         name: &EnvironmentName,
-        packages: Option<&PackageNameSet>,
+        packages: Option<&BTreeSet<FullPackageName>>,
     ) -> Result<()> {
         use EnvironmentExists::*;
         match self.runner.exists(name)? {
@@ -341,7 +341,7 @@ impl Cubicle {
         let packages = match packages {
             Some(p) => p,
             None => {
-                default = PackageNameSet::from([PackageName::from_str("default").unwrap()]);
+                default = BTreeSet::from([FullPackageName::from_str("default").unwrap()]);
                 &default
             }
         };
@@ -364,7 +364,11 @@ impl Cubicle {
             .create(
                 name,
                 &Init {
-                    debian_packages,
+                    debian_packages: debian_packages
+                        .iter()
+                        .map(|name| name.as_str().to_owned())
+                        .collect(),
+                    env_vars: Vec::new(),
                     seeds,
                     script: self.shared.script_path.join("dev-init.sh"),
                 },
@@ -373,7 +377,10 @@ impl Cubicle {
     }
 
     /// Corresponds to `cub tmp`.
-    pub fn create_enter_tmp_environment(&self, packages: Option<&PackageNameSet>) -> Result<()> {
+    pub fn create_enter_tmp_environment(
+        &self,
+        packages: Option<&BTreeSet<FullPackageName>>,
+    ) -> Result<()> {
         let name = {
             let name = self
                 .shared
@@ -415,7 +422,7 @@ impl Cubicle {
     pub fn reset_environment(
         &self,
         name: &EnvironmentName,
-        packages: Option<&PackageNameSet>,
+        packages: Option<&BTreeSet<FullPackageName>>,
     ) -> Result<()> {
         if self.runner.exists(name)? == EnvironmentExists::NoEnvironment {
             return Err(anyhow!(
@@ -453,7 +460,11 @@ impl Cubicle {
         self.runner.reset(
             name,
             &Init {
-                debian_packages,
+                debian_packages: debian_packages
+                    .iter()
+                    .map(|name| name.as_str().to_owned())
+                    .collect(),
+                env_vars: Vec::new(),
                 seeds,
                 script: self.shared.script_path.join("dev-init.sh"),
             },
@@ -524,7 +535,7 @@ impl FromStr for EnvironmentName {
                 || c.is_whitespace()
         }) {
             return Err(anyhow!(
-                "environment name cannot contain special characters"
+                "environment name cannot contain special characters (got {s:?})"
             ));
         }
 
@@ -532,10 +543,12 @@ impl FromStr for EnvironmentName {
         let mut components = path.components();
         let first = components.next();
         if components.next().is_some() {
-            return Err(anyhow!("environment name cannot have slashes"));
+            return Err(anyhow!("environment name cannot have slashes (got {s:?})"));
         }
         if !matches!(first, Some(std::path::Component::Normal(_))) {
-            return Err(anyhow!("environment name cannot manipulate path"));
+            return Err(anyhow!(
+                "environment name cannot manipulate path (got {s:?})"
+            ));
         }
 
         Ok(Self(s.to_owned()))
@@ -568,8 +581,13 @@ impl std::convert::AsRef<OsStr> for EnvironmentName {
 
 impl EnvironmentName {
     /// Returns the name of the environment used to build the package.
-    pub fn for_builder_package(package: &PackageName) -> Self {
-        Self::from_str(&format!("package-{}", package.as_str())).unwrap()
+    pub fn for_builder_package(FullPackageName(ns, name): &FullPackageName) -> Self {
+        Self::from_str(&if ns == &PackageNamespace::Root {
+            format!("package-{}", name.as_str())
+        } else {
+            format!("package-{}-{}", ns.as_str(), name.as_str())
+        })
+        .unwrap()
     }
 }
 
@@ -602,14 +620,6 @@ pub enum RunnerKind {
     #[serde(alias = "Users")]
     #[serde(alias = "users")]
     User,
-}
-
-fn time_serialize<S>(time: &SystemTime, ser: S) -> std::result::Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    let time = time.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
-    ser.serialize_f64(time)
 }
 
 fn time_serialize_opt<S>(time: &Option<SystemTime>, ser: S) -> std::result::Result<S::Ok, S::Error>

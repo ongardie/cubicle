@@ -1,2 +1,5 @@
 [depends]
 rust = {}
+
+[depends.crates-io]
+cargo-script = {}
