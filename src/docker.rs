@@ -17,6 +17,9 @@ use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerComm
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, warn, Context, LowLevelResult, Result};
 
+mod names;
+use names::{ContainerName, ImageName, VolumeName};
+
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
     timezone: String,
@@ -34,14 +37,6 @@ enum Mounts {
 }
 
 use Mounts::{BindMounts, Volumes};
-
-mod newtypes {
-    use super::super::newtype;
-    newtype::name!(ContainerName);
-    newtype::name!(ImageName);
-    newtype::name!(VolumeName);
-}
-use newtypes::{ContainerName, ImageName, VolumeName};
 
 impl Docker {
     pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
@@ -118,7 +113,7 @@ impl Docker {
             .arg("inspect")
             .args(["--type", "container"])
             .args(["--format", "{{ .Name }}"])
-            .arg(name)
+            .arg(name.encoded())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
@@ -150,9 +145,14 @@ impl Docker {
         let mut envs = Vec::new();
         for line in output.stdout.lines() {
             let line = line.context("could not read `docker ps` output")?;
-            if let Some(name) = line.strip_prefix(&self.program.config.docker.prefix) {
-                if let Ok(env) = EnvironmentName::from_str(name) {
-                    envs.push(env);
+            if let Some(container_name) = ContainerName::decode(&line) {
+                if let Some(name) = container_name
+                    .decoded()
+                    .strip_prefix(&self.program.config.docker.prefix)
+                {
+                    if let Ok(env) = EnvironmentName::from_str(name) {
+                        envs.push(env);
+                    }
                 }
             }
         }
@@ -161,7 +161,7 @@ impl Docker {
 
     fn build_base(&self, debian_packages: &[String]) -> LowLevelResult<()> {
         let mut child = Command::new("docker")
-            .args(["build", "--tag", &self.base_image, "-"])
+            .args(["build", "--tag", &self.base_image.encoded(), "-"])
             .stdin(Stdio::piped())
             .scoped_spawn()?;
 
@@ -202,7 +202,7 @@ impl Docker {
             None => command.arg(env_name),
         };
         command.arg("--init");
-        command.args(["--name", &container_name]);
+        command.args(["--name", &container_name.encoded()]);
         command.arg("--rm");
         if try_exists(&seccomp_json).todo_context()? {
             command.args([
@@ -268,7 +268,7 @@ impl Docker {
                     "--mount",
                     &format!(
                         r#""type=volume","source={}","target={}""#,
-                        self.home_volume(env_name),
+                        self.home_volume(env_name).encoded(),
                         container_home_str,
                     ),
                 ]);
@@ -276,7 +276,7 @@ impl Docker {
                     "--mount",
                     &format!(
                         r#""type=volume","source={}","target={}""#,
-                        self.work_volume(env_name),
+                        self.work_volume(env_name).encoded(),
                         container_work_str,
                     ),
                 ]);
@@ -284,7 +284,7 @@ impl Docker {
         }
 
         command.arg("--workdir").arg(&container_work.as_env_raw());
-        command.arg(&self.base_image);
+        command.arg(self.base_image.encoded());
         command.args(["sleep", "90d"]);
         command.stdout(Stdio::null());
         let status = command.status()?;
@@ -309,7 +309,7 @@ impl Docker {
         self.build_base(debian_packages)
             .with_context(|| format!("failed to build {} Docker image", self.base_image))?;
         self.spawn(env_name)
-            .with_context(|| format!("failed to start Docker container {env_name:?}"))?;
+            .with_context(|| format!("failed to start Docker container {container_name}"))?;
 
         let script_path = "/.cubicle-init";
 
@@ -317,7 +317,7 @@ impl Docker {
             let status = Command::new("docker")
                 .arg("cp")
                 .arg(script.as_host_raw())
-                .arg(format!("{}:{}", container_name, script_path))
+                .arg(format!("{}:{}", container_name.encoded(), script_path))
                 .status()?;
             if !status.success() {
                 return Err(anyhow!("`docker cp` exited with {status}"));
@@ -325,11 +325,11 @@ impl Docker {
             Ok(())
         };
         copy_init().with_context(|| {
-            format!("failed to copy init script into Docker container {container_name:?}")
+            format!("failed to copy init script into Docker container {container_name}")
         })?;
 
         self.copy_seeds(&container_name, seeds).with_context(|| {
-            format!("failed to copy package seeds into Docker container {container_name:?}")
+            format!("failed to copy package seeds into Docker container {container_name}")
         })?;
 
         self.run_with_env_vars(
@@ -361,10 +361,11 @@ impl Docker {
         output
             .stdout
             .lines()
-            .map(|line| {
-                line.map(VolumeName::new)
+            .filter_map(|line| {
+                line.map(|name| VolumeName::decode(&name))
                     .context("failed to read `docker volume ls` output")
                     .map_err(|e| e.into())
+                    .transpose()
             })
             .collect()
     }
@@ -375,7 +376,7 @@ impl Docker {
 
     fn volume_mountpoint(&self, name: &VolumeName) -> Result<Option<HostPath>> {
         self.volume_mountpoint_(name)
-            .with_context(|| format!("failed to get mountpoint of Docker volume {name:?}"))
+            .with_context(|| format!("failed to get mountpoint of Docker volume {name}"))
     }
 
     fn volume_mountpoint_(&self, name: &VolumeName) -> LowLevelResult<Option<HostPath>> {
@@ -383,7 +384,7 @@ impl Docker {
             .arg("volume")
             .arg("inspect")
             .args(["--format", "{{ .Mountpoint }}"])
-            .arg(&name)
+            .arg(name.encoded())
             .output()?;
         let status = output.status;
         if !status.success() {
@@ -405,13 +406,16 @@ impl Docker {
 
     fn volume_du(&self, name: &VolumeName) -> Result<DirSummary> {
         self.volume_du_(name)
-            .with_context(|| format!("Failed to summarize disk usage of Docker volume {name:?}"))
+            .with_context(|| format!("failed to summarize disk usage of Docker volume {name}"))
     }
     fn volume_du_(&self, name: &VolumeName) -> LowLevelResult<DirSummary> {
         let output = Command::new("docker")
             .arg("run")
             .arg("--mount")
-            .arg(format!(r#""type=volume","source={name}","target=/v""#))
+            .arg(format!(
+                r#""type=volume","source={}","target=/v""#,
+                name.encoded()
+            ))
             .arg("--rm")
             .arg("debian:11")
             .arg("du")
@@ -464,14 +468,14 @@ impl Docker {
 
     fn ensure_volume_exists(&self, name: &VolumeName) -> Result<()> {
         self.ensure_volume_exists_(name)
-            .with_context(|| format!("failed to create Docker volume {name:?}"))
+            .with_context(|| format!("failed to create Docker volume {name}"))
     }
 
     fn ensure_volume_exists_(&self, name: &VolumeName) -> LowLevelResult<()> {
         let status = Command::new("docker")
             .arg("volume")
             .arg("create")
-            .arg(&name)
+            .arg(name.encoded())
             .stdout(Stdio::null())
             .status()?;
         if !status.success() {
@@ -482,7 +486,7 @@ impl Docker {
 
     fn ensure_no_volume(&self, name: &VolumeName) -> Result<()> {
         self.ensure_no_volume_(name)
-            .with_context(|| format!("failed to remove Docker volume {name:?}"))
+            .with_context(|| format!("failed to remove Docker volume {name}"))
     }
 
     fn ensure_no_volume_(&self, name: &VolumeName) -> LowLevelResult<()> {
@@ -490,7 +494,7 @@ impl Docker {
             .arg("volume")
             .arg("rm")
             .arg("--force")
-            .arg(&name)
+            .arg(name.encoded())
             .stdout(Stdio::null())
             .status()?;
         if !status.success() {
@@ -511,7 +515,10 @@ impl Docker {
         let mut child = Command::new("docker")
             .arg("run")
             .arg("--mount")
-            .arg(format!(r#""type=volume","source={volume}","target=/v""#))
+            .arg(format!(
+                r#""type=volume","source={}","target=/v""#,
+                volume.encoded()
+            ))
             .arg("--rm")
             .args(["--workdir", "/v"])
             .arg("debian:11")
@@ -559,7 +566,7 @@ impl Docker {
         let mut child = Command::new("docker")
             .arg("exec")
             .arg("--interactive")
-            .arg(&container_name)
+            .arg(container_name.encoded())
             .args([
                 "sh",
                 "-c",
@@ -624,7 +631,7 @@ impl Docker {
             command.arg("--tty");
         }
 
-        command.arg(&container_name);
+        command.arg(container_name.encoded());
         command.args([&self.program.shell, "-l"]);
         match run_command {
             RunnerCommand::Interactive => {}
@@ -755,7 +762,7 @@ impl Runner for Docker {
         let container_name = self.container_from_environment(env_name);
         let do_stop = || {
             let status = Command::new("docker")
-                .args(["rm", "--force", &container_name])
+                .args(["rm", "--force", &container_name.encoded()])
                 .stdout(Stdio::null())
                 .status()?;
             if !status.success() {
@@ -763,7 +770,7 @@ impl Runner for Docker {
             }
             Ok(())
         };
-        do_stop().with_context(|| format!("failed to remove Docker container {container_name:?}"))
+        do_stop().with_context(|| format!("failed to remove Docker container {container_name}"))
     }
 
     fn list(&self) -> Result<Vec<EnvironmentName>> {
@@ -792,7 +799,10 @@ impl Runner for Docker {
             }
             Volumes => {
                 for name in self.list_volumes()? {
-                    if let Some(name) = name.strip_prefix(&self.program.config.docker.prefix) {
+                    if let Some(name) = name
+                        .decoded()
+                        .strip_prefix(&self.program.config.docker.prefix)
+                    {
                         if let Some(env) = name.strip_suffix("-home") {
                             envs.insert(EnvironmentName::from_str(env)?);
                         }
