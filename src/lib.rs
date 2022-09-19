@@ -519,6 +519,24 @@ impl EnvironmentName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns a string representing the environment name for use in a domain
+    /// name.
+    fn as_hostname(&self) -> String {
+        self.0.clone()
+    }
+
+    /// Returns a string representing the environment name for use as a
+    /// filename.
+    fn as_filename(&self) -> String {
+        self.0.clone()
+    }
+
+    /// Returns the environment name encoded in the given filename, if valid.
+    fn from_filename(s: &OsStr) -> Result<Self> {
+        let s = s.to_str().ok_or_else(|| anyhow!("invalid UTF-8"))?;
+        Self::from_str(s)
+    }
 }
 
 impl FromStr for EnvironmentName {
@@ -563,18 +581,6 @@ impl Display for EnvironmentName {
 
 impl std::convert::AsRef<str> for EnvironmentName {
     fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-
-impl std::convert::AsRef<Path> for EnvironmentName {
-    fn as_ref(&self) -> &Path {
-        self.0.as_ref()
-    }
-}
-
-impl std::convert::AsRef<OsStr> for EnvironmentName {
-    fn as_ref(&self) -> &OsStr {
         self.0.as_ref()
     }
 }

@@ -288,7 +288,7 @@ impl User {
         let mut command = Command::new("sudo");
         command
             .env_clear()
-            .env("SANDBOX", &env_name)
+            .env("SANDBOX", env_name.as_str())
             .env("SHELL", &self.program.shell);
         if let Ok(display) = std::env::var("DISPLAY") {
             command.env("DISPLAY", display);
