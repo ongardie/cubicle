@@ -18,8 +18,34 @@ pub struct User {
 }
 
 mod newtypes {
-    use super::super::newtype;
-    newtype::name!(Username);
+    #[derive(Debug)]
+    pub struct Username(String);
+
+    impl Username {
+        pub fn new(s: String) -> Self {
+            Self(s)
+        }
+    }
+
+    impl std::ops::Deref for Username {
+        type Target = str;
+
+        fn deref(&self) -> &str {
+            &self.0
+        }
+    }
+
+    impl std::fmt::Display for Username {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl AsRef<std::ffi::OsStr> for Username {
+        fn as_ref(&self) -> &std::ffi::OsStr {
+            self.0.as_ref()
+        }
+    }
 }
 use newtypes::Username;
 
