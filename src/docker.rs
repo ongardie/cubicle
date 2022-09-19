@@ -11,8 +11,8 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
-use super::newtype::EnvPath;
 use super::os_util::{get_timezone, get_uids, Uids};
+use super::paths::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, warn, Context, LowLevelResult, Result};

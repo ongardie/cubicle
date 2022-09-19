@@ -36,8 +36,8 @@ pub mod somehow;
 pub use somehow::Result;
 use somehow::{somehow as anyhow, warn, Context, Error};
 
-mod newtype;
-use newtype::HostPath;
+mod paths;
+use paths::HostPath;
 
 pub mod config;
 use config::Config;

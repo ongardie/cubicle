@@ -8,7 +8,7 @@ use std::str::FromStr;
 use super::apt;
 use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
-use super::newtype::EnvPath;
+use super::paths::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, Context, Result};
