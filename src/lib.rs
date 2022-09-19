@@ -26,7 +26,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt::{self, Debug, Display};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -390,7 +390,7 @@ impl Cubicle {
                         // that'd be confusing
                         return Ok(false);
                     }
-                    match EnvironmentName::from_str(&format!("tmp-{name}")) {
+                    match EnvironmentName::from_string(format!("tmp-{name}")) {
                         Ok(env) => {
                             let exists = self.runner.exists(&env)?;
                             Ok(exists == EnvironmentExists::NoEnvironment)
@@ -399,7 +399,7 @@ impl Cubicle {
                     }
                 })
                 .context("Failed to generate random environment name")?;
-            EnvironmentName::from_str(&format!("tmp-{name}")).unwrap()
+            EnvironmentName::from_string(format!("tmp-{name}")).unwrap()
         };
         self.new_environment(&name, packages)?;
         self.runner.run(&name, &RunnerCommand::Interactive)
@@ -509,8 +509,8 @@ impl From<ExitStatusError> for somehow::Error {
 
 /// The name of a potential Cubicle sandbox/isolation environment.
 ///
-/// Other than '-' and '_' and some non-ASCII characters, values of this type
-/// may not contain whitespace or special characters.
+/// Environment names may not be empty, may not begin or end with whitespace,
+/// and may not contain control characters.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct EnvironmentName(String);
 
@@ -523,63 +523,130 @@ impl EnvironmentName {
     /// Returns a string representing the environment name for use in a domain
     /// name.
     fn as_hostname(&self) -> String {
-        self.0.clone()
+        self.0
+            .chars()
+            .map(|char| {
+                if char.is_ascii_alphanumeric() {
+                    char
+                } else {
+                    '-'
+                }
+            })
+            .collect()
     }
 
     /// Returns a string representing the environment name for use as a
     /// filename.
+    ///
+    /// This encodes filenames so that they do not:
+    ///  - equal "." or "..",
+    ///  - start with '-', or
+    ///  - contain '/' or '\\' or ASCII control characters.
     fn as_filename(&self) -> String {
-        self.0.clone()
+        use std::fmt::Write;
+
+        if self.0 == "." {
+            return format!("%{:02x}", b'.');
+        }
+        if self.0 == ".." {
+            return format!("%{:02x}%{:02x}", b'.', b'.');
+        }
+
+        let mut buf = String::new();
+        for (i, char) in self.0.chars().enumerate() {
+            if char.is_ascii()
+                && (char.is_control()
+                    || matches!(char, '%' | '/' | '\\')
+                    || (i == 0 && char == '-'))
+            {
+                write!(buf, "%{:02x}", char as u8).unwrap();
+            } else {
+                buf.push(char)
+            }
+        }
+        buf
     }
 
-    /// Returns the environment name encoded in the given filename, if valid.
-    fn from_filename(s: &OsStr) -> Result<Self> {
-        let s = s.to_str().ok_or_else(|| anyhow!("invalid UTF-8"))?;
-        Self::from_str(s)
+    /// Returns the environment name that is encoded in the given filename, if
+    /// valid.
+    fn from_filename(filename: &OsStr) -> Result<Self> {
+        /// Similar to `char::to_digit(16)` but for `u8`.
+        fn from_hexdigit(byte: u8) -> Option<u8> {
+            match byte {
+                b'0' => Some(0x0),
+                b'1' => Some(0x1),
+                b'2' => Some(0x2),
+                b'3' => Some(0x3),
+                b'4' => Some(0x4),
+                b'5' => Some(0x5),
+                b'6' => Some(0x6),
+                b'7' => Some(0x7),
+                b'8' => Some(0x8),
+                b'9' => Some(0x9),
+                b'a' => Some(0xa),
+                b'b' => Some(0xb),
+                b'c' => Some(0xc),
+                b'd' => Some(0xd),
+                b'e' => Some(0xe),
+                b'f' => Some(0xf),
+                _ => None,
+            }
+        }
+
+        let mut buf: Vec<u8> = Vec::new();
+        let mut bytes = filename
+            .to_str()
+            .ok_or_else(|| anyhow!("invalid UTF-8"))?
+            .bytes();
+        while let Some(byte) = bytes.next() {
+            if byte == b'%' {
+                match (
+                    bytes.next().and_then(from_hexdigit),
+                    bytes.next().and_then(from_hexdigit),
+                ) {
+                    (Some(hi), Some(lo)) => buf.push((hi << 4) | lo),
+                    _ => return Err(anyhow!("% sequence invalid")),
+                }
+            } else {
+                buf.push(byte);
+            }
+        }
+        let decoded = String::from_utf8(buf).enough_context()?;
+        Self::from_string(decoded)
     }
 
     /// Returns the name of the environment used to build the package.
     pub fn for_builder_package(FullPackageName(ns, name): &FullPackageName) -> Self {
-        Self::from_str(&if ns == &PackageNamespace::Root {
+        Self::from_string(if ns == &PackageNamespace::Root {
             format!("package-{}", name.as_str())
         } else {
             format!("package-{}-{}", ns.as_str(), name.as_str())
         })
         .unwrap()
     }
+
+    fn from_string(s: String) -> Result<Self> {
+        if s.is_empty() {
+            return Err(anyhow!("environment name cannot be empty"));
+        }
+        if s.starts_with(char::is_whitespace) || s.ends_with(char::is_whitespace) {
+            return Err(anyhow!(
+                "environment name cannot start or end with whitespace"
+            ));
+        }
+        if s.contains(|c: char| c.is_ascii_control()) {
+            return Err(anyhow!(
+                "environment name cannot contain control characters"
+            ));
+        }
+        Ok(Self(s))
+    }
 }
 
 impl FromStr for EnvironmentName {
     type Err = Error;
-    fn from_str(mut s: &str) -> Result<Self> {
-        s = s.trim();
-        if s.is_empty() {
-            return Err(anyhow!("environment name cannot be empty"));
-        }
-
-        if s.contains(|c: char| {
-            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
-                || c.is_control()
-                || c.is_whitespace()
-        }) {
-            return Err(anyhow!(
-                "environment name cannot contain special characters (got {s:?})"
-            ));
-        }
-
-        let path = Path::new(s);
-        let mut components = path.components();
-        let first = components.next();
-        if components.next().is_some() {
-            return Err(anyhow!("environment name cannot have slashes (got {s:?})"));
-        }
-        if !matches!(first, Some(std::path::Component::Normal(_))) {
-            return Err(anyhow!(
-                "environment name cannot manipulate path (got {s:?})"
-            ));
-        }
-
-        Ok(Self(s.to_owned()))
+    fn from_str(s: &str) -> Result<Self> {
+        Self::from_string(s.to_owned())
     }
 }
 
@@ -703,5 +770,72 @@ pub mod hidden {
     // Note: This is public because the `cli` mod makes use of it.
     pub fn host_home_dir() -> &'static Path {
         super::host_home_dir().as_host_raw()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    fn passed(pass: bool) -> &'static str {
+        if pass {
+            "(pass)"
+        } else {
+            "(fail)"
+        }
+    }
+
+    #[test]
+    fn environment_name_as_filename() {
+        let fail = [
+            ("abc", "abc"),
+            (".", "%2e"),
+            ("..", "%2e%2e"),
+            ("...", "..."),
+            ("-hi", "%2dhi"),
+            ("--hi", "%2d-hi"),
+            ("hi-", "hi-"),
+            ("abc\\def/ghi", "abc%5cdef%2fghi"),
+            ("abc\ndef", "abc%0adef"),
+            ("çbç", "çbç"),
+        ]
+        .into_iter()
+        .any(|(input, expected)| {
+            let name = EnvironmentName::from_string(input.to_owned()).unwrap();
+            let encoded = name.as_filename();
+            let decoded_from_encoding = EnvironmentName::from_filename(OsStr::new(&encoded));
+            let decoded_from_expected = EnvironmentName::from_filename(OsStr::new(expected));
+            let fail = encoded != expected || decoded_from_expected.as_ref().ok() != Some(&name);
+            println!("test:            {}", if fail { "fail" } else { "pass" });
+            println!("input:           {input}");
+            println!("expected:        {expected}");
+            println!(
+                "encoded:         {} {}",
+                encoded,
+                passed(encoded == expected)
+            );
+            println!("decoded");
+            match decoded_from_encoding {
+                Ok(decoded) => println!(
+                    "  from encoded:  {} {}",
+                    decoded.as_str(),
+                    passed(decoded == name)
+                ),
+                Err(e) => println!("  from encoded:  Error: {e} (fail)",),
+            }
+            match decoded_from_expected {
+                Ok(decoded) => println!(
+                    "  from expected: {} {}",
+                    decoded.as_str(),
+                    passed(decoded == name)
+                ),
+                Err(e) => println!("  from expected: Error: {e} (fail)",),
+            }
+            println!();
+            fail
+        });
+
+        assert!(!fail, "at least one encoding/decoding failure");
     }
 }

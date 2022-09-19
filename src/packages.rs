@@ -623,7 +623,7 @@ impl Cubicle {
         specs: &PackageSpecs,
     ) -> Result<()> {
         println!("Testing {package_name} package");
-        let test_name = EnvironmentName::from_str(&format!(
+        let test_name = EnvironmentName::from_string(format!(
             "test-{}",
             EnvironmentName::for_builder_package(package_name).as_str()
         ))
