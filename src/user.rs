@@ -290,11 +290,10 @@ impl User {
             .env_clear()
             .env("SANDBOX", env_name.as_str())
             .env("SHELL", &self.program.shell);
-        if let Ok(display) = std::env::var("DISPLAY") {
-            command.env("DISPLAY", display);
-        }
-        if let Ok(term) = std::env::var("TERM") {
-            command.env("TERM", term);
+        for var in ["DISPLAY", "LANG", "TERM"] {
+            if let Ok(value) = std::env::var(var) {
+                command.env(var, value);
+            }
         }
         for (var, value) in env_vars {
             command.env(var, value);

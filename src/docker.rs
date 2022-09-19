@@ -629,6 +629,7 @@ impl Docker {
         command.arg("exec");
 
         command.args(["--env", "DISPLAY"]);
+        command.args(["--env", "LANG"]);
         command
             .arg("--env")
             .arg(fallback_path(&self.container_home));
