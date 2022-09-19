@@ -537,6 +537,16 @@ impl EnvironmentName {
         let s = s.to_str().ok_or_else(|| anyhow!("invalid UTF-8"))?;
         Self::from_str(s)
     }
+
+    /// Returns the name of the environment used to build the package.
+    pub fn for_builder_package(FullPackageName(ns, name): &FullPackageName) -> Self {
+        Self::from_str(&if ns == &PackageNamespace::Root {
+            format!("package-{}", name.as_str())
+        } else {
+            format!("package-{}-{}", ns.as_str(), name.as_str())
+        })
+        .unwrap()
+    }
 }
 
 impl FromStr for EnvironmentName {
@@ -582,18 +592,6 @@ impl Display for EnvironmentName {
 impl std::convert::AsRef<str> for EnvironmentName {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
-    }
-}
-
-impl EnvironmentName {
-    /// Returns the name of the environment used to build the package.
-    pub fn for_builder_package(FullPackageName(ns, name): &FullPackageName) -> Self {
-        Self::from_str(&if ns == &PackageNamespace::Root {
-            format!("package-{}", name.as_str())
-        } else {
-            format!("package-{}-{}", ns.as_str(), name.as_str())
-        })
-        .unwrap()
     }
 }
 
