@@ -553,7 +553,7 @@ fn matching_environments(
     for pattern in patterns {
         let start = matched.len();
         matched.extend(drain_filter(&mut unmatched, |name| pattern.matches(name)));
-        if matched.len() == start && !matched.iter().all(|name| pattern.matches(name.borrow())) {
+        if matched.len() == start && !matched.iter().any(|name| pattern.matches(name.borrow())) {
             if pattern.0.is_pattern() {
                 warn(anyhow!(
                     "pattern {pattern} did not match any environment names"
@@ -813,6 +813,17 @@ mod tests {
                     "foo",
                 ),
             ],
+        )
+        "###
+        );
+        assert_debug_snapshot!(
+            &super::matching_environments(
+                &[EnvironmentPattern::from_str("bar").unwrap()],
+                names()
+            ),
+            @r###"
+        Err(
+            "environment \"bar\" not found",
         )
         "###
         );
