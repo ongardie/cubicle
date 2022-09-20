@@ -82,7 +82,7 @@ fn convert_depends(
     for (key, value) in deps {
         match value {
             DependencyOrTable::Dependency(dep) => {
-                root.insert(PackageName::from_str(&key)?, dep);
+                root.insert(PackageName::strict_from_str(&key)?, dep);
             }
             DependencyOrTable::Table(table) => {
                 map.insert(PackageNamespace::from_str(&key)?, convert_table(table)?);
@@ -96,7 +96,7 @@ fn convert_depends(
 fn convert_table(table: BTreeMap<String, Dependency>) -> Result<BTreeMap<PackageName, Dependency>> {
     table
         .into_iter()
-        .map(|(name, dep)| Ok((PackageName::from_str(&name)?, dep)))
+        .map(|(name, dep)| Ok((PackageName::loose_from_str(&name)?, dep)))
         .collect()
 }
 

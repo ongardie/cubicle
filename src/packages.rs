@@ -171,7 +171,7 @@ impl Cubicle {
     ) -> Result<()> {
         for name in try_iterdir(dir)? {
             let name = match name.to_str() {
-                Some(name) => PackageName::from_str(name)?,
+                Some(name) => PackageName::strict_from_str(name)?,
                 None => {
                     return Err(anyhow!(
                         "package names must be valid UTF-8, found {name:#?} in {dir:#?}"
@@ -203,7 +203,7 @@ impl Cubicle {
                 .depends
                 .get_mut(&PackageNamespace::Root)
                 .unwrap()
-                .insert(PackageName::from_str("auto").unwrap(), Dependency {});
+                .insert(PackageName::strict_from_str("auto").unwrap(), Dependency {});
 
             let test = try_exists(&dir.join("test.sh"))
                 .todo_context()?
@@ -230,7 +230,10 @@ impl Cubicle {
         let mut names = BTreeSet::new();
         let mut add = |dir: &HostPath| -> Result<()> {
             for name in try_iterdir(dir)? {
-                if let Some(name) = name.to_str().and_then(|s| PackageName::from_str(s).ok()) {
+                if let Some(name) = name
+                    .to_str()
+                    .and_then(|s| PackageName::strict_from_str(s).ok())
+                {
                     names.insert(FullPackageName(PackageNamespace::Root, name));
                 }
             }
@@ -256,10 +259,22 @@ impl Cubicle {
                 &mut specs,
                 &self.shared.user_package_dir.join(&dir),
                 &origin,
-            )?;
+            )
+            .with_context(|| {
+                format!(
+                    "error scanning user packages in {}",
+                    self.shared.user_package_dir.join(dir)
+                )
+            })?;
         }
 
-        self.add_packages(&mut specs, &self.shared.code_package_dir, "built-in")?;
+        self.add_packages(&mut specs, &self.shared.code_package_dir, "built-in")
+            .with_context(|| {
+                format!(
+                    "error scanning built-in packages in {}",
+                    self.shared.code_package_dir
+                )
+            })?;
 
         let auto = FullPackageName::from_str("auto").unwrap();
         let auto_deps = transitive_depends(&BTreeSet::from([auto]), &specs, BuildDepends(true))?;
@@ -916,8 +931,8 @@ impl Cubicle {
 
 /// The name of a potential Cubicle package.
 ///
-/// Other than '-', '_', '.' and some non-ASCII characters, values of this type
-/// may not contain whitespace or special characters.
+/// Package names may not be empty, may not begin or end with whitespace,
+/// and may not contain control characters.
 #[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageName(String);
 
@@ -926,29 +941,49 @@ impl PackageName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    fn from_string(s: String) -> Result<Self> {
+        if s.is_empty() {
+            return Err(anyhow!("package name cannot be empty"));
+        }
+        if s.starts_with(char::is_whitespace) || s.ends_with(char::is_whitespace) {
+            return Err(anyhow!("package name cannot start or end with whitespace"));
+        }
+        if s.contains(|c: char| c.is_ascii_control()) {
+            return Err(anyhow!("package name cannot contain control characters"));
+        }
+        Ok(Self(s))
+    }
+
+    fn strict_from_str(s: &str) -> Result<Self> {
+        strict_package_name(s, "Cubicle package name")?;
+        Self::loose_from_str(s)
+    }
+
+    fn loose_from_str(s: &str) -> Result<Self> {
+        Self::from_string(s.to_owned())
+    }
+}
+
+fn strict_package_name(s: &str, kind: &'static str) -> Result<()> {
+    if s.is_empty() {
+        return Err(anyhow!("{kind} cannot be empty"));
+    }
+    if s.contains(|c: char| {
+        (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
+            || c.is_control()
+            || c.is_whitespace()
+    }) {
+        return Err(anyhow!(
+            "{kind} cannot contain special characters (got {s:?})"
+        ));
+    }
+    Ok(())
 }
 
 impl Borrow<str> for PackageName {
     fn borrow(&self) -> &str {
         self.as_str()
-    }
-}
-
-impl FromStr for PackageName {
-    type Err = Error;
-    fn from_str(mut s: &str) -> Result<Self> {
-        s = s.trim();
-        if s.is_empty() {
-            return Err(anyhow!("package name cannot be empty"));
-        }
-        if s.contains(|c: char| {
-            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_' | '.'))
-                || c.is_control()
-                || c.is_whitespace()
-        }) {
-            return Err(anyhow!("package name cannot contain special characters"));
-        }
-        Ok(Self(s.to_owned()))
     }
 }
 
@@ -985,24 +1020,11 @@ impl PackageNamespace {
 
 impl FromStr for PackageNamespace {
     type Err = Error;
-    fn from_str(mut s: &str) -> Result<Self> {
-        s = s.trim();
-        if s.is_empty() {
-            return Err(anyhow!("package namespace cannot be empty"));
-        }
-        if s.contains(|c: char| {
-            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
-                || c.is_control()
-                || c.is_whitespace()
-        }) {
-            return Err(anyhow!(
-                "package namespace cannot contain special characters"
-            ));
-        }
+    fn from_str(s: &str) -> Result<Self> {
+        strict_package_name(s, "package namespace")?;
         Ok(match s {
-            "cubicle" => Self::Root,
             "debian" => Self::Debian,
-            _ => Self::Managed(PackageName::from_str(s)?),
+            _ => Self::Managed(PackageName::strict_from_str(s)?),
         })
     }
 }
@@ -1058,7 +1080,12 @@ impl Display for FullPackageName {
         if self.0 == PackageNamespace::Root {
             write!(f, "{:?}", self.1.as_str())
         } else {
-            write!(f, "\"{}.{}\"", self.0.as_str(), self.1.as_str())
+            write!(
+                f,
+                "\"{}.{}\"",
+                self.0.as_str().escape_debug(),
+                self.1.as_str().escape_debug()
+            )
         }
     }
 }
@@ -1069,9 +1096,9 @@ impl FromStr for FullPackageName {
         Ok(match s.trim().split_once('.') {
             Some((ns, name)) => Self(
                 PackageNamespace::from_str(ns)?,
-                PackageName::from_str(name)?,
+                PackageName::loose_from_str(name)?,
             ),
-            None => Self(PackageNamespace::Root, PackageName::from_str(s)?),
+            None => Self(PackageNamespace::Root, PackageName::strict_from_str(s)?),
         })
     }
 }
