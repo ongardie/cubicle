@@ -12,6 +12,7 @@ use tempfile::NamedTempFile;
 
 use crate::somehow::{somehow as anyhow, warn, Context, Error, LowLevelResult, Result};
 
+use super::encoding::FilenameEncoder;
 use super::fs_util::{
     create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, DirSummary, TarOptions,
 };
@@ -240,16 +241,7 @@ impl Cubicle {
         }
         add(&self.shared.code_package_dir)?;
 
-        names.extend(
-            try_iterdir(&self.shared.package_cache)?
-                .iter()
-                .filter_map(|filename| {
-                    filename
-                        .to_str()
-                        .and_then(|filename| filename.strip_suffix(".tar"))
-                        .and_then(|prefix| FullPackageName::from_str(prefix).ok())
-                }),
-        );
+        names.extend(self.package_names_from_tars()?);
 
         Ok(names)
     }
@@ -388,11 +380,48 @@ impl Cubicle {
         }
     }
 
+    fn package_tar(&self, name: &FullPackageName) -> HostPath {
+        self.shared.package_cache.join(
+            FilenameEncoder::new()
+                .push(&name.unquoted())
+                .push(".tar")
+                .encode(),
+        )
+    }
+
+    fn package_names_from_tars(&self) -> Result<Vec<FullPackageName>> {
+        Ok(try_iterdir(&self.shared.package_cache)?
+            .iter()
+            .filter_map(|filename| {
+                FilenameEncoder::decode(filename)
+                    .ok()
+                    .as_ref()
+                    .and_then(|filename| filename.strip_suffix(".tar"))
+                    .and_then(|prefix| FullPackageName::from_str(prefix).ok())
+            })
+            .collect())
+    }
+
+    fn testing_tar(&self, name: &FullPackageName) -> HostPath {
+        self.shared.package_cache.join(
+            FilenameEncoder::new()
+                .push(&name.unquoted())
+                .push(".testing.tar")
+                .encode(),
+        )
+    }
+
+    fn failed_marker(&self, name: &FullPackageName) -> HostPath {
+        self.shared.package_cache.join(
+            FilenameEncoder::new()
+                .push(&name.unquoted())
+                .push(".failed")
+                .encode(),
+        )
+    }
+
     fn last_built(&self, name: &FullPackageName) -> Option<SystemTime> {
-        let path = self
-            .shared
-            .package_cache
-            .join(format!("{}.tar", name.as_filename_component()));
+        let path = self.package_tar(name);
         let metadata = std::fs::metadata(path.as_host_raw()).ok()?;
         metadata.modified().ok()
     }
@@ -435,11 +464,8 @@ impl Cubicle {
     }
 
     fn package_build_failed(&self, package_name: &FullPackageName) -> Result<bool> {
-        let failed_marker = &self
-            .shared
-            .package_cache
-            .join(format!("{}.failed", package_name.as_filename_component()));
-        try_exists(failed_marker)
+        let failed_marker = self.failed_marker(package_name);
+        try_exists(&failed_marker)
             .with_context(|| format!("error while checking if {failed_marker:?} exists"))
     }
 
@@ -449,9 +475,7 @@ impl Cubicle {
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> Result<()> {
-        let package_cache = &self.shared.package_cache;
-        let failed_marker =
-            package_cache.join(format!("{}.failed", package_name.as_filename_component()));
+        let failed_marker = self.failed_marker(package_name);
 
         match self
             .update_package_(package_name, spec, specs)
@@ -469,6 +493,7 @@ impl Cubicle {
                 Ok(())
             }
             Err(update_error) => {
+                let package_cache = &self.shared.package_cache;
                 std::fs::create_dir_all(package_cache.as_host_raw())
                     .with_context(|| format!("failed to create directory {package_cache:?}"))?;
                 if let Err(e2) = std::fs::File::create(failed_marker.as_host_raw())
@@ -476,8 +501,7 @@ impl Cubicle {
                 {
                     warn(e2);
                 }
-                let cached =
-                    package_cache.join(format!("{}.tar", package_name.as_filename_component()));
+                let cached = self.package_tar(package_name);
                 let use_stale = match try_exists(&cached)
                     .with_context(|| format!("error while checking if {cached:?} exists"))
                 {
@@ -517,12 +541,15 @@ impl Cubicle {
         )
         .with_context(|| format!("failed to open directory {package_cache:?}"))?;
 
-        let testing_tar_name = format!("{}.testing.tar", package_name.as_filename_component());
-        let testing_tar_abs = package_cache.join(&testing_tar_name);
+        let testing_tar_abs = self.testing_tar(package_name);
+        let testing_tar_name = testing_tar_abs
+            .as_host_raw()
+            .strip_prefix(package_cache.as_host_raw())
+            .unwrap();
         {
             let mut file = package_cache_dir
                 .open_with(
-                    &testing_tar_name,
+                    testing_tar_name,
                     cap_std::fs::OpenOptions::new().create(true).write(true),
                 )
                 .with_context(|| {
@@ -537,16 +564,24 @@ impl Cubicle {
         }
 
         if let Some(test_script) = &spec.test {
-            self.test_package(package_name, testing_tar_abs, test_script, spec, specs)
+            self.test_package(package_name, &testing_tar_abs, test_script, spec, specs)
                 .with_context(|| format!("error testing package {package_name}"))?;
         }
 
-        let package_tar = format!("{}.tar", package_name.as_filename_component());
+        let package_tar_abs = self.package_tar(package_name);
+        let package_tar_name = package_tar_abs
+            .as_host_raw()
+            .strip_prefix(package_cache.as_host_raw())
+            .unwrap();
         package_cache_dir
-            .rename(&testing_tar_name, &package_cache_dir, &package_tar)
+            .rename(
+                testing_tar_name,
+                &package_cache_dir,
+                &package_tar_name,
+            )
             .with_context(|| {
                 format!(
-                    "failed to rename {testing_tar_name:?} to {package_tar:?} in {package_cache:?}"
+                    "failed to rename {testing_tar_name:?} to {package_tar_name:?} in {package_cache:?}"
                 )
             })?;
         Ok(())
@@ -617,7 +652,7 @@ impl Cubicle {
     fn test_package(
         &self,
         package_name: &FullPackageName,
-        testing_tar: HostPath,
+        testing_tar: &HostPath,
         test_script: &str,
         spec: &PackageSpec,
         specs: &PackageSpecs,
@@ -643,7 +678,7 @@ impl Cubicle {
             .collect();
 
         let mut seeds = self.packages_to_seeds(&packages)?;
-        seeds.push(testing_tar);
+        seeds.push(testing_tar.clone());
 
         let mut debian_packages = self.resolve_debian_packages(&packages, specs)?;
         if let Some(debian) = spec.manifest.depends.get(&PackageNamespace::Debian) {
@@ -691,13 +726,7 @@ impl Cubicle {
     /// Returns details of available packages.
     pub fn get_packages(&self) -> Result<BTreeMap<FullPackageName, PackageDetails>> {
         let metadata = |name: &FullPackageName| -> (Option<SystemTime>, Option<u64>) {
-            match std::fs::metadata(
-                &self
-                    .shared
-                    .package_cache
-                    .join(format!("{}.tar", name.as_filename_component()))
-                    .as_host_raw(),
-            ) {
+            match std::fs::metadata(self.package_tar(name).as_host_raw()) {
                 Ok(metadata) => (metadata.modified().ok(), file_size(&metadata)),
                 Err(_) => (None, None),
             }
@@ -752,14 +781,9 @@ impl Cubicle {
             },
         );
 
-        let non_root_packages = try_iterdir(&self.shared.package_cache)?
+        let non_root_packages = self
+            .package_names_from_tars()?
             .into_iter()
-            .filter_map(|filename| {
-                filename
-                    .to_str()
-                    .and_then(|filename| filename.strip_suffix(".tar"))
-                    .and_then(|prefix| FullPackageName::from_str(prefix).ok())
-            })
             .filter(|FullPackageName(ns, _name)| ns != &PackageNamespace::Root)
             .map(|name| {
                 let (built, size) = metadata(&name);
@@ -881,10 +905,7 @@ impl Cubicle {
         let specs = self.scan_packages()?;
         let deps = transitive_depends(packages, &specs, BuildDepends(false))?;
         for name in deps {
-            let provides = self
-                .shared
-                .package_cache
-                .join(format!("{}.tar", name.as_filename_component()));
+            let provides = self.package_tar(&name);
             if try_exists(&provides).todo_context()? {
                 seeds.push(provides);
             }
@@ -1029,10 +1050,6 @@ impl FullPackageName {
         } else {
             format!("{}.{}", self.0.as_str(), self.1.as_str())
         }
-    }
-
-    fn as_filename_component(&self) -> String {
-        self.unquoted()
     }
 }
 
