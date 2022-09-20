@@ -338,12 +338,7 @@ impl Cubicle {
                     self.shared.script_name
                 ))
             }
-            FullyExists => {
-                return Err(anyhow!(
-                    "environment {name} already exists (did you mean '{} reset'?)",
-                    self.shared.script_name
-                ))
-            }
+            FullyExists => return Err(anyhow!("environment {name} already exists")),
         }
 
         let default;
