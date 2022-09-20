@@ -529,7 +529,7 @@ impl Runner for User {
                     debian_packages: Vec::new(),
                     env_vars: Vec::new(),
                     seeds: vec![work_tar.clone()],
-                    script: self.program.script_path.join("dev-init.sh"),
+                    script: self.program.exe_path.join("dev-init.sh"),
                 },
             )
             .with_context(|| {

@@ -94,8 +94,8 @@ pub struct Cubicle {
 struct CubicleShared {
     config: Config,
     shell: String,
-    script_name: String,
-    script_path: HostPath,
+    exe_name: String,
+    exe_path: HostPath,
     hostname: Option<String>,
     home: HostPath,
     user: String,
@@ -138,7 +138,7 @@ impl Cubicle {
         };
 
         let exe = std::env::current_exe().todo_context()?;
-        let script_name = match exe.file_name() {
+        let exe_name = match exe.file_name() {
             Some(path) => path.to_string_lossy().into_owned(),
             None => {
                 return Err(anyhow!(
@@ -147,7 +147,7 @@ impl Cubicle {
                 ));
             }
         };
-        let script_path = match exe.ancestors().nth(3) {
+        let exe_path = match exe.ancestors().nth(3) {
             Some(path) => HostPath::try_from(path.to_owned())?,
             None => {
                 return Err(anyhow!(
@@ -158,7 +158,7 @@ impl Cubicle {
         };
 
         let package_cache = xdg_cache_home.join("cubicle").join("packages");
-        let code_package_dir = script_path.join("packages");
+        let code_package_dir = exe_path.join("packages");
         let user_package_dir = xdg_data_home.join("cubicle").join("packages");
 
         let eff_word_list_dir = xdg_cache_home.join("cubicle");
@@ -167,8 +167,8 @@ impl Cubicle {
         let shared = Rc::new(CubicleShared {
             config,
             shell,
-            script_name,
-            script_path,
+            exe_name,
+            exe_path,
             hostname,
             home,
             user,
@@ -199,7 +199,7 @@ impl Cubicle {
             NoEnvironment => Err(anyhow!("Environment {name} does not exist")),
             PartiallyExists => Err(anyhow!(
                 "Environment {name} in broken state (try '{} reset')",
-                self.shared.script_name
+                self.shared.exe_name
             )),
             FullyExists => self.runner.run(name, &RunnerCommand::Interactive),
         }
@@ -212,7 +212,7 @@ impl Cubicle {
             NoEnvironment => Err(anyhow!("Environment {name} does not exist")),
             PartiallyExists => Err(anyhow!(
                 "Environment {name} in broken state (try '{} reset')",
-                self.shared.script_name
+                self.shared.exe_name
             )),
             FullyExists => self.runner.run(
                 name,
@@ -335,7 +335,7 @@ impl Cubicle {
             PartiallyExists => {
                 return Err(anyhow!(
                     "environment {name} in broken state (try '{} reset')",
-                    self.shared.script_name
+                    self.shared.exe_name
                 ))
             }
             FullyExists => return Err(anyhow!("environment {name} already exists")),
@@ -374,7 +374,7 @@ impl Cubicle {
                         .collect(),
                     env_vars: Vec::new(),
                     seeds,
-                    script: self.shared.script_path.join("dev-init.sh"),
+                    script: self.shared.exe_path.join("dev-init.sh"),
                 },
             )
             .with_context(|| format!("failed to initialize new environment {name}"))
@@ -431,7 +431,7 @@ impl Cubicle {
         if self.runner.exists(name)? == EnvironmentExists::NoEnvironment {
             return Err(anyhow!(
                 "Environment {name} does not exist (did you mean '{} new'?)",
-                self.shared.script_name,
+                self.shared.exe_name,
             ));
         }
 
@@ -470,7 +470,7 @@ impl Cubicle {
                     .collect(),
                 env_vars: Vec::new(),
                 seeds,
-                script: self.shared.script_path.join("dev-init.sh"),
+                script: self.shared.exe_path.join("dev-init.sh"),
             },
         )
     }

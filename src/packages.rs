@@ -650,7 +650,7 @@ impl Cubicle {
                 .collect(),
             env_vars: Vec::new(),
             seeds,
-            script: self.shared.script_path.join("dev-init.sh"),
+            script: self.shared.exe_path.join("dev-init.sh"),
         };
 
         use EnvironmentExists::*;
@@ -734,7 +734,7 @@ impl Cubicle {
                         .collect(),
                     env_vars: Vec::new(),
                     seeds,
-                    script: self.shared.script_path.join("dev-init.sh"),
+                    script: self.shared.exe_path.join("dev-init.sh"),
                 },
             )?;
         }

@@ -210,7 +210,7 @@ impl Docker {
 
     fn spawn(&self, env_name: &EnvironmentName) -> LowLevelResult<()> {
         let container_name = self.container_from_environment(env_name);
-        let seccomp_json = self.program.script_path.join("seccomp.json");
+        let seccomp_json = self.program.exe_path.join("seccomp.json");
         let mut command = Command::new("docker");
         command.arg("run");
         command.arg("--detach");
