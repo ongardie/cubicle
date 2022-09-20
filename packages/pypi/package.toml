@@ -1,0 +1,4 @@
+package_manager = true
+
+[depends]
+python = {}

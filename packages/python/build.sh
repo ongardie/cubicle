@@ -64,6 +64,7 @@ pip3 install --upgrade \
     ipython \
     pyflakes \
     'pylama[all]' \
+    shiv \
     | pv -i 0.1 -l -N packages >/dev/null
 
 cat > ~/.pylama.ini <<EOF
