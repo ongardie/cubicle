@@ -1,4 +1,3 @@
-.dev-init/vscodium.sh
 .vscode-oss
 bin/codium
 opt/vscodium

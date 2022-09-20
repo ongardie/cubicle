@@ -26,7 +26,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt::{self, Debug, Display};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -36,8 +36,8 @@ pub mod somehow;
 pub use somehow::Result;
 use somehow::{somehow as anyhow, warn, Context, Error};
 
-mod newtype;
-use newtype::HostPath;
+mod paths;
+use paths::HostPath;
 
 pub mod config;
 use config::Config;
@@ -50,6 +50,9 @@ use runner::{CheckedRunner, EnvFilesSummary, EnvironmentExists, Init, Runner, Ru
 
 mod bytes;
 use bytes::Bytes;
+
+mod encoding;
+use encoding::FilenameEncoder;
 
 mod fs_util;
 use fs_util::DirSummary;
@@ -211,7 +214,13 @@ impl Cubicle {
                 "Environment {name} in broken state (try '{} reset')",
                 self.shared.script_name
             )),
-            FullyExists => self.runner.run(name, &RunnerCommand::Exec(command)),
+            FullyExists => self.runner.run(
+                name,
+                &RunnerCommand::Exec {
+                    command,
+                    env_vars: &[],
+                },
+            ),
         }
     }
 
@@ -390,7 +399,7 @@ impl Cubicle {
                         // that'd be confusing
                         return Ok(false);
                     }
-                    match EnvironmentName::from_str(&format!("tmp-{name}")) {
+                    match EnvironmentName::from_string(format!("tmp-{name}")) {
                         Ok(env) => {
                             let exists = self.runner.exists(&env)?;
                             Ok(exists == EnvironmentExists::NoEnvironment)
@@ -399,7 +408,7 @@ impl Cubicle {
                     }
                 })
                 .context("Failed to generate random environment name")?;
-            EnvironmentName::from_str(&format!("tmp-{name}")).unwrap()
+            EnvironmentName::from_string(format!("tmp-{name}")).unwrap()
         };
         self.new_environment(&name, packages)?;
         self.runner.run(&name, &RunnerCommand::Interactive)
@@ -509,8 +518,8 @@ impl From<ExitStatusError> for somehow::Error {
 
 /// The name of a potential Cubicle sandbox/isolation environment.
 ///
-/// Other than '-' and '_' and some non-ASCII characters, values of this type
-/// may not contain whitespace or special characters.
+/// Environment names may not be empty, may not begin or end with whitespace,
+/// and may not contain control characters.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct EnvironmentName(String);
 
@@ -519,39 +528,68 @@ impl EnvironmentName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns a string representing the environment name for use in a domain
+    /// name.
+    fn as_hostname(&self) -> String {
+        self.0
+            .chars()
+            .map(|char| {
+                if char.is_ascii_alphanumeric() {
+                    char
+                } else {
+                    '-'
+                }
+            })
+            .collect()
+    }
+
+    /// Returns a string representing the environment name for use as a
+    /// filename.
+    ///
+    /// This encodes filenames so that they don't contain slashes, etc.
+    fn as_filename(&self) -> String {
+        FilenameEncoder::new().push(&self.0).encode()
+    }
+
+    /// Returns the environment name that is encoded in the given filename, if
+    /// valid.
+    fn from_filename(filename: &OsStr) -> Result<Self> {
+        Self::from_string(FilenameEncoder::decode(filename)?)
+    }
+
+    /// Returns the name of the environment used to build the package.
+    pub fn for_builder_package(FullPackageName(ns, name): &FullPackageName) -> Self {
+        Self::from_string(if ns == &PackageNamespace::Root {
+            format!("package-{}", name.as_str())
+        } else {
+            format!("package-{}-{}", ns.as_str(), name.as_str())
+        })
+        .unwrap()
+    }
+
+    fn from_string(s: String) -> Result<Self> {
+        if s.is_empty() {
+            return Err(anyhow!("environment name cannot be empty"));
+        }
+        if s.starts_with(char::is_whitespace) || s.ends_with(char::is_whitespace) {
+            return Err(anyhow!(
+                "environment name cannot start or end with whitespace"
+            ));
+        }
+        if s.contains(|c: char| c.is_ascii_control()) {
+            return Err(anyhow!(
+                "environment name cannot contain control characters"
+            ));
+        }
+        Ok(Self(s))
+    }
 }
 
 impl FromStr for EnvironmentName {
     type Err = Error;
-    fn from_str(mut s: &str) -> Result<Self> {
-        s = s.trim();
-        if s.is_empty() {
-            return Err(anyhow!("environment name cannot be empty"));
-        }
-
-        if s.contains(|c: char| {
-            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
-                || c.is_control()
-                || c.is_whitespace()
-        }) {
-            return Err(anyhow!(
-                "environment name cannot contain special characters (got {s:?})"
-            ));
-        }
-
-        let path = Path::new(s);
-        let mut components = path.components();
-        let first = components.next();
-        if components.next().is_some() {
-            return Err(anyhow!("environment name cannot have slashes (got {s:?})"));
-        }
-        if !matches!(first, Some(std::path::Component::Normal(_))) {
-            return Err(anyhow!(
-                "environment name cannot manipulate path (got {s:?})"
-            ));
-        }
-
-        Ok(Self(s.to_owned()))
+    fn from_str(s: &str) -> Result<Self> {
+        Self::from_string(s.to_owned())
     }
 }
 
@@ -564,30 +602,6 @@ impl Display for EnvironmentName {
 impl std::convert::AsRef<str> for EnvironmentName {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
-    }
-}
-
-impl std::convert::AsRef<Path> for EnvironmentName {
-    fn as_ref(&self) -> &Path {
-        self.0.as_ref()
-    }
-}
-
-impl std::convert::AsRef<OsStr> for EnvironmentName {
-    fn as_ref(&self) -> &OsStr {
-        self.0.as_ref()
-    }
-}
-
-impl EnvironmentName {
-    /// Returns the name of the environment used to build the package.
-    pub fn for_builder_package(FullPackageName(ns, name): &FullPackageName) -> Self {
-        Self::from_str(&if ns == &PackageNamespace::Root {
-            format!("package-{}", name.as_str())
-        } else {
-            format!("package-{}-{}", ns.as_str(), name.as_str())
-        })
-        .unwrap()
     }
 }
 

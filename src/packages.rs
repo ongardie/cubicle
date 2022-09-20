@@ -12,6 +12,7 @@ use tempfile::NamedTempFile;
 
 use crate::somehow::{somehow as anyhow, warn, Context, Error, LowLevelResult, Result};
 
+use super::encoding::FilenameEncoder;
 use super::fs_util::{
     create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, DirSummary, TarOptions,
 };
@@ -170,7 +171,7 @@ impl Cubicle {
     ) -> Result<()> {
         for name in try_iterdir(dir)? {
             let name = match name.to_str() {
-                Some(name) => PackageName::from_str(name)?,
+                Some(name) => PackageName::strict_from_str(name)?,
                 None => {
                     return Err(anyhow!(
                         "package names must be valid UTF-8, found {name:#?} in {dir:#?}"
@@ -202,14 +203,14 @@ impl Cubicle {
                 .depends
                 .get_mut(&PackageNamespace::Root)
                 .unwrap()
-                .insert(PackageName::from_str("auto").unwrap(), Dependency {});
+                .insert(PackageName::strict_from_str("auto").unwrap(), Dependency {});
 
             let test = try_exists(&dir.join("test.sh"))
                 .todo_context()?
                 .then_some(String::from("./test.sh"));
-            let update = try_exists(&dir.join("update.sh"))
+            let update = try_exists(&dir.join("build.sh"))
                 .todo_context()?
-                .then_some(String::from("./update.sh"));
+                .then_some(String::from("./build.sh"));
             packages.insert(
                 name,
                 PackageSpec {
@@ -229,7 +230,10 @@ impl Cubicle {
         let mut names = BTreeSet::new();
         let mut add = |dir: &HostPath| -> Result<()> {
             for name in try_iterdir(dir)? {
-                if let Some(name) = name.to_str().and_then(|s| PackageName::from_str(s).ok()) {
+                if let Some(name) = name
+                    .to_str()
+                    .and_then(|s| PackageName::strict_from_str(s).ok())
+                {
                     names.insert(FullPackageName(PackageNamespace::Root, name));
                 }
             }
@@ -240,16 +244,7 @@ impl Cubicle {
         }
         add(&self.shared.code_package_dir)?;
 
-        names.extend(
-            try_iterdir(&self.shared.package_cache)?
-                .iter()
-                .filter_map(|filename| {
-                    filename
-                        .to_str()
-                        .and_then(|filename| filename.strip_suffix(".tar"))
-                        .and_then(|prefix| FullPackageName::from_str(prefix).ok())
-                }),
-        );
+        names.extend(self.package_names_from_tars()?);
 
         Ok(names)
     }
@@ -264,10 +259,22 @@ impl Cubicle {
                 &mut specs,
                 &self.shared.user_package_dir.join(&dir),
                 &origin,
-            )?;
+            )
+            .with_context(|| {
+                format!(
+                    "error scanning user packages in {}",
+                    self.shared.user_package_dir.join(dir)
+                )
+            })?;
         }
 
-        self.add_packages(&mut specs, &self.shared.code_package_dir, "built-in")?;
+        self.add_packages(&mut specs, &self.shared.code_package_dir, "built-in")
+            .with_context(|| {
+                format!(
+                    "error scanning built-in packages in {}",
+                    self.shared.code_package_dir
+                )
+            })?;
 
         let auto = FullPackageName::from_str("auto").unwrap();
         let auto_deps = transitive_depends(&BTreeSet::from([auto]), &specs, BuildDepends(true))?;
@@ -388,11 +395,48 @@ impl Cubicle {
         }
     }
 
+    fn package_tar(&self, name: &FullPackageName) -> HostPath {
+        self.shared.package_cache.join(
+            FilenameEncoder::new()
+                .push(&name.unquoted())
+                .push(".tar")
+                .encode(),
+        )
+    }
+
+    fn package_names_from_tars(&self) -> Result<Vec<FullPackageName>> {
+        Ok(try_iterdir(&self.shared.package_cache)?
+            .iter()
+            .filter_map(|filename| {
+                FilenameEncoder::decode(filename)
+                    .ok()
+                    .as_ref()
+                    .and_then(|filename| filename.strip_suffix(".tar"))
+                    .and_then(|prefix| FullPackageName::from_str(prefix).ok())
+            })
+            .collect())
+    }
+
+    fn testing_tar(&self, name: &FullPackageName) -> HostPath {
+        self.shared.package_cache.join(
+            FilenameEncoder::new()
+                .push(&name.unquoted())
+                .push(".testing.tar")
+                .encode(),
+        )
+    }
+
+    fn failed_marker(&self, name: &FullPackageName) -> HostPath {
+        self.shared.package_cache.join(
+            FilenameEncoder::new()
+                .push(&name.unquoted())
+                .push(".failed")
+                .encode(),
+        )
+    }
+
     fn last_built(&self, name: &FullPackageName) -> Option<SystemTime> {
-        let path = self
-            .shared
-            .package_cache
-            .join(format!("{}.tar", name.as_filename_component()));
+        let path = self.package_tar(name);
         let metadata = std::fs::metadata(path.as_host_raw()).ok()?;
         metadata.modified().ok()
     }
@@ -435,11 +479,8 @@ impl Cubicle {
     }
 
     fn package_build_failed(&self, package_name: &FullPackageName) -> Result<bool> {
-        let failed_marker = &self
-            .shared
-            .package_cache
-            .join(format!("{}.failed", package_name.as_filename_component()));
-        try_exists(failed_marker)
+        let failed_marker = self.failed_marker(package_name);
+        try_exists(&failed_marker)
             .with_context(|| format!("error while checking if {failed_marker:?} exists"))
     }
 
@@ -449,9 +490,7 @@ impl Cubicle {
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> Result<()> {
-        let package_cache = &self.shared.package_cache;
-        let failed_marker =
-            package_cache.join(format!("{}.failed", package_name.as_filename_component()));
+        let failed_marker = self.failed_marker(package_name);
 
         match self
             .update_package_(package_name, spec, specs)
@@ -469,6 +508,7 @@ impl Cubicle {
                 Ok(())
             }
             Err(update_error) => {
+                let package_cache = &self.shared.package_cache;
                 std::fs::create_dir_all(package_cache.as_host_raw())
                     .with_context(|| format!("failed to create directory {package_cache:?}"))?;
                 if let Err(e2) = std::fs::File::create(failed_marker.as_host_raw())
@@ -476,8 +516,7 @@ impl Cubicle {
                 {
                     warn(e2);
                 }
-                let cached =
-                    package_cache.join(format!("{}.tar", package_name.as_filename_component()));
+                let cached = self.package_tar(package_name);
                 let use_stale = match try_exists(&cached)
                     .with_context(|| format!("error while checking if {cached:?} exists"))
                 {
@@ -517,12 +556,15 @@ impl Cubicle {
         )
         .with_context(|| format!("failed to open directory {package_cache:?}"))?;
 
-        let testing_tar_name = format!("{}.testing.tar", package_name.as_filename_component());
-        let testing_tar_abs = package_cache.join(&testing_tar_name);
+        let testing_tar_abs = self.testing_tar(package_name);
+        let testing_tar_name = testing_tar_abs
+            .as_host_raw()
+            .strip_prefix(package_cache.as_host_raw())
+            .unwrap();
         {
             let mut file = package_cache_dir
                 .open_with(
-                    &testing_tar_name,
+                    testing_tar_name,
                     cap_std::fs::OpenOptions::new().create(true).write(true),
                 )
                 .with_context(|| {
@@ -537,16 +579,24 @@ impl Cubicle {
         }
 
         if let Some(test_script) = &spec.test {
-            self.test_package(package_name, testing_tar_abs, test_script, spec, specs)
+            self.test_package(package_name, &testing_tar_abs, test_script, spec, specs)
                 .with_context(|| format!("error testing package {package_name}"))?;
         }
 
-        let package_tar = format!("{}.tar", package_name.as_filename_component());
+        let package_tar_abs = self.package_tar(package_name);
+        let package_tar_name = package_tar_abs
+            .as_host_raw()
+            .strip_prefix(package_cache.as_host_raw())
+            .unwrap();
         package_cache_dir
-            .rename(&testing_tar_name, &package_cache_dir, &package_tar)
+            .rename(
+                testing_tar_name,
+                &package_cache_dir,
+                &package_tar_name,
+            )
             .with_context(|| {
                 format!(
-                    "failed to rename {testing_tar_name:?} to {package_tar:?} in {package_cache:?}"
+                    "failed to rename {testing_tar_name:?} to {package_tar_name:?} in {package_cache:?}"
                 )
             })?;
         Ok(())
@@ -598,11 +648,7 @@ impl Cubicle {
                 .iter()
                 .map(|name| name.as_str().to_owned())
                 .collect(),
-            env_vars: if package_name.0 == PackageNamespace::Root {
-                vec![]
-            } else {
-                vec![("PACKAGE", package_name.1.as_str().to_owned())]
-            },
+            env_vars: Vec::new(),
             seeds,
             script: self.shared.script_path.join("dev-init.sh"),
         };
@@ -611,19 +657,35 @@ impl Cubicle {
         match self.runner.exists(env_name)? {
             FullyExists | PartiallyExists => self.runner.reset(env_name, &init),
             NoEnvironment => self.runner.create(env_name, &init),
+        }?;
+
+        if let Some(update) = &spec.update {
+            let env_vars = if package_name.0 == PackageNamespace::Root {
+                vec![]
+            } else {
+                vec![("PACKAGE", package_name.1.as_str().to_owned())]
+            };
+            self.runner.run(
+                env_name,
+                &RunnerCommand::Exec {
+                    command: &[update.clone()],
+                    env_vars: env_vars.as_slice(),
+                },
+            )?;
         }
+        Ok(())
     }
 
     fn test_package(
         &self,
         package_name: &FullPackageName,
-        testing_tar: HostPath,
+        testing_tar: &HostPath,
         test_script: &str,
         spec: &PackageSpec,
         specs: &PackageSpecs,
     ) -> Result<()> {
         println!("Testing {package_name} package");
-        let test_name = EnvironmentName::from_str(&format!(
+        let test_name = EnvironmentName::from_string(format!(
             "test-{}",
             EnvironmentName::for_builder_package(package_name).as_str()
         ))
@@ -643,7 +705,7 @@ impl Cubicle {
             .collect();
 
         let mut seeds = self.packages_to_seeds(&packages)?;
-        seeds.push(testing_tar);
+        seeds.push(testing_tar.clone());
 
         let mut debian_packages = self.resolve_debian_packages(&packages, specs)?;
         if let Some(debian) = spec.manifest.depends.get(&PackageNamespace::Debian) {
@@ -657,9 +719,7 @@ impl Cubicle {
                 tar_file.as_file(),
                 &TarOptions {
                     prefix: Some(PathBuf::from("w")),
-                    // `dev-init.sh` will run `update.sh` if it's present, but
-                    // we don't want that
-                    exclude: vec![PathBuf::from("update.sh")],
+                    exclude: vec![],
                 },
             )
             .with_context(|| format!("failed to tar package source to test {package_name}"))?;
@@ -672,32 +732,33 @@ impl Cubicle {
                         .iter()
                         .map(|name| name.as_str().to_owned())
                         .collect(),
-                    env_vars: if package_name.0 == PackageNamespace::Root {
-                        vec![]
-                    } else {
-                        vec![("PACKAGE", package_name.1.as_str().to_owned())]
-                    },
+                    env_vars: Vec::new(),
                     seeds,
                     script: self.shared.script_path.join("dev-init.sh"),
                 },
             )?;
         }
 
-        self.runner
-            .run(&test_name, &RunnerCommand::Exec(&[test_script.to_owned()]))?;
+        let env_vars = if package_name.0 == PackageNamespace::Root {
+            vec![]
+        } else {
+            vec![("PACKAGE", package_name.1.as_str().to_owned())]
+        };
+        self.runner.run(
+            &test_name,
+            &RunnerCommand::Exec {
+                command: &[test_script.to_owned()],
+                env_vars: env_vars.as_slice(),
+            },
+        )?;
+
         self.runner.purge(&test_name)
     }
 
     /// Returns details of available packages.
     pub fn get_packages(&self) -> Result<BTreeMap<FullPackageName, PackageDetails>> {
         let metadata = |name: &FullPackageName| -> (Option<SystemTime>, Option<u64>) {
-            match std::fs::metadata(
-                &self
-                    .shared
-                    .package_cache
-                    .join(format!("{}.tar", name.as_filename_component()))
-                    .as_host_raw(),
-            ) {
+            match std::fs::metadata(self.package_tar(name).as_host_raw()) {
                 Ok(metadata) => (metadata.modified().ok(), file_size(&metadata)),
                 Err(_) => (None, None),
             }
@@ -752,14 +813,9 @@ impl Cubicle {
             },
         );
 
-        let non_root_packages = try_iterdir(&self.shared.package_cache)?
+        let non_root_packages = self
+            .package_names_from_tars()?
             .into_iter()
-            .filter_map(|filename| {
-                filename
-                    .to_str()
-                    .and_then(|filename| filename.strip_suffix(".tar"))
-                    .and_then(|prefix| FullPackageName::from_str(prefix).ok())
-            })
             .filter(|FullPackageName(ns, _name)| ns != &PackageNamespace::Root)
             .map(|name| {
                 let (built, size) = metadata(&name);
@@ -881,10 +937,7 @@ impl Cubicle {
         let specs = self.scan_packages()?;
         let deps = transitive_depends(packages, &specs, BuildDepends(false))?;
         for name in deps {
-            let provides = self
-                .shared
-                .package_cache
-                .join(format!("{}.tar", name.as_filename_component()));
+            let provides = self.package_tar(&name);
             if try_exists(&provides).todo_context()? {
                 seeds.push(provides);
             }
@@ -895,8 +948,8 @@ impl Cubicle {
 
 /// The name of a potential Cubicle package.
 ///
-/// Other than '-', '_', '.' and some non-ASCII characters, values of this type
-/// may not contain whitespace or special characters.
+/// Package names may not be empty, may not begin or end with whitespace,
+/// and may not contain control characters.
 #[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq, Serialize)]
 pub struct PackageName(String);
 
@@ -905,29 +958,49 @@ impl PackageName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    fn from_string(s: String) -> Result<Self> {
+        if s.is_empty() {
+            return Err(anyhow!("package name cannot be empty"));
+        }
+        if s.starts_with(char::is_whitespace) || s.ends_with(char::is_whitespace) {
+            return Err(anyhow!("package name cannot start or end with whitespace"));
+        }
+        if s.contains(|c: char| c.is_ascii_control()) {
+            return Err(anyhow!("package name cannot contain control characters"));
+        }
+        Ok(Self(s))
+    }
+
+    fn strict_from_str(s: &str) -> Result<Self> {
+        strict_package_name(s, "Cubicle package name")?;
+        Self::loose_from_str(s)
+    }
+
+    fn loose_from_str(s: &str) -> Result<Self> {
+        Self::from_string(s.to_owned())
+    }
+}
+
+fn strict_package_name(s: &str, kind: &'static str) -> Result<()> {
+    if s.is_empty() {
+        return Err(anyhow!("{kind} cannot be empty"));
+    }
+    if s.contains(|c: char| {
+        (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
+            || c.is_control()
+            || c.is_whitespace()
+    }) {
+        return Err(anyhow!(
+            "{kind} cannot contain special characters (got {s:?})"
+        ));
+    }
+    Ok(())
 }
 
 impl Borrow<str> for PackageName {
     fn borrow(&self) -> &str {
         self.as_str()
-    }
-}
-
-impl FromStr for PackageName {
-    type Err = Error;
-    fn from_str(mut s: &str) -> Result<Self> {
-        s = s.trim();
-        if s.is_empty() {
-            return Err(anyhow!("package name cannot be empty"));
-        }
-        if s.contains(|c: char| {
-            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_' | '.'))
-                || c.is_control()
-                || c.is_whitespace()
-        }) {
-            return Err(anyhow!("package name cannot contain special characters"));
-        }
-        Ok(Self(s.to_owned()))
     }
 }
 
@@ -964,24 +1037,11 @@ impl PackageNamespace {
 
 impl FromStr for PackageNamespace {
     type Err = Error;
-    fn from_str(mut s: &str) -> Result<Self> {
-        s = s.trim();
-        if s.is_empty() {
-            return Err(anyhow!("package namespace cannot be empty"));
-        }
-        if s.contains(|c: char| {
-            (c.is_ascii() && !c.is_ascii_alphanumeric() && !matches!(c, '-' | '_'))
-                || c.is_control()
-                || c.is_whitespace()
-        }) {
-            return Err(anyhow!(
-                "package namespace cannot contain special characters"
-            ));
-        }
+    fn from_str(s: &str) -> Result<Self> {
+        strict_package_name(s, "package namespace")?;
         Ok(match s {
-            "cubicle" => Self::Root,
             "debian" => Self::Debian,
-            _ => Self::Managed(PackageName::from_str(s)?),
+            _ => Self::Managed(PackageName::strict_from_str(s)?),
         })
     }
 }
@@ -1030,10 +1090,6 @@ impl FullPackageName {
             format!("{}.{}", self.0.as_str(), self.1.as_str())
         }
     }
-
-    fn as_filename_component(&self) -> String {
-        self.unquoted()
-    }
 }
 
 impl Display for FullPackageName {
@@ -1041,7 +1097,12 @@ impl Display for FullPackageName {
         if self.0 == PackageNamespace::Root {
             write!(f, "{:?}", self.1.as_str())
         } else {
-            write!(f, "\"{}.{}\"", self.0.as_str(), self.1.as_str())
+            write!(
+                f,
+                "\"{}.{}\"",
+                self.0.as_str().escape_debug(),
+                self.1.as_str().escape_debug()
+            )
         }
     }
 }
@@ -1052,9 +1113,9 @@ impl FromStr for FullPackageName {
         Ok(match s.trim().split_once('.') {
             Some((ns, name)) => Self(
                 PackageNamespace::from_str(ns)?,
-                PackageName::from_str(name)?,
+                PackageName::loose_from_str(name)?,
             ),
-            None => Self(PackageNamespace::Root, PackageName::from_str(s)?),
+            None => Self(PackageNamespace::Root, PackageName::strict_from_str(s)?),
         })
     }
 }

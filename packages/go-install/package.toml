@@ -1,0 +1,4 @@
+package_manager = true
+
+[build_depends]
+go = {}

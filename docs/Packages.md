@@ -58,11 +58,11 @@ The directory may include other files, but Cubicle pays attention to these:
 - `package.toml`: A required [TOML](https://toml.io/)-formatted file definining
   the package manifest. This is described below.
 
-- `update.sh`: An optional executable that is run in a package builder
+- `build.sh`: An optional executable that is run in a package builder
   environment to produce the package files. The script may download software,
   unpack it, compile it, set up configuration files, etc. It should create an
   archive at `~/provides.tar` that Cubicle will later unpack in the target
-  environments' home directories. Note that `update.sh` runs when the package
+  environments' home directories. Note that `build.sh` runs when the package
   builder environment is first created and also when the package builder
   environment is updated. The package builder environments are kept around as a
   form of caching.
@@ -70,7 +70,7 @@ The directory may include other files, but Cubicle pays attention to these:
 - `test.sh`: An optional executable that is run in a clean environment to
   sanity check the package output files. The test environment is seeded with
   the package's dependencies, the package output files, and the package source
-  directory (except `update.sh`).
+  directory.
 
 These files and any other files in the package directory are injected into the
 work directory of the package builder environment.
@@ -134,5 +134,5 @@ If true, this package is a special package manager that can install user-level
 packages from a third party. It will not be built directly but will be built 0
 or more times for different packages.
 
-The `update.sh` script for a package manager is invoked with an environment
+The `build.sh` script for a package manager is invoked with an environment
 variable `$PACKAGE` containing the name of the third-party package to build.

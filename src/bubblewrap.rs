@@ -3,15 +3,14 @@ use std::io;
 use std::path::Path;
 use std::process::{ChildStdout, Stdio};
 use std::rc::Rc;
-use std::str::FromStr;
 
 use super::apt;
 use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
-use super::newtype::EnvPath;
+use super::paths::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::somehow::{somehow as anyhow, Context, Result};
+use crate::somehow::{Context, Result};
 
 pub struct Bubblewrap {
     pub(super) program: Rc<CubicleShared>,
@@ -19,9 +18,13 @@ pub struct Bubblewrap {
     work_dirs: HostPath,
 }
 
+struct Dirs {
+    host_home: HostPath,
+    host_work: HostPath,
+}
+
 struct BwrapArgs<'a> {
     bind: &'a [(&'a HostPath, &'a EnvPath)],
-    env_vars: &'a [(&'static str, String)],
     run: &'a RunnerCommand<'a>,
     stdin: Option<ChildStdout>,
 }
@@ -45,6 +48,14 @@ impl Bubblewrap {
             home_dirs,
             work_dirs,
         })
+    }
+
+    fn dirs(&self, name: &EnvironmentName) -> Dirs {
+        let encoded = name.as_filename();
+        Dirs {
+            host_home: self.home_dirs.join(&encoded),
+            host_work: self.work_dirs.join(&encoded),
+        }
     }
 
     fn config(&self) -> &super::config::Bubblewrap {
@@ -83,11 +94,11 @@ impl Bubblewrap {
                 name,
                 BwrapArgs {
                     bind: &[],
-                    env_vars: &[],
-                    run: &RunnerCommand::Exec(
-                        &["tar", "--ignore-zero", "--directory", "..", "--extract"]
+                    run: &RunnerCommand::Exec {
+                        command: &["tar", "--ignore-zero", "--directory", "..", "--extract"]
                             .map(|s| s.to_owned()),
-                    ),
+                        env_vars: &[],
+                    },
                     stdin: child.stdout().take(),
                 },
             )?;
@@ -99,8 +110,10 @@ impl Bubblewrap {
             name,
             BwrapArgs {
                 bind: &[(script, &init_script)],
-                env_vars,
-                run: &RunnerCommand::Exec(&[init_script_str.to_owned()]),
+                run: &RunnerCommand::Exec {
+                    command: &[init_script_str.to_owned()],
+                    env_vars,
+                },
                 stdin: None,
             },
         )
@@ -109,15 +122,12 @@ impl Bubblewrap {
     fn bwrap(
         &self,
         name: &EnvironmentName,
-        BwrapArgs {
-            bind,
-            env_vars,
-            run,
-            stdin,
-        }: BwrapArgs,
+        BwrapArgs { bind, run, stdin }: BwrapArgs,
     ) -> Result<()> {
-        let host_home = self.home_dirs.join(name);
-        let host_work = self.work_dirs.join(name);
+        let Dirs {
+            host_home,
+            host_work,
+        } = self.dirs(name);
 
         let seccomp: Option<std::fs::File> = {
             use super::config::PathOrDisabled::*;
@@ -143,15 +153,20 @@ impl Bubblewrap {
             },
         );
         command.env("HOME", env_home.as_env_raw());
-        command.env("SANDBOX", name);
+        command.env("SANDBOX", name.as_str());
         command.env("TMPDIR", env_home.join("tmp").as_env_raw());
-        for key in ["DISPLAY", "SHELL", "TERM", "USER"] {
+        for key in ["DISPLAY", "LANG", "SHELL", "TERM", "USER"] {
             if let Ok(value) = std::env::var(key) {
                 command.env(key, value);
             }
         }
-        for (var, value) in env_vars {
-            command.env(var, value);
+        match run {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec { env_vars, .. } => {
+                for (var, value) in env_vars.iter() {
+                    command.env(var, value);
+                }
+            }
         }
 
         command.arg("--die-with-parent");
@@ -162,8 +177,8 @@ impl Bubblewrap {
 
         command.arg("--hostname");
         match &self.program.hostname {
-            Some(hostname) => command.arg(format!("{name}.{hostname}")),
-            None => command.arg(name),
+            Some(hostname) => command.arg(format!("{}.{hostname}", name.as_hostname())),
+            None => command.arg(name.as_hostname()),
         };
 
         command.args(["--symlink", "/usr/bin", "/bin"]);
@@ -208,7 +223,7 @@ impl Bubblewrap {
 
         match run {
             RunnerCommand::Interactive => {}
-            RunnerCommand::Exec(exec) => {
+            RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
                 command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
             }
@@ -258,8 +273,9 @@ impl Runner for Bubblewrap {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
+        let Dirs { host_home, .. } = self.dirs(name);
         let home_dir = cap_std::fs::Dir::open_ambient_dir(
-            &self.home_dirs.join(name).as_host_raw(),
+            &host_home.as_host_raw(),
             cap_std::ambient_authority(),
         )
         .todo_context()?;
@@ -274,8 +290,9 @@ impl Runner for Bubblewrap {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
+        let Dirs { host_work, .. } = self.dirs(name);
         let work_dir = cap_std::fs::Dir::open_ambient_dir(
-            &self.work_dirs.join(name).as_host_raw(),
+            &host_work.as_host_raw(),
             cap_std::ambient_authority(),
         )
         .todo_context()?;
@@ -285,16 +302,22 @@ impl Runner for Bubblewrap {
     }
 
     fn create(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
-        let host_home = self.home_dirs.join(name);
-        let host_work = self.work_dirs.join(name);
+        let Dirs {
+            host_home,
+            host_work,
+        } = self.dirs(name);
         std::fs::create_dir_all(&host_home.as_host_raw()).todo_context()?;
         std::fs::create_dir_all(&host_work.as_host_raw()).todo_context()?;
         self.init(name, init)
     }
 
     fn exists(&self, name: &EnvironmentName) -> Result<EnvironmentExists> {
-        let has_home_dir = try_exists(&self.home_dirs.join(name)).todo_context()?;
-        let has_work_dir = try_exists(&self.work_dirs.join(name)).todo_context()?;
+        let Dirs {
+            host_home,
+            host_work,
+        } = self.dirs(name);
+        let has_home_dir = try_exists(&host_home).todo_context()?;
+        let has_work_dir = try_exists(&host_work).todo_context()?;
 
         use EnvironmentExists::*;
         Ok(if has_home_dir && has_work_dir {
@@ -315,18 +338,22 @@ impl Runner for Bubblewrap {
         let mut envs = BTreeSet::new();
 
         for name in try_iterdir(&self.home_dirs)? {
-            let env = name
-                .to_str()
-                .ok_or_else(|| anyhow!("Path not UTF-8: {:?}", self.home_dirs.join(&name)))
-                .and_then(EnvironmentName::from_str)?;
+            let env = EnvironmentName::from_filename(&name).with_context(|| {
+                format!(
+                    "error parsing environment name from path {}",
+                    self.home_dirs.join(&name)
+                )
+            })?;
             envs.insert(env);
         }
 
         for name in try_iterdir(&self.work_dirs)? {
-            let env = name
-                .to_str()
-                .ok_or_else(|| anyhow!("Path not UTF-8: {:?}", self.work_dirs.join(&name)))
-                .and_then(EnvironmentName::from_str)?;
+            let env = EnvironmentName::from_filename(&name).with_context(|| {
+                format!(
+                    "error parsing environment name from path {}",
+                    self.work_dirs.join(&name)
+                )
+            })?;
             envs.insert(env);
         }
 
@@ -334,7 +361,11 @@ impl Runner for Bubblewrap {
     }
 
     fn files_summary(&self, name: &EnvironmentName) -> Result<EnvFilesSummary> {
-        let home_dir = self.home_dirs.join(name);
+        let Dirs {
+            host_home: home_dir,
+            host_work: work_dir,
+        } = self.dirs(name);
+
         let home_dir_exists = try_exists(&home_dir).todo_context()?;
         let home_dir_summary = if home_dir_exists {
             summarize_dir(&home_dir)?
@@ -342,7 +373,6 @@ impl Runner for Bubblewrap {
             DirSummary::new_with_errors()
         };
 
-        let work_dir = self.work_dirs.join(name);
         let work_dir_exists = try_exists(&work_dir).todo_context()?;
         let work_dir_summary = if work_dir_exists {
             summarize_dir(&work_dir)?
@@ -359,8 +389,10 @@ impl Runner for Bubblewrap {
     }
 
     fn reset(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
-        let host_home = self.home_dirs.join(name);
-        let host_work = self.work_dirs.join(name);
+        let Dirs {
+            host_home,
+            host_work,
+        } = self.dirs(name);
         rmtree(&host_home)?;
         std::fs::create_dir_all(host_home.as_host_raw()).todo_context()?;
         std::fs::create_dir_all(host_work.as_host_raw()).todo_context()?;
@@ -368,15 +400,18 @@ impl Runner for Bubblewrap {
     }
 
     fn purge(&self, name: &EnvironmentName) -> Result<()> {
-        rmtree(&self.home_dirs.join(name))?;
-        rmtree(&self.work_dirs.join(name))
+        let Dirs {
+            host_home,
+            host_work,
+        } = self.dirs(name);
+        rmtree(&host_home)?;
+        rmtree(&host_work)
     }
 
     fn run(&self, name: &EnvironmentName, run: &RunnerCommand) -> Result<()> {
         self.bwrap(
             name,
             BwrapArgs {
-                env_vars: &[],
                 bind: &[],
                 run,
                 stdin: None,

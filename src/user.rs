@@ -2,13 +2,13 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
-use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::command_ext::Command;
 use super::fs_util::{summarize_dir, DirSummary};
 use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{apt, CubicleShared, EnvironmentName, ExitStatusError, HostPath};
+use crate::encoding::{percent_decode, percent_encode, FilenameEncoder};
 use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 
 pub struct User {
@@ -18,8 +18,54 @@ pub struct User {
 }
 
 mod newtypes {
-    use super::super::newtype;
-    newtype::name!(Username);
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write;
+
+    /// Usernames generated using a hash function.
+    ///
+    /// A username can't necessarily fit all the information we'd like to
+    /// encode, as usernames are required to be short on some operating
+    /// systems. On Linux they're usually limited to 31 characters; see
+    /// <https://systemd.io/USER_NAMES/>.
+    ///
+    /// Using a fixed-length hash function may also have another benefit. For
+    /// software installations that hardcode their absolute paths, we can
+    /// probably `sed/$PACKAGE_BUILDER_HASH/$TARGET_ENVIRONMENT_HASH/` on the
+    /// package tarball with some success.
+    #[derive(Debug)]
+    pub struct Username(String);
+
+    impl Username {
+        pub fn new(prefix: &str, name: &str) -> Self {
+            let len = prefix.len() + 24;
+            let mut buf = String::with_capacity(len);
+            buf.push_str(prefix);
+            for byte in Sha256::new()
+                // Add in a couple of things so that the hash is unlikely to be
+                // found anywhere else by accident.
+                .chain_update("NzSWIOeAbGN1BHJtG7Kt")
+                .chain_update(prefix)
+                .chain_update(name.as_bytes())
+                .finalize()
+                .iter()
+                .take(12)
+            {
+                write!(buf, "{:02x}", byte).unwrap();
+            }
+            debug_assert!(buf.len() == len);
+            Self(buf)
+        }
+
+        pub fn as_str(&self) -> &str {
+            &self.0
+        }
+    }
+
+    impl std::fmt::Display for Username {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Debug::fmt(&self.0, f)
+        }
+    }
 }
 use newtypes::Username;
 
@@ -39,17 +85,17 @@ impl User {
     }
 
     fn username_from_environment(&self, env: &EnvironmentName) -> Username {
-        Username::new(format!("{}{}", self.username_prefix, env.as_str()))
+        Username::new(self.username_prefix, env.as_str())
     }
 
     fn user_exists(&self, username: &Username) -> Result<bool> {
         self.user_exists_(username)
-            .with_context(|| format!("failed to check if user `{username}` exists"))
+            .with_context(|| format!("failed to check if user {username} exists"))
     }
 
     fn user_exists_(&self, username: &Username) -> LowLevelResult<bool> {
         let status = Command::new("sudo")
-            .args(["--user", username])
+            .args(["--user", username.as_str()])
             .arg("--")
             .arg("true")
             .env_clear()
@@ -62,22 +108,24 @@ impl User {
         }
     }
 
-    fn create_user(&self, username: &Username) -> Result<()> {
-        self.create_user_(username)
-            .with_context(|| format!("failed to create user `{username}`"))
+    fn create_user(&self, env_name: &EnvironmentName, username: &Username) -> Result<()> {
+        self.create_user_(env_name, username)
+            .with_context(|| format!("failed to create user {username} for environment {env_name}"))
     }
 
-    fn create_user_(&self, username: &Username) -> LowLevelResult<()> {
+    fn create_user_(&self, env_name: &EnvironmentName, username: &Username) -> LowLevelResult<()> {
         Command::new("sudo")
             .arg("--")
             .arg("adduser")
             .arg("--disabled-password")
             .args([
                 "--gecos",
-                &format!("Cubicle environment for user {}", self.program.user),
+                &percent_encode(env_name.as_str(), |_i, c| {
+                    c.is_ascii_control() || matches!(c, ',' | ':')
+                }),
             ])
             .args(["--shell", &self.program.shell])
-            .arg(username)
+            .arg(username.as_str())
             .status()
             .and_then(|status| {
                 if status.success() {
@@ -90,7 +138,7 @@ impl User {
         Command::new("sudo")
             // See notes about `--chdir` elsewhere.
             .arg("--login")
-            .args(["--user", username])
+            .args(["--user", username.as_str()])
             .arg("--")
             .arg("mkdir")
             .arg("w")
@@ -103,7 +151,7 @@ impl User {
                     Err(anyhow!("`sudo ... mkdir w` exited with {status}"))
                 }
             })
-            .with_context(|| format!("failed to create work directory for `{username}`"))?;
+            .with_context(|| format!("failed to create work directory for {username}"))?;
 
         Ok(())
     }
@@ -114,18 +162,18 @@ impl User {
             .arg("--")
             .arg("pkill")
             .args(["--signal", "KILL"])
-            .args(["--uid", username])
+            .args(["--uid", username.as_str()])
             .status()
             .and_then(|status| match status.code() {
                 Some(0) | Some(1) => Ok(()),
                 _ => Err(anyhow!("`sudo pkill` exited with {status}")),
             })
-            .with_context(|| format!("failed to kill processes for user `{username}`"))
+            .with_context(|| format!("failed to kill processes for user {username}"))
     }
 
     fn copy_in_seeds(&self, username: &Username, seeds: &[&HostPath]) -> Result<()> {
         self.copy_in_seeds_(username, seeds)
-            .with_context(|| format!("failed to copy seed tarball into user `{username}`"))
+            .with_context(|| format!("failed to copy seed tarball into user {username} home dir"))
     }
 
     fn copy_in_seeds_(&self, username: &Username, seeds: &[&HostPath]) -> LowLevelResult<()> {
@@ -147,7 +195,7 @@ impl User {
             // Now it uses `--login` instead, which does change directories
             // but has some other side effects.
             .arg("--login")
-            .args(["--user", username])
+            .args(["--user", username.as_str()])
             .arg("--")
             .arg("tar")
             .arg("--extract")
@@ -182,7 +230,7 @@ impl User {
 
     fn copy_out(&self, username: &Username, path: &Path, w: &mut dyn io::Write) -> Result<()> {
         self.copy_out_(username, path, w)
-            .with_context(|| format!("failed to copy file {path:?} from user `{username}`"))
+            .with_context(|| format!("failed to copy file {path:?} from user {username}"))
     }
 
     fn copy_out_(
@@ -194,7 +242,7 @@ impl User {
         let mut child = Command::new("sudo")
             // See notes about `--chdir` elsewhere.
             .arg("--login")
-            .args(["--user", username])
+            .args(["--user", username.as_str()])
             .arg("--")
             .arg("cat")
             .arg(path)
@@ -244,35 +292,19 @@ impl User {
         let script_tar_path = HostPath::try_from(script_tar.path().to_owned())?;
         seeds.push(&script_tar_path);
         self.copy_in_seeds(&username, &seeds)?;
-        self.run_with_env_vars(
+        self.run_(
             env_name,
-            &RunnerCommand::Exec(&["../.cubicle-init-script".to_owned()]),
-            env_vars,
+            &RunnerCommand::Exec {
+                command: &["../.cubicle-init-script".to_owned()],
+                env_vars,
+            },
         )
     }
 
-    fn run_with_env_vars(
-        &self,
-        env_name: &EnvironmentName,
-        run_command: &RunnerCommand,
-        env_vars: &[(&'static str, String)],
-    ) -> Result<()> {
+    fn run_(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
         let username = self.username_from_environment(env_name);
 
         let mut command = Command::new("sudo");
-        command
-            .env_clear()
-            .env("SANDBOX", &env_name)
-            .env("SHELL", &self.program.shell);
-        if let Ok(display) = std::env::var("DISPLAY") {
-            command.env("DISPLAY", display);
-        }
-        if let Ok(term) = std::env::var("TERM") {
-            command.env("TERM", term);
-        }
-        for (var, value) in env_vars {
-            command.env(var, value);
-        }
 
         command
             // This used to use `--chdir ~//w`, but that was introduced
@@ -281,15 +313,36 @@ impl User {
             // The double-slash after `~` appeared to be necessary for sudo
             // (1.9.5p2). It seems dubious, though.
             .arg("--login")
-            .args(["--user", &username])
-            .arg("--preserve-env=SANDBOX,SHELL")
-            .arg("--")
-            .arg(&self.program.shell);
+            .args(["--user", username.as_str()]);
+
+        command.env_clear();
+        command
+            .env("SANDBOX", env_name.as_str())
+            .arg("--preserve-env=SANDBOX");
+        command
+            .env("SHELL", &self.program.shell)
+            .arg("--preserve-env=SHELL");
+        for var in ["DISPLAY", "LANG", "TERM"] {
+            if let Ok(value) = std::env::var(var) {
+                command.env(var, value).arg(format!("--preserve-env={var}"));
+            }
+        }
+        match run_command {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec { env_vars, .. } => {
+                for (var, value) in env_vars.iter() {
+                    command.env(var, value).arg(format!("--preserve-env={var}"));
+                }
+            }
+        }
+
+        command.arg("--").arg(&self.program.shell);
+
         match run_command {
             RunnerCommand::Interactive => {
                 command.args(["-c", &format!("cd w && exec {}", self.program.shell)]);
             }
-            RunnerCommand::Exec(exec) => {
+            RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
                 command.arg(format!(
                     "cd w && {}",
@@ -330,7 +383,7 @@ impl Runner for User {
 
     fn create(&self, env_name: &EnvironmentName, init: &Init) -> Result<()> {
         let username = self.username_from_environment(env_name);
-        self.create_user(&username)?;
+        self.create_user(env_name, &username)?;
         self.init(env_name, init)
     }
 
@@ -347,41 +400,39 @@ impl Runner for User {
     }
 
     fn list(&self) -> Result<Vec<EnvironmentName>> {
-        let file = std::fs::File::open("/etc/passwd").todo_context()?;
-        let reader = io::BufReader::new(file);
-        let mut names = Vec::new();
-        for line in reader.lines() {
-            let line = line.todo_context()?;
-            if let Some(env) = line
-                .split_once(':')
-                .and_then(|(username, _)| username.strip_prefix(self.username_prefix))
-                .and_then(|env| EnvironmentName::from_str(env).ok())
-            {
-                names.push(env);
+        let mut envs = Vec::new();
+        for account in Passwd::open()? {
+            let Account {
+                username, gecos, ..
+            } = account?;
+            if !username.starts_with(self.username_prefix) {
+                continue;
+            }
+            let name = match gecos.split_once(',') {
+                Some((a, _)) => a,
+                None => &gecos,
+            };
+            if let Ok(env) = percent_decode(name).and_then(EnvironmentName::from_string) {
+                if self.username_from_environment(&env).as_str() == username {
+                    envs.push(env);
+                }
             }
         }
-        Ok(names)
+        Ok(envs)
     }
 
     fn files_summary(&self, env_name: &EnvironmentName) -> Result<EnvFilesSummary> {
         let username = self.username_from_environment(env_name);
-        let home: Option<HostPath> = {
-            let file = std::fs::File::open("/etc/passwd").todo_context()?;
-            let reader = io::BufReader::new(file);
-            let mut home = None;
-            for line in reader.lines() {
-                let line = line.todo_context()?;
-                let mut fields = line.split(':');
-                if fields.next() != Some(&username) {
-                    continue;
-                }
-                if let Some(h) = fields.nth(4) {
-                    home = Some(HostPath::try_from(h.to_owned())?);
-                }
+
+        let mut home: Option<HostPath> = None;
+
+        for account in Passwd::open()? {
+            let account = account?;
+            if account.username == username.as_str() {
+                home = Some(account.home);
                 break;
             }
-            home
-        };
+        }
 
         match home {
             Some(home) => {
@@ -417,21 +468,27 @@ impl Runner for User {
         self.kill_username(&username)?;
 
         std::fs::create_dir_all(&self.work_tars.as_host_raw()).todo_context()?;
-        let work_tar = self.work_tars.join(format!(
-            "{}-{}.tar",
-            env_name.as_str(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        ));
+        let work_tar = self.work_tars.join(
+            FilenameEncoder::new()
+                .push(env_name.as_str())
+                .push("-")
+                .push(&format!(
+                    "{}",
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ))
+                .push(".tar")
+                .encode(),
+        );
 
         let save = || -> LowLevelResult<()> {
-            println!("Saving work directory to {work_tar:?}");
+            println!("Saving work directory to {work_tar}");
             let mut child = Command::new("sudo")
                 // See notes about `--chdir` elsewhere.
                 .arg("--login")
-                .args(["--user", &username])
+                .args(["--user", username.as_str()])
                 .arg("--")
                 .arg("tar")
                 .arg("--create")
@@ -446,9 +503,9 @@ impl Runner for User {
                     .create_new(true)
                     .write(true)
                     .open(&work_tar.as_host_raw())
-                    .todo_context()?;
-                io::copy(&mut stdout, &mut f).todo_context()?;
-                f.flush().todo_context()?;
+                    .with_context(|| format!("failed to open {work_tar} for writing"))?;
+                io::copy(&mut stdout, &mut f).context("failed to copy data")?;
+                f.flush().context("failed to flush data")?;
             }
 
             let status = child.wait()?;
@@ -458,12 +515,14 @@ impl Runner for User {
                 Err(anyhow!("`sudo ... tar` exited with {status}").into())
             }
         };
-        save().with_context(|| format!("Failed to tar work directory for user `{username}`"))?;
+        save().with_context(|| {
+            format!("failed to save work directory for user {username} to {work_tar}")
+        })?;
 
         let purge_and_restore = || -> Result<()> {
             self.purge(env_name)?;
             self.create(env_name, init)?;
-            println!("Restoring work directory from {work_tar:?}");
+            println!("Restoring work directory from {work_tar}");
             self.init(
                 env_name,
                 &Init {
@@ -473,7 +532,9 @@ impl Runner for User {
                     script: self.program.script_path.join("dev-init.sh"),
                 },
             )
-            .with_context(|| format!("failed to restore work directory from {work_tar:?}"))
+            .with_context(|| {
+                format!("failed to restore work directory from {work_tar} for user {username}")
+            })
         };
 
         match purge_and_restore() {
@@ -483,7 +544,7 @@ impl Runner for User {
             }
             Err(e) => {
                 println!("Encountered an error while resetting environment {env_name}.");
-                println!("A copy of its work directory is here: {work_tar:?}");
+                println!("A copy of its work directory is here: {work_tar}");
                 Err(e)
             }
         }
@@ -499,7 +560,7 @@ impl Runner for User {
             .arg("--")
             .arg("deluser")
             .arg("--remove-home")
-            .arg(&username)
+            .arg(username.as_str())
             .status()
             .and_then(|status| {
                 if status.success() {
@@ -508,10 +569,76 @@ impl Runner for User {
                     Err(anyhow!("`sudo deluser` exited with {status}"))
                 }
             })
-            .with_context(|| format!("failed to delete user `{username}`"))
+            .with_context(|| format!("failed to delete user {username}"))
     }
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
-        self.run_with_env_vars(env_name, run_command, &[])
+        self.run_(env_name, run_command)
+    }
+}
+
+/// An iterator over `/etc/passwd` accounts.
+struct Passwd {
+    lines: std::iter::Enumerate<std::io::Lines<io::BufReader<std::fs::File>>>,
+}
+
+impl Passwd {
+    fn open() -> Result<Self> {
+        let file = std::fs::File::open("/etc/passwd").context("failed to open \"/etc/passwd\"")?;
+        let reader = io::BufReader::new(file);
+        Ok(Self {
+            lines: reader.lines().enumerate(),
+        })
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+struct Account {
+    username: String,
+    uid: u32,
+    gid: u32,
+    gecos: String,
+    home: HostPath,
+    shell: String,
+}
+
+impl Iterator for Passwd {
+    type Item = Result<Account>;
+    fn next(&mut self) -> Option<Result<Account>> {
+        self.lines.next().map(|(i, line)| {
+            line.enough_context()
+                .and_then(|line: String| -> Result<Account> {
+                    let mut fields = line.split(':');
+                    if let (
+                        Some(username),
+                        Some(_password),
+                        Some(uid),
+                        Some(gid),
+                        Some(gecos),
+                        Some(home),
+                    ) = (
+                        fields.next(),
+                        fields.next(),
+                        fields.next(),
+                        fields.next(),
+                        fields.next(),
+                        fields.next(),
+                    ) {
+                        Ok(Account {
+                            username: username.to_owned(),
+                            uid: uid.parse::<u32>().context("error parsing uid")?,
+                            gid: gid.parse::<u32>().context("error parsing gid")?,
+                            gecos: gecos.to_owned(),
+                            home: HostPath::try_from(home.to_owned())
+                                .context("error parsing home path")?,
+                            shell: fields.next().unwrap_or("/bin/sh").to_owned(),
+                        })
+                    } else {
+                        Err(anyhow!("not enough fields"))
+                    }
+                })
+                .with_context(|| format!("failed to parse line {i} of \"/etc/passwd\""))
+        })
     }
 }

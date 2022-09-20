@@ -91,9 +91,13 @@ rm ~/bin/cub
 
 ## Cubicle Environments
 
-Each Cubicle environment consists of a new system user account. The Cubicle
-environment names are prefixed with `cub-` to avoid collisions with regular
-user accounts.
+Each Cubicle environment consists of a new system user account. The user
+account names names are prefixed with `cub-` to avoid collisions with regular
+user accounts. They consist of 24 hexadecimal characters of a hash after that,
+since usernames are too restricted and too short on some systems (such as
+Debian Linux) to encode all the information Cubicle needs. (The full
+environment name is stored in the
+[GECOS](https://en.wikipedia.org/wiki/Gecos_field) field of `/etc/passwd`.)
 
 The user account's home directory should be treated as replaceable at any time.
 Cubicle populates the home directory with files from packages when you create

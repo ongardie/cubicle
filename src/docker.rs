@@ -11,11 +11,14 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
-use super::newtype::EnvPath;
 use super::os_util::{get_timezone, get_uids, Uids};
+use super::paths::EnvPath;
 use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, warn, Context, LowLevelResult, Result};
+
+mod names;
+use names::{ContainerName, ImageName, VolumeName};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
@@ -33,15 +36,16 @@ enum Mounts {
     Volumes,
 }
 
-use Mounts::{BindMounts, Volumes};
-
-mod newtypes {
-    use super::super::newtype;
-    newtype::name!(ContainerName);
-    newtype::name!(ImageName);
-    newtype::name!(VolumeName);
+enum EnvMounts {
+    BindMounts {
+        host_home: HostPath,
+        host_work: HostPath,
+    },
+    Volumes {
+        home_volume: VolumeName,
+        work_volume: VolumeName,
+    },
 }
-use newtypes::{ContainerName, ImageName, VolumeName};
 
 impl Docker {
     pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
@@ -59,12 +63,12 @@ impl Docker {
                 Err(_) => program.home.join(".local").join("share"),
             };
             let work_dirs = xdg_data_home.join("cubicle").join("work");
-            BindMounts {
+            Mounts::BindMounts {
                 home_dirs,
                 work_dirs,
             }
         } else {
-            Volumes
+            Mounts::Volumes
         };
 
         let base_image = ImageName::new(format!("{}cubicle-base", program.config.docker.prefix));
@@ -90,22 +94,32 @@ impl Docker {
         ))
     }
 
-    fn home_volume(&self, env: &EnvironmentName) -> VolumeName {
-        assert!(matches!(self.mounts, Volumes));
-        VolumeName::new(format!(
-            "{}{}-home",
-            self.program.config.docker.prefix,
-            env.as_str()
-        ))
-    }
+    fn mounts(&self, env: &EnvironmentName) -> EnvMounts {
+        match &self.mounts {
+            Mounts::BindMounts {
+                home_dirs,
+                work_dirs,
+            } => {
+                let encoded = env.as_filename();
+                EnvMounts::BindMounts {
+                    host_home: home_dirs.join(&encoded),
+                    host_work: work_dirs.join(&encoded),
+                }
+            }
 
-    fn work_volume(&self, env: &EnvironmentName) -> VolumeName {
-        assert!(matches!(self.mounts, Volumes));
-        VolumeName::new(format!(
-            "{}{}-work",
-            self.program.config.docker.prefix,
-            env.as_str()
-        ))
+            Mounts::Volumes => EnvMounts::Volumes {
+                home_volume: VolumeName::new(format!(
+                    "{}{}-home",
+                    self.program.config.docker.prefix,
+                    env.as_str()
+                )),
+                work_volume: VolumeName::new(format!(
+                    "{}{}-work",
+                    self.program.config.docker.prefix,
+                    env.as_str()
+                )),
+            },
+        }
     }
 
     fn is_container(&self, name: &ContainerName) -> Result<bool> {
@@ -118,7 +132,7 @@ impl Docker {
             .arg("inspect")
             .args(["--type", "container"])
             .args(["--format", "{{ .Name }}"])
-            .arg(name)
+            .arg(name.encoded())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
@@ -150,9 +164,14 @@ impl Docker {
         let mut envs = Vec::new();
         for line in output.stdout.lines() {
             let line = line.context("could not read `docker ps` output")?;
-            if let Some(name) = line.strip_prefix(&self.program.config.docker.prefix) {
-                if let Ok(env) = EnvironmentName::from_str(name) {
-                    envs.push(env);
+            if let Some(container_name) = ContainerName::decode(&line) {
+                if let Some(name) = container_name
+                    .decoded()
+                    .strip_prefix(&self.program.config.docker.prefix)
+                {
+                    if let Ok(env) = EnvironmentName::from_str(name) {
+                        envs.push(env);
+                    }
                 }
             }
         }
@@ -161,7 +180,7 @@ impl Docker {
 
     fn build_base(&self, debian_packages: &[String]) -> LowLevelResult<()> {
         let mut child = Command::new("docker")
-            .args(["build", "--tag", &self.base_image, "-"])
+            .args(["build", "--tag", &self.base_image.encoded(), "-"])
             .stdin(Stdio::piped())
             .scoped_spawn()?;
 
@@ -198,11 +217,11 @@ impl Docker {
         command.args(["--env", &format!("SANDBOX={}", env_name.as_str())]);
         command.arg("--hostname");
         match &self.program.hostname {
-            Some(hostname) => command.arg(format!("{}.{hostname}", env_name.as_str())),
-            None => command.arg(env_name),
+            Some(hostname) => command.arg(format!("{}.{hostname}", env_name.as_hostname())),
+            None => command.arg(env_name.as_hostname()),
         };
         command.arg("--init");
-        command.args(["--name", &container_name]);
+        command.args(["--name", &container_name.encoded()]);
         command.arg("--rm");
         if try_exists(&seccomp_json).todo_context()? {
             command.args([
@@ -231,14 +250,11 @@ impl Docker {
             .to_str()
             .ok_or_else(|| anyhow!("path not valid UTF-8: {:#?}", container_work))?;
 
-        match &self.mounts {
-            BindMounts {
-                home_dirs,
-                work_dirs,
+        match &self.mounts(env_name) {
+            EnvMounts::BindMounts {
+                host_home,
+                host_work,
             } => {
-                let host_home = home_dirs.join(env_name);
-                let host_work = work_dirs.join(env_name);
-
                 command.args([
                     "--mount",
                     &format!(
@@ -263,12 +279,15 @@ impl Docker {
                 ]);
             }
 
-            Volumes => {
+            EnvMounts::Volumes {
+                home_volume,
+                work_volume,
+            } => {
                 command.args([
                     "--mount",
                     &format!(
                         r#""type=volume","source={}","target={}""#,
-                        self.home_volume(env_name),
+                        home_volume.encoded(),
                         container_home_str,
                     ),
                 ]);
@@ -276,7 +295,7 @@ impl Docker {
                     "--mount",
                     &format!(
                         r#""type=volume","source={}","target={}""#,
-                        self.work_volume(env_name),
+                        work_volume.encoded(),
                         container_work_str,
                     ),
                 ]);
@@ -284,7 +303,7 @@ impl Docker {
         }
 
         command.arg("--workdir").arg(&container_work.as_env_raw());
-        command.arg(&self.base_image);
+        command.arg(self.base_image.encoded());
         command.args(["sleep", "90d"]);
         command.stdout(Stdio::null());
         let status = command.status()?;
@@ -309,7 +328,7 @@ impl Docker {
         self.build_base(debian_packages)
             .with_context(|| format!("failed to build {} Docker image", self.base_image))?;
         self.spawn(env_name)
-            .with_context(|| format!("failed to start Docker container {env_name:?}"))?;
+            .with_context(|| format!("failed to start Docker container {container_name}"))?;
 
         let script_path = "/.cubicle-init";
 
@@ -317,7 +336,7 @@ impl Docker {
             let status = Command::new("docker")
                 .arg("cp")
                 .arg(script.as_host_raw())
-                .arg(format!("{}:{}", container_name, script_path))
+                .arg(format!("{}:{}", container_name.encoded(), script_path))
                 .status()?;
             if !status.success() {
                 return Err(anyhow!("`docker cp` exited with {status}"));
@@ -325,17 +344,19 @@ impl Docker {
             Ok(())
         };
         copy_init().with_context(|| {
-            format!("failed to copy init script into Docker container {container_name:?}")
+            format!("failed to copy init script into Docker container {container_name}")
         })?;
 
         self.copy_seeds(&container_name, seeds).with_context(|| {
-            format!("failed to copy package seeds into Docker container {container_name:?}")
+            format!("failed to copy package seeds into Docker container {container_name}")
         })?;
 
-        self.run_with_env_vars(
+        self.run_(
             env_name,
-            &RunnerCommand::Exec(&[script_path.to_owned()]),
-            env_vars,
+            &RunnerCommand::Exec {
+                command: &[script_path.to_owned()],
+                env_vars,
+            },
         )
     }
 
@@ -361,10 +382,11 @@ impl Docker {
         output
             .stdout
             .lines()
-            .map(|line| {
-                line.map(VolumeName::new)
+            .filter_map(|line| {
+                line.map(|name| VolumeName::decode(&name))
                     .context("failed to read `docker volume ls` output")
                     .map_err(|e| e.into())
+                    .transpose()
             })
             .collect()
     }
@@ -375,7 +397,7 @@ impl Docker {
 
     fn volume_mountpoint(&self, name: &VolumeName) -> Result<Option<HostPath>> {
         self.volume_mountpoint_(name)
-            .with_context(|| format!("failed to get mountpoint of Docker volume {name:?}"))
+            .with_context(|| format!("failed to get mountpoint of Docker volume {name}"))
     }
 
     fn volume_mountpoint_(&self, name: &VolumeName) -> LowLevelResult<Option<HostPath>> {
@@ -383,7 +405,7 @@ impl Docker {
             .arg("volume")
             .arg("inspect")
             .args(["--format", "{{ .Mountpoint }}"])
-            .arg(&name)
+            .arg(name.encoded())
             .output()?;
         let status = output.status;
         if !status.success() {
@@ -405,13 +427,16 @@ impl Docker {
 
     fn volume_du(&self, name: &VolumeName) -> Result<DirSummary> {
         self.volume_du_(name)
-            .with_context(|| format!("Failed to summarize disk usage of Docker volume {name:?}"))
+            .with_context(|| format!("failed to summarize disk usage of Docker volume {name}"))
     }
     fn volume_du_(&self, name: &VolumeName) -> LowLevelResult<DirSummary> {
         let output = Command::new("docker")
             .arg("run")
             .arg("--mount")
-            .arg(format!(r#""type=volume","source={name}","target=/v""#))
+            .arg(format!(
+                r#""type=volume","source={}","target=/v""#,
+                name.encoded()
+            ))
             .arg("--rm")
             .arg("debian:11")
             .arg("du")
@@ -464,14 +489,14 @@ impl Docker {
 
     fn ensure_volume_exists(&self, name: &VolumeName) -> Result<()> {
         self.ensure_volume_exists_(name)
-            .with_context(|| format!("failed to create Docker volume {name:?}"))
+            .with_context(|| format!("failed to create Docker volume {name}"))
     }
 
     fn ensure_volume_exists_(&self, name: &VolumeName) -> LowLevelResult<()> {
         let status = Command::new("docker")
             .arg("volume")
             .arg("create")
-            .arg(&name)
+            .arg(name.encoded())
             .stdout(Stdio::null())
             .status()?;
         if !status.success() {
@@ -482,7 +507,7 @@ impl Docker {
 
     fn ensure_no_volume(&self, name: &VolumeName) -> Result<()> {
         self.ensure_no_volume_(name)
-            .with_context(|| format!("failed to remove Docker volume {name:?}"))
+            .with_context(|| format!("failed to remove Docker volume {name}"))
     }
 
     fn ensure_no_volume_(&self, name: &VolumeName) -> LowLevelResult<()> {
@@ -490,7 +515,7 @@ impl Docker {
             .arg("volume")
             .arg("rm")
             .arg("--force")
-            .arg(&name)
+            .arg(name.encoded())
             .stdout(Stdio::null())
             .status()?;
         if !status.success() {
@@ -501,7 +526,7 @@ impl Docker {
 
     fn copy_out_from_volume(
         &self,
-        volume: VolumeName,
+        volume: &VolumeName,
         path: &Path,
         w: &mut dyn io::Write,
     ) -> LowLevelResult<()> {
@@ -511,7 +536,10 @@ impl Docker {
         let mut child = Command::new("docker")
             .arg("run")
             .arg("--mount")
-            .arg(format!(r#""type=volume","source={volume}","target=/v""#))
+            .arg(format!(
+                r#""type=volume","source={}","target=/v""#,
+                volume.encoded()
+            ))
             .arg("--rm")
             .args(["--workdir", "/v"])
             .arg("debian:11")
@@ -559,7 +587,7 @@ impl Docker {
         let mut child = Command::new("docker")
             .arg("exec")
             .arg("--interactive")
-            .arg(&container_name)
+            .arg(container_name.encoded())
             .args([
                 "sh",
                 "-c",
@@ -590,12 +618,7 @@ impl Docker {
         Ok(())
     }
 
-    fn run_with_env_vars(
-        &self,
-        env_name: &EnvironmentName,
-        run_command: &RunnerCommand,
-        env_vars: &[(&'static str, String)],
-    ) -> Result<()> {
+    fn run_(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
         assert!(self.is_container(&container_name)?);
 
@@ -603,14 +626,20 @@ impl Docker {
         command.arg("exec");
 
         command.args(["--env", "DISPLAY"]);
+        command.args(["--env", "LANG"]);
         command
             .arg("--env")
             .arg(fallback_path(&self.container_home));
         command.args(["--env", "SHELL"]);
         command.args(["--env", "USER"]);
         command.args(["--env", "TERM"]);
-        for (var, value) in env_vars {
-            command.arg("--env").arg(format!("{}={}", var, value));
+        match run_command {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec { env_vars, .. } => {
+                for (var, value) in env_vars.iter() {
+                    command.arg("--env").arg(format!("{}={}", var, value));
+                }
+            }
         }
 
         command.arg("--interactive");
@@ -624,11 +653,11 @@ impl Docker {
             command.arg("--tty");
         }
 
-        command.arg(&container_name);
+        command.arg(container_name.encoded());
         command.args([&self.program.shell, "-l"]);
         match run_command {
             RunnerCommand::Interactive => {}
-            RunnerCommand::Exec(exec) => {
+            RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
                 command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
             }
@@ -650,23 +679,22 @@ impl Runner for Docker {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
-        match &self.mounts {
-            BindMounts { home_dirs, .. } => {
-                let home_dir_path = home_dirs.join(env_name);
+        match &self.mounts(env_name) {
+            EnvMounts::BindMounts { host_home, .. } => {
                 let home_dir = cap_std::fs::Dir::open_ambient_dir(
-                    &home_dir_path.as_host_raw(),
+                    host_home.as_host_raw(),
                     cap_std::ambient_authority(),
                 )
-                .with_context(|| format!("failed to open directory {home_dir_path}"))?;
+                .with_context(|| format!("failed to open directory {host_home}"))?;
                 let mut file = home_dir
                     .open(path)
-                    .with_context(|| format!("failed to open file {}", home_dir_path.join(path)))?;
+                    .with_context(|| format!("failed to open file {}", host_home.join(path)))?;
                 io::copy(&mut file, w).context("failed to copy data")?;
                 Ok(())
             }
 
-            Volumes => self
-                .copy_out_from_volume(self.home_volume(env_name), path, w)
+            EnvMounts::Volumes { home_volume, .. } => self
+                .copy_out_from_volume(home_volume, path, w)
                 .enough_context(),
         }
     }
@@ -677,22 +705,22 @@ impl Runner for Docker {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
-        match &self.mounts {
-            BindMounts { work_dirs, .. } => {
-                let work_dir_path = work_dirs.join(env_name);
+        match &self.mounts(env_name) {
+            EnvMounts::BindMounts { host_work, .. } => {
                 let work_dir = cap_std::fs::Dir::open_ambient_dir(
-                    &work_dir_path.as_host_raw(),
+                    host_work.as_host_raw(),
                     cap_std::ambient_authority(),
                 )
-                .with_context(|| format!("failed to open directory {work_dir_path}"))?;
+                .with_context(|| format!("failed to open directory {host_work}"))?;
                 let mut file = work_dir
                     .open(path)
-                    .with_context(|| format!("failed to open file {}", work_dir_path.join(path)))?;
+                    .with_context(|| format!("failed to open file {}", host_work.join(path)))?;
                 io::copy(&mut file, w).context("failed to copy data")?;
                 Ok(())
             }
-            Volumes => self
-                .copy_out_from_volume(self.work_volume(env_name), path, w)
+
+            EnvMounts::Volumes { work_volume, .. } => self
+                .copy_out_from_volume(work_volume, path, w)
                 .enough_context(),
         }
     }
@@ -702,19 +730,21 @@ impl Runner for Docker {
         if self.is_container(&container_name)? {
             return Err(anyhow!("Docker container {container_name} already exists"));
         }
-        match &self.mounts {
-            BindMounts {
-                home_dirs,
-                work_dirs,
+        match &self.mounts(env_name) {
+            EnvMounts::BindMounts {
+                host_home,
+                host_work,
             } => {
-                let host_home = home_dirs.join(env_name);
-                let host_work = work_dirs.join(env_name);
-                std::fs::create_dir_all(&host_home.as_host_raw()).todo_context()?;
-                std::fs::create_dir_all(&host_work.as_host_raw()).todo_context()?;
+                std::fs::create_dir_all(host_home.as_host_raw()).todo_context()?;
+                std::fs::create_dir_all(host_work.as_host_raw()).todo_context()?;
             }
-            Volumes => {
-                self.ensure_volume_exists(&self.home_volume(env_name))?;
-                self.ensure_volume_exists(&self.work_volume(env_name))?;
+
+            EnvMounts::Volumes {
+                home_volume,
+                work_volume,
+            } => {
+                self.ensure_volume_exists(home_volume)?;
+                self.ensure_volume_exists(work_volume)?;
             }
         }
 
@@ -727,17 +757,21 @@ impl Runner for Docker {
 
         let has_home_dir;
         let has_work_dir;
-        match &self.mounts {
-            BindMounts {
-                home_dirs,
-                work_dirs,
+        match &self.mounts(env_name) {
+            EnvMounts::BindMounts {
+                host_home,
+                host_work,
             } => {
-                has_home_dir = try_exists(&home_dirs.join(env_name)).todo_context()?;
-                has_work_dir = try_exists(&work_dirs.join(env_name)).todo_context()?;
+                has_home_dir = try_exists(host_home).todo_context()?;
+                has_work_dir = try_exists(host_work).todo_context()?;
             }
-            Volumes => {
-                has_home_dir = self.volume_exists(&self.home_volume(env_name))?;
-                has_work_dir = self.volume_exists(&self.work_volume(env_name))?;
+
+            EnvMounts::Volumes {
+                home_volume,
+                work_volume,
+            } => {
+                has_home_dir = self.volume_exists(home_volume)?;
+                has_work_dir = self.volume_exists(work_volume)?;
             }
         }
 
@@ -755,7 +789,7 @@ impl Runner for Docker {
         let container_name = self.container_from_environment(env_name);
         let do_stop = || {
             let status = Command::new("docker")
-                .args(["rm", "--force", &container_name])
+                .args(["rm", "--force", &container_name.encoded()])
                 .stdout(Stdio::null())
                 .status()?;
             if !status.success() {
@@ -763,36 +797,44 @@ impl Runner for Docker {
             }
             Ok(())
         };
-        do_stop().with_context(|| format!("failed to remove Docker container {container_name:?}"))
+        do_stop().with_context(|| format!("failed to remove Docker container {container_name}"))
     }
 
     fn list(&self) -> Result<Vec<EnvironmentName>> {
         let mut envs = BTreeSet::from_iter(self.ps()?);
 
         match &self.mounts {
-            BindMounts {
+            Mounts::BindMounts {
                 home_dirs,
                 work_dirs,
             } => {
                 for name in try_iterdir(home_dirs)? {
-                    let env = name
-                        .to_str()
-                        .ok_or_else(|| anyhow!("Path not UTF-8: {:?}", home_dirs.join(&name)))
-                        .and_then(EnvironmentName::from_str)?;
+                    let env = EnvironmentName::from_filename(&name).with_context(|| {
+                        format!(
+                            "error parsing environment name from path {}",
+                            home_dirs.join(&name)
+                        )
+                    })?;
                     envs.insert(env);
                 }
 
                 for name in try_iterdir(work_dirs)? {
-                    let env = name
-                        .to_str()
-                        .ok_or_else(|| anyhow!("Path not UTF-8: {:?}", work_dirs.join(&name)))
-                        .and_then(EnvironmentName::from_str)?;
+                    let env = EnvironmentName::from_filename(&name).with_context(|| {
+                        format!(
+                            "error parsing environment name from path {}",
+                            work_dirs.join(&name)
+                        )
+                    })?;
                     envs.insert(env);
                 }
             }
-            Volumes => {
+
+            Mounts::Volumes => {
                 for name in self.list_volumes()? {
-                    if let Some(name) = name.strip_prefix(&self.program.config.docker.prefix) {
+                    if let Some(name) = name
+                        .decoded()
+                        .strip_prefix(&self.program.config.docker.prefix)
+                    {
                         if let Some(env) = name.strip_suffix("-home") {
                             envs.insert(EnvironmentName::from_str(env)?);
                         }
@@ -808,12 +850,11 @@ impl Runner for Docker {
     }
 
     fn files_summary(&self, name: &EnvironmentName) -> Result<EnvFilesSummary> {
-        match &self.mounts {
-            BindMounts {
-                home_dirs,
-                work_dirs,
+        match self.mounts(name) {
+            EnvMounts::BindMounts {
+                host_home: home_dir,
+                host_work: work_dir,
             } => {
-                let home_dir = home_dirs.join(name);
                 let home_dir_exists = try_exists(&home_dir).todo_context()?;
                 let home_dir_summary = if home_dir_exists {
                     summarize_dir(&home_dir)?
@@ -821,7 +862,6 @@ impl Runner for Docker {
                     DirSummary::new_with_errors()
                 };
 
-                let work_dir = work_dirs.join(name);
                 let work_dir_exists = try_exists(&work_dir).todo_context()?;
                 let work_dir_summary = if work_dir_exists {
                     summarize_dir(&work_dir)?
@@ -837,31 +877,28 @@ impl Runner for Docker {
                 })
             }
 
-            Volumes => {
-                let home_volume = self.home_volume(name);
-                let work_volume = self.work_volume(name);
-                Ok(EnvFilesSummary {
-                    home_dir_path: self.volume_mountpoint(&home_volume)?,
-                    home_dir: self.volume_du(&home_volume)?,
-                    work_dir_path: self.volume_mountpoint(&work_volume)?,
-                    work_dir: self.volume_du(&work_volume)?,
-                })
-            }
+            EnvMounts::Volumes {
+                home_volume,
+                work_volume,
+            } => Ok(EnvFilesSummary {
+                home_dir_path: self.volume_mountpoint(&home_volume)?,
+                home_dir: self.volume_du(&home_volume)?,
+                work_dir_path: self.volume_mountpoint(&work_volume)?,
+                work_dir: self.volume_du(&work_volume)?,
+            }),
         }
     }
 
     fn reset(&self, name: &EnvironmentName, init: &Init) -> Result<()> {
         self.stop(name)?;
-        match &self.mounts {
-            BindMounts { home_dirs, .. } => {
-                let host_home = home_dirs.join(name);
-                rmtree(&host_home)?;
-                std::fs::create_dir(&host_home.as_host_raw()).todo_context()?;
+        match &self.mounts(name) {
+            EnvMounts::BindMounts { host_home, .. } => {
+                rmtree(host_home)?;
+                std::fs::create_dir(host_home.as_host_raw()).todo_context()?;
             }
-            Volumes => {
-                let home_volume = self.home_volume(name);
-                self.ensure_no_volume(&home_volume)?;
-                self.ensure_volume_exists(&home_volume)?;
+            EnvMounts::Volumes { home_volume, .. } => {
+                self.ensure_no_volume(home_volume)?;
+                self.ensure_volume_exists(home_volume)?;
             }
         }
         self.init(name, init)
@@ -869,23 +906,27 @@ impl Runner for Docker {
 
     fn purge(&self, name: &EnvironmentName) -> Result<()> {
         self.stop(name)?;
-        match &self.mounts {
-            BindMounts {
-                home_dirs,
-                work_dirs,
+        match &self.mounts(name) {
+            EnvMounts::BindMounts {
+                host_home,
+                host_work,
             } => {
-                rmtree(&home_dirs.join(name))?;
-                rmtree(&work_dirs.join(name))
+                rmtree(host_home)?;
+                rmtree(host_work)
             }
-            Volumes => {
-                self.ensure_no_volume(&self.home_volume(name))?;
-                self.ensure_no_volume(&self.work_volume(name))
+
+            EnvMounts::Volumes {
+                home_volume,
+                work_volume,
+            } => {
+                self.ensure_no_volume(home_volume)?;
+                self.ensure_no_volume(work_volume)
             }
         }
     }
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
-        self.run_with_env_vars(env_name, run_command, &[])
+        self.run_(env_name, run_command)
     }
 }
 

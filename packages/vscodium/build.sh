@@ -68,17 +68,4 @@ for id in \
     fi
 done
 
-cat > ~/.dev-init/vscodium.sh <<"EOF"
-#!/bin/sh
-if [ ! -f ~/.config/VSCodium/User/settings.json ] && [ -f ~/configs/vscodium-settings.json ]; then
-    mkdir -p ~/.config/VSCodium/User
-    (
-        head -n -1 ~/configs/vscodium-settings.json
-        echo '  "security.workspace.trust.enabled": false,'
-        echo '}'
-    ) > ~/.config/VSCodium/User/settings.json
-fi
-EOF
-chmod +x ~/.dev-init/vscodium.sh
-
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar
