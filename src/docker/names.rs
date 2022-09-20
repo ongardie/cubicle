@@ -1,6 +1,8 @@
 use std::fmt::{self, Write};
 use std::ops::Deref;
 
+use crate::encoding::from_hexdigit;
+
 /// An encoding for arbitrary strings to be used as Docker names.
 ///
 /// Docker container, image, and volume names must all begin with
@@ -116,29 +118,6 @@ impl fmt::Display for DockerName {
         } else {
             write!(f, "{:?}", self.decoded)
         }
-    }
-}
-
-/// Similar to `char::to_digit(16)` but for `u8`.
-fn from_hexdigit(byte: u8) -> Option<u8> {
-    match byte {
-        b'0' => Some(0x0),
-        b'1' => Some(0x1),
-        b'2' => Some(0x2),
-        b'3' => Some(0x3),
-        b'4' => Some(0x4),
-        b'5' => Some(0x5),
-        b'6' => Some(0x6),
-        b'7' => Some(0x7),
-        b'8' => Some(0x8),
-        b'9' => Some(0x9),
-        b'a' => Some(0xa),
-        b'b' => Some(0xb),
-        b'c' => Some(0xc),
-        b'd' => Some(0xd),
-        b'e' => Some(0xe),
-        b'f' => Some(0xf),
-        _ => None,
     }
 }
 
