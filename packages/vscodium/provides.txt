@@ -1,3 +1,2 @@
-.vscode-oss
 bin/codium
 opt/vscodium

@@ -965,6 +965,7 @@ const BASE_PACKAGES: &[&str] = &[
     "procps",
     "pv",
     "sudo",
+    "unzip",
     "vim",
     "wget",
     "xz-utils",

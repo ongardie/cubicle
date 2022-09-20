@@ -1,0 +1,15 @@
+[depends]
+vscodium-rust-analyzer = {}
+
+[depends.open-vsx]
+"dbaeumer.vscode-eslint" = {}
+"esbenp.prettier-vscode" = {}
+"golang.go" = {}
+"lextudio.restructuredtext" = {}
+"llvm-vs-code-extensions.vscode-clangd" = {}
+"ms-python.python" = {}
+"stkb.rewrap" = {}
+"streetsidesoftware.code-spell-checker" = {}
+"tamasfe.even-better-toml" = {}
+"usernamehw.errorlens" = {}
+"vscodevim.vim" = {}
