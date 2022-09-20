@@ -58,6 +58,7 @@ impl Drop for ScopedChild {
     }
 }
 
+#[derive(Debug)]
 pub struct Command {
     inner: StdCommand,
     set_stdin: bool,
