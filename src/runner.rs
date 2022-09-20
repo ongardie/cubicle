@@ -109,7 +109,10 @@ pub struct Init {
 #[derive(Debug)]
 pub enum RunnerCommand<'a> {
     Interactive,
-    Exec(&'a [String]),
+    Exec {
+        command: &'a [String],
+        env_vars: &'a [(&'static str, String)],
+    },
 }
 
 pub struct CheckedRunner(Box<dyn Runner>);

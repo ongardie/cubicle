@@ -214,7 +214,13 @@ impl Cubicle {
                 "Environment {name} in broken state (try '{} reset')",
                 self.shared.script_name
             )),
-            FullyExists => self.runner.run(name, &RunnerCommand::Exec(command)),
+            FullyExists => self.runner.run(
+                name,
+                &RunnerCommand::Exec {
+                    command,
+                    env_vars: &[],
+                },
+            ),
         }
     }
 

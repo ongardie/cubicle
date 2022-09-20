@@ -25,7 +25,6 @@ struct Dirs {
 
 struct BwrapArgs<'a> {
     bind: &'a [(&'a HostPath, &'a EnvPath)],
-    env_vars: &'a [(&'static str, String)],
     run: &'a RunnerCommand<'a>,
     stdin: Option<ChildStdout>,
 }
@@ -95,11 +94,11 @@ impl Bubblewrap {
                 name,
                 BwrapArgs {
                     bind: &[],
-                    env_vars: &[],
-                    run: &RunnerCommand::Exec(
-                        &["tar", "--ignore-zero", "--directory", "..", "--extract"]
+                    run: &RunnerCommand::Exec {
+                        command: &["tar", "--ignore-zero", "--directory", "..", "--extract"]
                             .map(|s| s.to_owned()),
-                    ),
+                        env_vars: &[],
+                    },
                     stdin: child.stdout().take(),
                 },
             )?;
@@ -111,8 +110,10 @@ impl Bubblewrap {
             name,
             BwrapArgs {
                 bind: &[(script, &init_script)],
-                env_vars,
-                run: &RunnerCommand::Exec(&[init_script_str.to_owned()]),
+                run: &RunnerCommand::Exec {
+                    command: &[init_script_str.to_owned()],
+                    env_vars,
+                },
                 stdin: None,
             },
         )
@@ -121,12 +122,7 @@ impl Bubblewrap {
     fn bwrap(
         &self,
         name: &EnvironmentName,
-        BwrapArgs {
-            bind,
-            env_vars,
-            run,
-            stdin,
-        }: BwrapArgs,
+        BwrapArgs { bind, run, stdin }: BwrapArgs,
     ) -> Result<()> {
         let Dirs {
             host_home,
@@ -164,8 +160,13 @@ impl Bubblewrap {
                 command.env(key, value);
             }
         }
-        for (var, value) in env_vars {
-            command.env(var, value);
+        match run {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec { env_vars, .. } => {
+                for (var, value) in env_vars.iter() {
+                    command.env(var, value);
+                }
+            }
         }
 
         command.arg("--die-with-parent");
@@ -222,7 +223,7 @@ impl Bubblewrap {
 
         match run {
             RunnerCommand::Interactive => {}
-            RunnerCommand::Exec(exec) => {
+            RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
                 command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
             }
@@ -411,7 +412,6 @@ impl Runner for Bubblewrap {
         self.bwrap(
             name,
             BwrapArgs {
-                env_vars: &[],
                 bind: &[],
                 run,
                 stdin: None,

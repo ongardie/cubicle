@@ -17,9 +17,7 @@ for f in ./.dev-init/*; do
 done
 
 cd w
-# We want this to fail if `update.sh` isn't executable, so check with `-e`
-# instead of `-x`.
-if [ -e ./update.sh ]; then
+if [ -x ./update.sh ]; then
     echo "Running ~/w/update.sh"
     ./update.sh
 fi

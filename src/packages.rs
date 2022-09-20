@@ -208,9 +208,9 @@ impl Cubicle {
             let test = try_exists(&dir.join("test.sh"))
                 .todo_context()?
                 .then_some(String::from("./test.sh"));
-            let update = try_exists(&dir.join("update.sh"))
+            let update = try_exists(&dir.join("build.sh"))
                 .todo_context()?
-                .then_some(String::from("./update.sh"));
+                .then_some(String::from("./build.sh"));
             packages.insert(
                 name,
                 PackageSpec {
@@ -648,11 +648,7 @@ impl Cubicle {
                 .iter()
                 .map(|name| name.as_str().to_owned())
                 .collect(),
-            env_vars: if package_name.0 == PackageNamespace::Root {
-                vec![]
-            } else {
-                vec![("PACKAGE", package_name.1.as_str().to_owned())]
-            },
+            env_vars: Vec::new(),
             seeds,
             script: self.shared.script_path.join("dev-init.sh"),
         };
@@ -661,7 +657,23 @@ impl Cubicle {
         match self.runner.exists(env_name)? {
             FullyExists | PartiallyExists => self.runner.reset(env_name, &init),
             NoEnvironment => self.runner.create(env_name, &init),
+        }?;
+
+        if let Some(update) = &spec.update {
+            let env_vars = if package_name.0 == PackageNamespace::Root {
+                vec![]
+            } else {
+                vec![("PACKAGE", package_name.1.as_str().to_owned())]
+            };
+            self.runner.run(
+                env_name,
+                &RunnerCommand::Exec {
+                    command: &[update.clone()],
+                    env_vars: env_vars.as_slice(),
+                },
+            )?;
         }
+        Ok(())
     }
 
     fn test_package(
@@ -707,9 +719,7 @@ impl Cubicle {
                 tar_file.as_file(),
                 &TarOptions {
                     prefix: Some(PathBuf::from("w")),
-                    // `dev-init.sh` will run `update.sh` if it's present, but
-                    // we don't want that
-                    exclude: vec![PathBuf::from("update.sh")],
+                    exclude: vec![],
                 },
             )
             .with_context(|| format!("failed to tar package source to test {package_name}"))?;
@@ -722,19 +732,26 @@ impl Cubicle {
                         .iter()
                         .map(|name| name.as_str().to_owned())
                         .collect(),
-                    env_vars: if package_name.0 == PackageNamespace::Root {
-                        vec![]
-                    } else {
-                        vec![("PACKAGE", package_name.1.as_str().to_owned())]
-                    },
+                    env_vars: Vec::new(),
                     seeds,
                     script: self.shared.script_path.join("dev-init.sh"),
                 },
             )?;
         }
 
-        self.runner
-            .run(&test_name, &RunnerCommand::Exec(&[test_script.to_owned()]))?;
+        let env_vars = if package_name.0 == PackageNamespace::Root {
+            vec![]
+        } else {
+            vec![("PACKAGE", package_name.1.as_str().to_owned())]
+        };
+        self.runner.run(
+            &test_name,
+            &RunnerCommand::Exec {
+                command: &[test_script.to_owned()],
+                env_vars: env_vars.as_slice(),
+            },
+        )?;
+
         self.runner.purge(&test_name)
     }
 

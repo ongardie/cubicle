@@ -292,19 +292,16 @@ impl User {
         let script_tar_path = HostPath::try_from(script_tar.path().to_owned())?;
         seeds.push(&script_tar_path);
         self.copy_in_seeds(&username, &seeds)?;
-        self.run_with_env_vars(
+        self.run_(
             env_name,
-            &RunnerCommand::Exec(&["../.cubicle-init-script".to_owned()]),
-            env_vars,
+            &RunnerCommand::Exec {
+                command: &["../.cubicle-init-script".to_owned()],
+                env_vars,
+            },
         )
     }
 
-    fn run_with_env_vars(
-        &self,
-        env_name: &EnvironmentName,
-        run_command: &RunnerCommand,
-        env_vars: &[(&'static str, String)],
-    ) -> Result<()> {
+    fn run_(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
         let username = self.username_from_environment(env_name);
 
         let mut command = Command::new("sudo");
@@ -330,8 +327,13 @@ impl User {
                 command.env(var, value).arg(format!("--preserve-env={var}"));
             }
         }
-        for (var, value) in env_vars {
-            command.env(var, value).arg(format!("--preserve-env={var}"));
+        match run_command {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec { env_vars, .. } => {
+                for (var, value) in env_vars.iter() {
+                    command.env(var, value).arg(format!("--preserve-env={var}"));
+                }
+            }
         }
 
         command.arg("--").arg(&self.program.shell);
@@ -340,7 +342,7 @@ impl User {
             RunnerCommand::Interactive => {
                 command.args(["-c", &format!("cd w && exec {}", self.program.shell)]);
             }
-            RunnerCommand::Exec(exec) => {
+            RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
                 command.arg(format!(
                     "cd w && {}",
@@ -527,7 +529,6 @@ impl Runner for User {
                     debian_packages: Vec::new(),
                     env_vars: Vec::new(),
                     seeds: vec![work_tar.clone()],
-                    // TODO: this needs to skip the update for package manager packages
                     script: self.program.script_path.join("dev-init.sh"),
                 },
             )
@@ -572,7 +573,7 @@ impl Runner for User {
     }
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
-        self.run_with_env_vars(env_name, run_command, &[])
+        self.run_(env_name, run_command)
     }
 }
 

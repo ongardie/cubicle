@@ -351,10 +351,12 @@ impl Docker {
             format!("failed to copy package seeds into Docker container {container_name}")
         })?;
 
-        self.run_with_env_vars(
+        self.run_(
             env_name,
-            &RunnerCommand::Exec(&[script_path.to_owned()]),
-            env_vars,
+            &RunnerCommand::Exec {
+                command: &[script_path.to_owned()],
+                env_vars,
+            },
         )
     }
 
@@ -616,12 +618,7 @@ impl Docker {
         Ok(())
     }
 
-    fn run_with_env_vars(
-        &self,
-        env_name: &EnvironmentName,
-        run_command: &RunnerCommand,
-        env_vars: &[(&'static str, String)],
-    ) -> Result<()> {
+    fn run_(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
         let container_name = self.container_from_environment(env_name);
         assert!(self.is_container(&container_name)?);
 
@@ -636,8 +633,13 @@ impl Docker {
         command.args(["--env", "SHELL"]);
         command.args(["--env", "USER"]);
         command.args(["--env", "TERM"]);
-        for (var, value) in env_vars {
-            command.arg("--env").arg(format!("{}={}", var, value));
+        match run_command {
+            RunnerCommand::Interactive => {}
+            RunnerCommand::Exec { env_vars, .. } => {
+                for (var, value) in env_vars.iter() {
+                    command.arg("--env").arg(format!("{}={}", var, value));
+                }
+            }
         }
 
         command.arg("--interactive");
@@ -655,7 +657,7 @@ impl Docker {
         command.args([&self.program.shell, "-l"]);
         match run_command {
             RunnerCommand::Interactive => {}
-            RunnerCommand::Exec(exec) => {
+            RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
                 command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
             }
@@ -924,7 +926,7 @@ impl Runner for Docker {
     }
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
-        self.run_with_env_vars(env_name, run_command, &[])
+        self.run_(env_name, run_command)
     }
 }
 
