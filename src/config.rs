@@ -32,6 +32,13 @@ pub struct Config {
     )]
     pub auto_update: Option<Duration>,
 
+    /// Where to look for built-in package definitions.
+    ///
+    /// Default: use the current executable path to find the package directory
+    /// automatically.
+    #[serde(default, deserialize_with = "deserialize_opt_path")]
+    pub builtin_package_dir: Option<PathBuf>,
+
     /// Configuration specific to the Bubblewrap runner. Set to `None` for
     /// other runners.
     #[serde(default)]
@@ -311,6 +318,7 @@ mod tests {
         let expected = Config {
             runner: RunnerKind::Docker,
             auto_update: twelve_hours(),
+            builtin_package_dir: None,
             bubblewrap: None,
             docker: Docker::default(),
         };
@@ -339,6 +347,7 @@ mod tests {
             Config {
                 runner: RunnerKind::Docker,
                 auto_update: Some(Duration::from_secs(60 * 60 * 24 * 10)),
+                builtin_package_dir: Some(PathBuf::from("/usr/local/share/cubicle/packages")),
                 bubblewrap: Some(Bubblewrap {
                     seccomp: PathOrDisabled::Path(PathBuf::from("/tmp/seccomp.bpf")),
                 }),
@@ -353,6 +362,7 @@ mod tests {
                 "
                 runner = 'docker'
                 auto_update = '10d'
+                builtin_package_dir = '/usr/local/share/cubicle/packages'
 
                 [bubblewrap]
                 seccomp = '/tmp/seccomp.bpf'

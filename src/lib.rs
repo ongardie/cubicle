@@ -149,42 +149,56 @@ impl Cubicle {
             }
         };
 
-        let code_package_dir = {
-            let exe = std::fs::canonicalize(&exe).with_context(|| {
-                format!("failed to canonicalize path of current executable: {exe:?}")
-            })?;
-
-            let mut candidates = Vec::new();
-            let mut ancestors = exe.ancestors();
-            ancestors.next(); // skip self
-            if let Some(dir) = ancestors.next() {
-                candidates.push(dir.join("packages"));
-            }
-            if let (Some(parent), Some(dir)) = (ancestors.next(), ancestors.next()) {
-                if parent.ends_with("target") {
-                    candidates.push(dir.join("packages"));
+        fn code_package_dir_ok(dir: &HostPath) -> bool {
+            if let Ok(true) = try_exists(&dir.join("auto").join("package.toml")) {
+                if let Ok(true) = try_exists(&dir.join("default").join("package.toml")) {
+                    return true;
                 }
             }
+            false
+        }
 
-            let mut code_package_dir = None;
-            for dir in &candidates {
+        let code_package_dir = match &config.builtin_package_dir {
+            Some(dir) => {
                 let dir = HostPath::try_from(dir.clone())?;
-                if let Ok(true) = try_exists(&dir.join("auto").join("package.toml")) {
-                    if let Ok(true) = try_exists(&dir.join("default").join("package.toml")) {
-                        code_package_dir = Some(dir);
-                        break;
+                if !code_package_dir_ok(&dir) {
+                    return Err(anyhow!(
+                        "missing expected contents in configured `builtin_package_dir`: {dir}"
+                    ));
+                }
+                dir
+            }
+
+            None => {
+                let exe = std::fs::canonicalize(&exe).with_context(|| {
+                    format!("failed to canonicalize path of current executable: {exe:?}")
+                })?;
+
+                let mut candidates = Vec::new();
+                let mut ancestors = exe.ancestors();
+                ancestors.next(); // skip self
+                if let Some(dir) = ancestors.next() {
+                    candidates.push(HostPath::try_from(dir.to_owned())?.join("packages"));
+                }
+                if let (Some(parent), Some(dir)) = (ancestors.next(), ancestors.next()) {
+                    if parent.ends_with("target") {
+                        candidates.push(HostPath::try_from(dir.to_owned())?.join("packages"));
                     }
                 }
-            }
 
-            match code_package_dir {
-                Some(dir) => dir,
-                None => {
-                    return Err(anyhow!(
-                        "could not find built-in package definitions (looked \
-                        in {:?} based on executable location)",
-                        candidates
-                    ))
+                match candidates.iter().find(|dir| code_package_dir_ok(dir)) {
+                    Some(dir) => dir.clone(),
+                    None => {
+                        return Err(anyhow!(
+                            "Could not find built-in package definitions \
+                            (looked in {:?} based on executable location). \
+                            Hint: set `builtin_package_dir` in `cubicle.toml`.",
+                            candidates
+                                .iter()
+                                .map(|p| p.as_host_raw())
+                                .collect::<Vec<_>>()
+                        ))
+                    }
                 }
             }
         };

@@ -42,7 +42,9 @@ Cubicle can also manage two types of third-party packages:
 Cubicle looks for package definitions in the following locations:
 
 1. Local packages in `${XDG_DATA_HOME:-~/.local/share}/cubicle/packages/*/`.
-2. Built-in packages in the Cubicle source code's `packages/` directory.
+2. Built-in packages in the Cubicle source code's `packages/` directory. If
+   Cubicle doesn't find this automatically, you can set `builtin_package_dir`
+   in the config.
 
 If a package with the same name appears in multiple locations, the first one is
 used and the others are ignored. The sort order of the names of the containing
