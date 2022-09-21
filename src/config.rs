@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
+use super::os_util::host_home_dir;
+use super::HostPath;
 use super::RunnerKind;
 use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 
@@ -29,6 +31,13 @@ pub struct Config {
         deserialize_with = "deserialize_opt_duration"
     )]
     pub auto_update: Option<Duration>,
+
+    /// Where to look for built-in package definitions.
+    ///
+    /// Default: use the current executable path to find the package directory
+    /// automatically.
+    #[serde(default, deserialize_with = "deserialize_opt_path")]
+    pub builtin_package_dir: Option<PathBuf>,
 
     /// Configuration specific to the Bubblewrap runner. Set to `None` for
     /// other runners.
@@ -130,7 +139,7 @@ impl std::convert::From<String> for PathOrDisabled {
         if s == "dangerously-disabled" {
             PathOrDisabled::DangerouslyDisabled
         } else {
-            PathOrDisabled::Path(PathBuf::from(s))
+            PathOrDisabled::Path(tilde_expand(PathBuf::from(s), host_home_dir()))
         }
     }
 }
@@ -147,6 +156,9 @@ pub struct Docker {
     #[serde(default)]
     pub bind_mounts: bool,
 
+    #[serde(default, deserialize_with = "deserialize_opt_path")]
+    pub seccomp: Option<PathBuf>,
+
     #[serde(default)]
     pub strict_debian_packages: bool,
 
@@ -158,6 +170,7 @@ impl Default for Docker {
     fn default() -> Self {
         Self {
             bind_mounts: Default::default(),
+            seccomp: None,
             strict_debian_packages: false,
             prefix: cub_dash(),
         }
@@ -166,6 +179,22 @@ impl Default for Docker {
 
 fn cub_dash() -> String {
     String::from("cub-")
+}
+
+fn deserialize_opt_path<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<PathBuf>::deserialize(deserializer)?
+        .map(|path| tilde_expand(path, host_home_dir())))
+}
+
+fn tilde_expand(path: PathBuf, home: &HostPath) -> PathBuf {
+    if let Ok(suffix) = path.strip_prefix("~") {
+        home.as_host_raw().join(suffix)
+    } else {
+        path
+    }
 }
 
 impl Config {
@@ -236,6 +265,19 @@ mod tests {
     }
 
     #[test]
+    fn tilde_expand() {
+        let home = HostPath::try_from(PathBuf::from("/home/foo")).unwrap();
+        let expand = |path| super::tilde_expand(PathBuf::from(path), &home);
+        assert_eq!(PathBuf::from("/a/b"), expand("/a/b"));
+        assert_eq!(PathBuf::from("a/b"), expand("a/b"));
+        assert_eq!(PathBuf::from("/home/foo"), expand("~"));
+        assert_eq!(PathBuf::from("/home/foo/hi"), expand("~/hi"));
+        assert_eq!(PathBuf::from("~bar/baz"), expand("~bar/baz"));
+        assert_eq!(PathBuf::from("/home/foo/~/baz"), expand("~/~/baz"));
+        assert_eq!(PathBuf::from("/~/~/baz"), expand("/~/~/baz"));
+    }
+
+    #[test]
     fn config_from_str_bad_runner() {
         assert_eq!(
             "missing field `runner`",
@@ -276,6 +318,7 @@ mod tests {
         let expected = Config {
             runner: RunnerKind::Docker,
             auto_update: twelve_hours(),
+            builtin_package_dir: None,
             bubblewrap: None,
             docker: Docker::default(),
         };
@@ -304,12 +347,14 @@ mod tests {
             Config {
                 runner: RunnerKind::Docker,
                 auto_update: Some(Duration::from_secs(60 * 60 * 24 * 10)),
+                builtin_package_dir: Some(PathBuf::from("/usr/local/share/cubicle/packages")),
                 bubblewrap: Some(Bubblewrap {
                     seccomp: PathOrDisabled::Path(PathBuf::from("/tmp/seccomp.bpf")),
                 }),
                 docker: Docker {
                     bind_mounts: true,
                     prefix: String::from("p"),
+                    seccomp: Some(PathBuf::from("/etc/seccomp.json")),
                     strict_debian_packages: true,
                 },
             },
@@ -317,6 +362,7 @@ mod tests {
                 "
                 runner = 'docker'
                 auto_update = '10d'
+                builtin_package_dir = '/usr/local/share/cubicle/packages'
 
                 [bubblewrap]
                 seccomp = '/tmp/seccomp.bpf'
@@ -324,6 +370,7 @@ mod tests {
                 [docker]
                 bind_mounts = true
                 prefix = 'p'
+                seccomp = '/etc/seccomp.json'
                 strict_debian_packages = true
                 "
             )

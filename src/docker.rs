@@ -77,6 +77,12 @@ impl Docker {
             .unwrap()
             .join(&program.user);
 
+        if let Some(path) = &program.config.docker.seccomp {
+            // Better give an early error message if this isn't configured right.
+            std::fs::metadata(path)
+                .with_context(|| format!("could not read Docker seccomp policy: {path:?}"))?;
+        };
+
         Ok(Self {
             program,
             timezone,
@@ -210,7 +216,7 @@ impl Docker {
 
     fn spawn(&self, env_name: &EnvironmentName) -> LowLevelResult<()> {
         let container_name = self.container_from_environment(env_name);
-        let seccomp_json = self.program.script_path.join("seccomp.json");
+
         let mut command = Command::new("docker");
         command.arg("run");
         command.arg("--detach");
@@ -223,10 +229,10 @@ impl Docker {
         command.arg("--init");
         command.args(["--name", &container_name.encoded()]);
         command.arg("--rm");
-        if try_exists(&seccomp_json).todo_context()? {
+        if let Some(seccomp_json) = &self.program.config.docker.seccomp {
             command.args([
                 "--security-opt",
-                &format!("seccomp={}", seccomp_json.as_host_raw().display()),
+                &format!("seccomp={}", seccomp_json.display()),
             ]);
         }
         // The default `/dev/shm` is limited to only 64 MiB under
@@ -320,7 +326,6 @@ impl Docker {
         Init {
             debian_packages,
             env_vars,
-            script,
             seeds,
         }: &Init,
     ) -> Result<()> {
@@ -330,16 +335,31 @@ impl Docker {
         self.spawn(env_name)
             .with_context(|| format!("failed to start Docker container {container_name}"))?;
 
-        let script_path = "/.cubicle-init";
+        let script_path = "../.cubicle-init";
 
-        let copy_init = || {
-            let status = Command::new("docker")
-                .arg("cp")
-                .arg(script.as_host_raw())
-                .arg(format!("{}:{}", container_name.encoded(), script_path))
-                .status()?;
+        let copy_init = || -> Result<()> {
+            let mut child = Command::new("docker")
+                .arg("exec")
+                .arg("--interactive")
+                .arg(container_name.encoded())
+                .args([
+                    "sh",
+                    "-c",
+                    &format!("cat > '{script_path}' && chmod +x '{script_path}'"),
+                ])
+                .stdin(Stdio::piped())
+                .scoped_spawn()?;
+
+            {
+                let mut stdin = child.stdin().take().unwrap();
+                stdin
+                    .write_all(self.program.env_init_script)
+                    .todo_context()?;
+            }
+
+            let status = child.wait()?;
             if !status.success() {
-                return Err(anyhow!("`docker cp` exited with {status}"));
+                return Err(anyhow!("`docker exec ...` exited with {status}"));
             }
             Ok(())
         };

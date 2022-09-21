@@ -486,7 +486,6 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
         details: Run {
             run: s(indoc! {"
                 tar -C .. --create \\
-                    cubicle/dev-init.sh \\
                     cubicle/packages/ \\
                     cubicle/src/bin/system_test/github/ \\
                     cubicle/target/debug/cubicle \\

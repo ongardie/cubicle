@@ -55,7 +55,7 @@ mod encoding;
 use encoding::FilenameEncoder;
 
 mod fs_util;
-use fs_util::DirSummary;
+use fs_util::{try_exists, DirSummary};
 
 mod os_util;
 use os_util::{get_hostname, host_home_dir};
@@ -94,8 +94,7 @@ pub struct Cubicle {
 struct CubicleShared {
     config: Config,
     shell: String,
-    script_name: String,
-    script_path: HostPath,
+    exe_name: String,
     hostname: Option<String>,
     home: HostPath,
     user: String,
@@ -103,6 +102,7 @@ struct CubicleShared {
     code_package_dir: HostPath,
     user_package_dir: HostPath,
     random_name_gen: RandomNameGenerator,
+    env_init_script: &'static [u8],
 }
 
 /// Named boolean flag for [`Cubicle::purge_environment`].
@@ -137,8 +137,9 @@ impl Cubicle {
             Err(_) => home.join(".local").join("share"),
         };
 
-        let exe = std::env::current_exe().todo_context()?;
-        let script_name = match exe.file_name() {
+        let exe =
+            std::env::current_exe().context("error getting the path of the current executable")?;
+        let exe_name = match exe.file_name() {
             Some(path) => path.to_string_lossy().into_owned(),
             None => {
                 return Err(anyhow!(
@@ -147,18 +148,62 @@ impl Cubicle {
                 ));
             }
         };
-        let script_path = match exe.ancestors().nth(3) {
-            Some(path) => HostPath::try_from(path.to_owned())?,
+
+        fn code_package_dir_ok(dir: &HostPath) -> bool {
+            if let Ok(true) = try_exists(&dir.join("auto").join("package.toml")) {
+                if let Ok(true) = try_exists(&dir.join("default").join("package.toml")) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let code_package_dir = match &config.builtin_package_dir {
+            Some(dir) => {
+                let dir = HostPath::try_from(dir.clone())?;
+                if !code_package_dir_ok(&dir) {
+                    return Err(anyhow!(
+                        "missing expected contents in configured `builtin_package_dir`: {dir}"
+                    ));
+                }
+                dir
+            }
+
             None => {
-                return Err(anyhow!(
-                    "could not find project root. binary run from unexpected location: {:?}",
-                    exe
-                ));
+                let exe = std::fs::canonicalize(&exe).with_context(|| {
+                    format!("failed to canonicalize path of current executable: {exe:?}")
+                })?;
+
+                let mut candidates = Vec::new();
+                let mut ancestors = exe.ancestors();
+                ancestors.next(); // skip self
+                if let Some(dir) = ancestors.next() {
+                    candidates.push(HostPath::try_from(dir.to_owned())?.join("packages"));
+                }
+                if let (Some(parent), Some(dir)) = (ancestors.next(), ancestors.next()) {
+                    if parent.ends_with("target") {
+                        candidates.push(HostPath::try_from(dir.to_owned())?.join("packages"));
+                    }
+                }
+
+                match candidates.iter().find(|dir| code_package_dir_ok(dir)) {
+                    Some(dir) => dir.clone(),
+                    None => {
+                        return Err(anyhow!(
+                            "Could not find built-in package definitions \
+                            (looked in {:?} based on executable location). \
+                            Hint: set `builtin_package_dir` in `cubicle.toml`.",
+                            candidates
+                                .iter()
+                                .map(|p| p.as_host_raw())
+                                .collect::<Vec<_>>()
+                        ))
+                    }
+                }
             }
         };
 
         let package_cache = xdg_cache_home.join("cubicle").join("packages");
-        let code_package_dir = script_path.join("packages");
         let user_package_dir = xdg_data_home.join("cubicle").join("packages");
 
         let eff_word_list_dir = xdg_cache_home.join("cubicle");
@@ -167,8 +212,7 @@ impl Cubicle {
         let shared = Rc::new(CubicleShared {
             config,
             shell,
-            script_name,
-            script_path,
+            exe_name,
             hostname,
             home,
             user,
@@ -176,6 +220,7 @@ impl Cubicle {
             code_package_dir,
             user_package_dir,
             random_name_gen,
+            env_init_script: std::include_bytes!("env-init.sh"),
         });
 
         let runner = CheckedRunner::new(match shared.config.runner {
@@ -199,7 +244,7 @@ impl Cubicle {
             NoEnvironment => Err(anyhow!("Environment {name} does not exist")),
             PartiallyExists => Err(anyhow!(
                 "Environment {name} in broken state (try '{} reset')",
-                self.shared.script_name
+                self.shared.exe_name
             )),
             FullyExists => self.runner.run(name, &RunnerCommand::Interactive),
         }
@@ -212,7 +257,7 @@ impl Cubicle {
             NoEnvironment => Err(anyhow!("Environment {name} does not exist")),
             PartiallyExists => Err(anyhow!(
                 "Environment {name} in broken state (try '{} reset')",
-                self.shared.script_name
+                self.shared.exe_name
             )),
             FullyExists => self.runner.run(
                 name,
@@ -335,15 +380,10 @@ impl Cubicle {
             PartiallyExists => {
                 return Err(anyhow!(
                     "environment {name} in broken state (try '{} reset')",
-                    self.shared.script_name
+                    self.shared.exe_name
                 ))
             }
-            FullyExists => {
-                return Err(anyhow!(
-                    "environment {name} already exists (did you mean '{} reset'?)",
-                    self.shared.script_name
-                ))
-            }
+            FullyExists => return Err(anyhow!("environment {name} already exists")),
         }
 
         let default;
@@ -379,7 +419,6 @@ impl Cubicle {
                         .collect(),
                     env_vars: Vec::new(),
                     seeds,
-                    script: self.shared.script_path.join("dev-init.sh"),
                 },
             )
             .with_context(|| format!("failed to initialize new environment {name}"))
@@ -436,7 +475,7 @@ impl Cubicle {
         if self.runner.exists(name)? == EnvironmentExists::NoEnvironment {
             return Err(anyhow!(
                 "Environment {name} does not exist (did you mean '{} new'?)",
-                self.shared.script_name,
+                self.shared.exe_name,
             ));
         }
 
@@ -475,7 +514,6 @@ impl Cubicle {
                     .collect(),
                 env_vars: Vec::new(),
                 seeds,
-                script: self.shared.script_path.join("dev-init.sh"),
             },
         )
     }
