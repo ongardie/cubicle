@@ -77,6 +77,12 @@ impl Docker {
             .unwrap()
             .join(&program.user);
 
+        if let Some(path) = &program.config.docker.seccomp {
+            // Better give an early error message if this isn't configured right.
+            std::fs::metadata(path)
+                .with_context(|| format!("could not read Docker seccomp policy: {path:?}"))?;
+        };
+
         Ok(Self {
             program,
             timezone,
@@ -210,7 +216,7 @@ impl Docker {
 
     fn spawn(&self, env_name: &EnvironmentName) -> LowLevelResult<()> {
         let container_name = self.container_from_environment(env_name);
-        let seccomp_json = self.program.exe_path.join("seccomp.json");
+
         let mut command = Command::new("docker");
         command.arg("run");
         command.arg("--detach");
@@ -223,10 +229,10 @@ impl Docker {
         command.arg("--init");
         command.args(["--name", &container_name.encoded()]);
         command.arg("--rm");
-        if try_exists(&seccomp_json).todo_context()? {
+        if let Some(seccomp_json) = &self.program.config.docker.seccomp {
             command.args([
                 "--security-opt",
-                &format!("seccomp={}", seccomp_json.as_host_raw().display()),
+                &format!("seccomp={}", seccomp_json.display()),
             ]);
         }
         // The default `/dev/shm` is limited to only 64 MiB under

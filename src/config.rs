@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
+use super::os_util::host_home_dir;
+use super::HostPath;
 use super::RunnerKind;
 use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
 
@@ -130,7 +132,7 @@ impl std::convert::From<String> for PathOrDisabled {
         if s == "dangerously-disabled" {
             PathOrDisabled::DangerouslyDisabled
         } else {
-            PathOrDisabled::Path(PathBuf::from(s))
+            PathOrDisabled::Path(tilde_expand(PathBuf::from(s), host_home_dir()))
         }
     }
 }
@@ -147,6 +149,9 @@ pub struct Docker {
     #[serde(default)]
     pub bind_mounts: bool,
 
+    #[serde(default, deserialize_with = "deserialize_opt_path")]
+    pub seccomp: Option<PathBuf>,
+
     #[serde(default)]
     pub strict_debian_packages: bool,
 
@@ -158,6 +163,7 @@ impl Default for Docker {
     fn default() -> Self {
         Self {
             bind_mounts: Default::default(),
+            seccomp: None,
             strict_debian_packages: false,
             prefix: cub_dash(),
         }
@@ -166,6 +172,22 @@ impl Default for Docker {
 
 fn cub_dash() -> String {
     String::from("cub-")
+}
+
+fn deserialize_opt_path<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<PathBuf>::deserialize(deserializer)?
+        .map(|path| tilde_expand(path, host_home_dir())))
+}
+
+fn tilde_expand(path: PathBuf, home: &HostPath) -> PathBuf {
+    if let Ok(suffix) = path.strip_prefix("~") {
+        home.as_host_raw().join(suffix)
+    } else {
+        path
+    }
 }
 
 impl Config {
@@ -233,6 +255,19 @@ mod tests {
             Ok(Test { value: None }),
             "deserialize_opt, duration('never')"
         );
+    }
+
+    #[test]
+    fn tilde_expand() {
+        let home = HostPath::try_from(PathBuf::from("/home/foo")).unwrap();
+        let expand = |path| super::tilde_expand(PathBuf::from(path), &home);
+        assert_eq!(PathBuf::from("/a/b"), expand("/a/b"));
+        assert_eq!(PathBuf::from("a/b"), expand("a/b"));
+        assert_eq!(PathBuf::from("/home/foo"), expand("~"));
+        assert_eq!(PathBuf::from("/home/foo/hi"), expand("~/hi"));
+        assert_eq!(PathBuf::from("~bar/baz"), expand("~bar/baz"));
+        assert_eq!(PathBuf::from("/home/foo/~/baz"), expand("~/~/baz"));
+        assert_eq!(PathBuf::from("/~/~/baz"), expand("/~/~/baz"));
     }
 
     #[test]
@@ -310,6 +345,7 @@ mod tests {
                 docker: Docker {
                     bind_mounts: true,
                     prefix: String::from("p"),
+                    seccomp: Some(PathBuf::from("/etc/seccomp.json")),
                     strict_debian_packages: true,
                 },
             },
@@ -324,6 +360,7 @@ mod tests {
                 [docker]
                 bind_mounts = true
                 prefix = 'p'
+                seccomp = '/etc/seccomp.json'
                 strict_debian_packages = true
                 "
             )

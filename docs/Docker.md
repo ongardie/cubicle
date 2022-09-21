@@ -72,8 +72,7 @@ Bublewrap's security depends on setting a restrictive
 [seccomp](https://en.wikipedia.org/wiki/Seccomp) policy, to limit the system
 calls available to the sandbox environment.
 
-If Cubicle does not find a `seccomp.json` file, it will use Docker's default
-seccomp filter. Docker's default filter doesn't allow VS Codium, other Electron
+Docker's default filter doesn't allow VS Codium, other Electron
 apps, or Chromium to run with the Chromium sandbox enabled: see
 <https://github.com/moby/moby/issues/42441> and
 <https://chromium.googlesource.com/chromium/src/+/HEAD/docs/linux/sandboxing.md>.
@@ -85,6 +84,9 @@ To work around this, we can edit Docker's seccomp policy to allow `clone` and
 curl -L 'https://raw.githubusercontent.com/moby/moby/master/profiles/seccomp/default.json' > docker-seccomp.json
 sed 's/"getpid",/"getpid", "clone", "unshare",/' < docker-seccomp.json > seccomp.json
 ```
+
+Then, can point Cubicle to the `seccomp.json` file using the `seccomp`
+configuration option below.
 
 ## Configuration
 
@@ -111,6 +113,15 @@ the normal user on the host.
 This string is prepended to all the Docker object names (container, image, and
 volume names) that the Cubicle runner creates. It defaults to "cub-". Using the
 empty string is also allowed.
+
+### `seccomp`
+
+- Type: path or none
+- Default: none
+
+If set, Cubicle will use this JSON-formatted seccomp filter with Docker.
+Otherwise, Cubicle will use Docker's default seccomp filter. See the seccomp
+discussion above for more information.
 
 ### `strict_debian_packages`
 
