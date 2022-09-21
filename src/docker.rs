@@ -340,6 +340,7 @@ impl Docker {
         let copy_init = || -> Result<()> {
             let mut child = Command::new("docker")
                 .arg("exec")
+                .arg("--interactive")
                 .arg(container_name.encoded())
                 .args([
                     "sh",
