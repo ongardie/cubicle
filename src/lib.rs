@@ -103,6 +103,7 @@ struct CubicleShared {
     code_package_dir: HostPath,
     user_package_dir: HostPath,
     random_name_gen: RandomNameGenerator,
+    env_init_script: &'static [u8],
 }
 
 /// Named boolean flag for [`Cubicle::purge_environment`].
@@ -176,6 +177,7 @@ impl Cubicle {
             code_package_dir,
             user_package_dir,
             random_name_gen,
+            env_init_script: std::include_bytes!("env-init.sh"),
         });
 
         let runner = CheckedRunner::new(match shared.config.runner {
@@ -374,7 +376,6 @@ impl Cubicle {
                         .collect(),
                     env_vars: Vec::new(),
                     seeds,
-                    script: self.shared.exe_path.join("dev-init.sh"),
                 },
             )
             .with_context(|| format!("failed to initialize new environment {name}"))
@@ -470,7 +471,6 @@ impl Cubicle {
                     .collect(),
                 env_vars: Vec::new(),
                 seeds,
-                script: self.shared.exe_path.join("dev-init.sh"),
             },
         )
     }

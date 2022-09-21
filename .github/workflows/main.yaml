@@ -46,7 +46,6 @@ jobs:
     - name: Save build artifact
       run: |
         tar -C .. --create \
-            cubicle/dev-init.sh \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cubicle \
@@ -93,7 +92,6 @@ jobs:
     - name: Save build artifact
       run: |
         tar -C .. --create \
-            cubicle/dev-init.sh \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cubicle \
@@ -163,7 +161,6 @@ jobs:
     - name: Save build artifact
       run: |
         tar -C .. --create \
-            cubicle/dev-init.sh \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cubicle \

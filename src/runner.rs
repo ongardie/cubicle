@@ -103,7 +103,6 @@ pub struct Init {
     pub debian_packages: Vec<String>,
     pub env_vars: Vec<(&'static str, String)>,
     pub seeds: Vec<HostPath>,
-    pub script: HostPath,
 }
 
 #[derive(Debug)]

@@ -266,7 +266,6 @@ impl User {
             debian_packages,
             env_vars,
             seeds,
-            script,
         }: &Init,
     ) -> Result<()> {
         apt::check_satisfied(
@@ -279,9 +278,17 @@ impl User {
         let username = self.username_from_environment(env_name);
         let script_tar = tempfile::NamedTempFile::new().todo_context()?;
         let mut builder = tar::Builder::new(script_tar.as_file());
-        let mut script_file = std::fs::File::open(script.as_host_raw()).todo_context()?;
+
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_mode(0o700);
+        header.set_size(self.program.env_init_script.len() as u64);
         builder
-            .append_file(".cubicle-init-script", &mut script_file)
+            .append_data(
+                &mut header,
+                ".cubicle-init-script",
+                self.program.env_init_script,
+            )
             .todo_context()?;
         builder
             .into_inner()
@@ -529,7 +536,6 @@ impl Runner for User {
                     debian_packages: Vec::new(),
                     env_vars: Vec::new(),
                     seeds: vec![work_tar.clone()],
-                    script: self.program.exe_path.join("dev-init.sh"),
                 },
             )
             .with_context(|| {

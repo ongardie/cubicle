@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
 use std::process::{ChildStdout, Stdio};
 use std::rc::Rc;
+use tempfile::NamedTempFile;
 
 use super::apt;
 use super::command_ext::Command;
@@ -73,7 +74,6 @@ impl Bubblewrap {
             debian_packages,
             env_vars,
             seeds,
-            script,
         }: &Init,
     ) -> Result<()> {
         apt::check_satisfied(
@@ -104,12 +104,21 @@ impl Bubblewrap {
             )?;
         };
 
+        let host_script_temp = {
+            let file = NamedTempFile::new().todo_context()?;
+            file.as_file()
+                .write_all(self.program.env_init_script)
+                .todo_context()?;
+            file.into_temp_path()
+        };
+        let host_script = HostPath::try_from(host_script_temp.to_path_buf())?;
+
         let init_script_str = "/cubicle-init.sh";
         let init_script = EnvPath::try_from(init_script_str.to_owned()).unwrap();
         self.bwrap(
             name,
             BwrapArgs {
-                bind: &[(script, &init_script)],
+                bind: &[(&host_script, &init_script)],
                 run: &RunnerCommand::Exec {
                     command: &[init_script_str.to_owned()],
                     env_vars,

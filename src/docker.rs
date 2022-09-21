@@ -320,7 +320,6 @@ impl Docker {
         Init {
             debian_packages,
             env_vars,
-            script,
             seeds,
         }: &Init,
     ) -> Result<()> {
@@ -330,16 +329,30 @@ impl Docker {
         self.spawn(env_name)
             .with_context(|| format!("failed to start Docker container {container_name}"))?;
 
-        let script_path = "/.cubicle-init";
+        let script_path = "../.cubicle-init";
 
-        let copy_init = || {
-            let status = Command::new("docker")
-                .arg("cp")
-                .arg(script.as_host_raw())
-                .arg(format!("{}:{}", container_name.encoded(), script_path))
-                .status()?;
+        let copy_init = || -> Result<()> {
+            let mut child = Command::new("docker")
+                .arg("exec")
+                .arg(container_name.encoded())
+                .args([
+                    "sh",
+                    "-c",
+                    &format!("cat > '{script_path}' && chmod +x '{script_path}'"),
+                ])
+                .stdin(Stdio::piped())
+                .scoped_spawn()?;
+
+            {
+                let mut stdin = child.stdin().take().unwrap();
+                stdin
+                    .write_all(self.program.env_init_script)
+                    .todo_context()?;
+            }
+
+            let status = child.wait()?;
             if !status.success() {
-                return Err(anyhow!("`docker cp` exited with {status}"));
+                return Err(anyhow!("`docker exec ...` exited with {status}"));
             }
             Ok(())
         };
