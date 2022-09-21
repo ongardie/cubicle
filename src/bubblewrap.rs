@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::io::{self, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{ChildStdout, Stdio};
 use std::rc::Rc;
@@ -105,10 +106,24 @@ impl Bubblewrap {
         };
 
         let host_script_temp = {
-            let file = NamedTempFile::new().todo_context()?;
+            let file = NamedTempFile::new()
+                .context("failed to create temp file on host for environment init script")?;
+            file.as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o500))
+                .with_context(|| {
+                    format!(
+                        "failed to set permissions of environment init script on host: {:?}",
+                        file.path()
+                    )
+                })?;
             file.as_file()
                 .write_all(self.program.env_init_script)
-                .todo_context()?;
+                .with_context(|| {
+                    format!(
+                        "failed to write environment init script on host: {:?}",
+                        file.path()
+                    )
+                })?;
             file.into_temp_path()
         };
         let host_script = HostPath::try_from(host_script_temp.to_path_buf())?;
