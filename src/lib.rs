@@ -55,7 +55,7 @@ mod encoding;
 use encoding::FilenameEncoder;
 
 mod fs_util;
-use fs_util::DirSummary;
+use fs_util::{try_exists, DirSummary};
 
 mod os_util;
 use os_util::{get_hostname, host_home_dir};
@@ -137,7 +137,8 @@ impl Cubicle {
             Err(_) => home.join(".local").join("share"),
         };
 
-        let exe = std::env::current_exe().todo_context()?;
+        let exe =
+            std::env::current_exe().context("error getting the path of the current executable")?;
         let exe_name = match exe.file_name() {
             Some(path) => path.to_string_lossy().into_owned(),
             None => {
@@ -147,18 +148,48 @@ impl Cubicle {
                 ));
             }
         };
-        let exe_path = match exe.ancestors().nth(3) {
-            Some(path) => HostPath::try_from(path.to_owned())?,
-            None => {
-                return Err(anyhow!(
-                    "could not find project root. binary run from unexpected location: {:?}",
-                    exe
-                ));
+
+        let code_package_dir = {
+            let exe = std::fs::canonicalize(&exe).with_context(|| {
+                format!("failed to canonicalize path of current executable: {exe:?}")
+            })?;
+
+            let mut candidates = Vec::new();
+            let mut ancestors = exe.ancestors();
+            ancestors.next(); // skip self
+            if let Some(dir) = ancestors.next() {
+                candidates.push(dir.join("packages"));
+            }
+            if let (Some(parent), Some(dir)) = (ancestors.next(), ancestors.next()) {
+                if parent.ends_with("target") {
+                    candidates.push(dir.join("packages"));
+                }
+            }
+
+            let mut code_package_dir = None;
+            for dir in &candidates {
+                let dir = HostPath::try_from(dir.clone())?;
+                if let Ok(true) = try_exists(&dir.join("auto").join("package.toml")) {
+                    if let Ok(true) = try_exists(&dir.join("default").join("package.toml")) {
+                        code_package_dir = Some(dir);
+                        break;
+                    }
+                }
+            }
+
+            match code_package_dir {
+                Some(dir) => dir,
+                None => {
+                    return Err(anyhow!(
+                        "could not find built-in package definitions (looked \
+                        in {:?} based on executable location)",
+                        candidates
+                    ))
+                }
             }
         };
 
         let package_cache = xdg_cache_home.join("cubicle").join("packages");
-        let code_package_dir = exe_path.join("packages");
         let user_package_dir = xdg_data_home.join("cubicle").join("packages");
 
         let eff_word_list_dir = xdg_cache_home.join("cubicle");
