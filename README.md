@@ -27,7 +27,7 @@ Cubicle can run on top of any of these isolation mechanisms, called _runners_:
 
 Since Cubicle environments are created and recreated often, it's helpful to
 inject configuration and program files into them. This allows you to use a new
-container right away and not grow attached to it. See <docs/Pacages.md> for
+environment right away and not grow attached to it. See <docs/Packages.md> for
 details on Cubicle package management.
 
 Cubicle is in early stages of development and is likely to change frequently in
