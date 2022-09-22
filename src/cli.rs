@@ -192,6 +192,7 @@ enum PackageCommands {
         ///
         /// Wildcards are allowed: `?` matches a single character and `*`
         /// matches zero or more characters.
+        #[clap(required(true))]
         packages: Vec<String>,
     },
 }
