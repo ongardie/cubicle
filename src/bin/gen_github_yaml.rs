@@ -193,15 +193,15 @@ enum Os {
 impl Os {
     fn as_str(&self) -> &'static str {
         match self {
-            Os::Ubuntu => "ubuntu-20.04",
-            Os::Mac => "macos-12",
+            Self::Ubuntu => "ubuntu-20.04",
+            Self::Mac => "macos-12",
         }
     }
 
     fn as_ident(&self) -> &'static str {
         match self {
-            Os::Ubuntu => "ubuntu-20-04",
-            Os::Mac => "macos-12",
+            Self::Ubuntu => "ubuntu-20-04",
+            Self::Mac => "macos-12",
         }
     }
 }
@@ -263,8 +263,8 @@ enum Rust {
 impl Display for Rust {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Rust::Stable => "stable",
-            Rust::Nightly => "nightly",
+            Self::Stable => "stable",
+            Self::Nightly => "nightly",
         }
         .fmt(f)
     }
@@ -281,10 +281,10 @@ enum Runner {
 impl Display for Runner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Runner::Bubblewrap => "bubblewrap",
-            Runner::Docker => "docker",
-            Runner::DockerBind => "docker-bind",
-            Runner::User => "user",
+            Self::Bubblewrap => "bubblewrap",
+            Self::Docker => "docker",
+            Self::DockerBind => "docker-bind",
+            Self::User => "user",
         }
         .fmt(f)
     }

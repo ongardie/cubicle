@@ -37,7 +37,7 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    pub fn read(dir_path: &HostPath, path: &str) -> LowLevelResult<Option<Manifest>> {
+    pub fn read(dir_path: &HostPath, path: &str) -> LowLevelResult<Option<Self>> {
         let dir = cap_std::fs::Dir::open_ambient_dir(
             dir_path.as_host_raw(),
             cap_std::ambient_authority(),

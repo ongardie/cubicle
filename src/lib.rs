@@ -233,7 +233,7 @@ impl Cubicle {
             RunnerKind::User => Box::new(User::new(shared.clone())?),
         });
 
-        Ok(Cubicle { runner, shared })
+        Ok(Self { runner, shared })
     }
 
     /// Corresponds to `cub enter`.
@@ -548,7 +548,7 @@ impl Display for ExitStatusError {
 }
 
 impl From<ExitStatusError> for somehow::Error {
-    fn from(error: ExitStatusError) -> somehow::Error {
+    fn from(error: ExitStatusError) -> Self {
         anyhow!(error)
     }
 }

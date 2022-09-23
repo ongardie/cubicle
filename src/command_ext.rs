@@ -107,19 +107,19 @@ impl Command {
         child.wait()
     }
 
-    pub fn stdin<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Command {
+    pub fn stdin<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Self {
         self.set_stdin = true;
         self.inner.stdin(cfg);
         self
     }
 
-    pub fn stdout<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Command {
+    pub fn stdout<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Self {
         self.set_stdout = true;
         self.inner.stdout(cfg);
         self
     }
 
-    pub fn stderr<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Command {
+    pub fn stderr<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Self {
         self.set_stderr = true;
         self.inner.stderr(cfg);
         self
@@ -139,12 +139,12 @@ impl Command {
         self
     }
 
-    pub fn env_clear(&mut self) -> &mut Command {
+    pub fn env_clear(&mut self) -> &mut Self {
         self.inner.env_clear();
         self
     }
 
-    pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Command
+    pub fn env<K, V>(&mut self, key: K, val: V) -> &mut Self
     where
         K: AsRef<OsStr>,
         V: AsRef<OsStr>,

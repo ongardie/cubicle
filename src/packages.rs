@@ -948,7 +948,7 @@ impl Cubicle {
 ///
 /// Package names may not be empty, may not begin or end with whitespace,
 /// and may not contain control characters.
-#[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq)]
 pub struct PackageName(String);
 
 impl PackageName {
@@ -1009,7 +1009,7 @@ impl Display for PackageName {
 }
 
 /// A namespace for packages. See [`FullPackageName`].
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum PackageNamespace {
     /// Top-level, normal Cubicle packages live here.
     Root,

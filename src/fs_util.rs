@@ -194,12 +194,12 @@ pub struct WalkDir {
 }
 
 impl WalkDir {
-    pub fn new(path: &HostPath) -> Result<WalkDir> {
+    pub fn new(path: &HostPath) -> Result<Self> {
         let dir =
             cap_std::fs::Dir::open_ambient_dir(path.as_host_raw(), cap_std::ambient_authority())
                 .todo_context()?;
         let entries = dir.entries().todo_context()?;
-        Ok(WalkDir {
+        Ok(Self {
             stack: vec![WalkDirCursor {
                 path: PathBuf::new(),
                 dir: Rc::new(dir),
