@@ -19,5 +19,5 @@ done
 cd w
 if [ -x ./update.sh ]; then
     echo "Running ~/w/update.sh"
-    ./update.sh || echo "WARNING: ~/w/update.sh in $SANDBOX failed with status $?"
+    ./update.sh || echo "WARNING: ~/w/update.sh in $CUBICLE failed with status $?"
 fi

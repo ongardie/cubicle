@@ -220,7 +220,7 @@ impl Docker {
         let mut command = Command::new("docker");
         command.arg("run");
         command.arg("--detach");
-        command.args(["--env", &format!("SANDBOX={}", env_name.as_str())]);
+        command.args(["--env", &format!("CUBICLE={}", env_name.as_str())]);
         command.arg("--hostname");
         match &self.program.hostname {
             Some(hostname) => command.arg(format!("{}.{hostname}", env_name.as_hostname())),
