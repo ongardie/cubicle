@@ -4,7 +4,6 @@
     clippy::if_then_some_else_none,
     clippy::implicit_clone,
     clippy::redundant_else,
-    clippy::single_match_else,
     clippy::try_err,
     clippy::unreadable_literal
 )]
