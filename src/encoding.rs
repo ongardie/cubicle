@@ -57,7 +57,7 @@ where
                 write!(buf, "%{:02x}", byte).unwrap();
             }
         } else {
-            buf.push(c)
+            buf.push(c);
         }
     }
     buf

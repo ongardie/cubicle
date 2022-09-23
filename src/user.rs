@@ -324,8 +324,8 @@ impl User {
 
         command.env_clear();
         command
-            .env("SANDBOX", env_name.as_str())
-            .arg("--preserve-env=SANDBOX");
+            .env("CUBICLE", env_name.as_str())
+            .arg("--preserve-env=CUBICLE");
         command
             .env("SHELL", &self.program.shell)
             .arg("--preserve-env=SHELL");

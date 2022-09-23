@@ -188,14 +188,14 @@ info. A pull request or a GitHub issue with this output and the steps to
 reproduce it would be welcome.";
 
 impl<T> Context<T> for Result<T, Error> {
-    fn context<C>(self, context: C) -> Result<T, Error>
+    fn context<C>(self, context: C) -> Self
     where
         C: fmt::Display + Send + Sync + 'static,
     {
         self.map_err(|err| Error(err.0.context(context)))
     }
 
-    fn with_context<C, F>(self, context: F) -> Result<T, Error>
+    fn with_context<C, F>(self, context: F) -> Self
     where
         C: fmt::Display + Send + Sync + 'static,
         F: FnOnce() -> C,
@@ -203,11 +203,11 @@ impl<T> Context<T> for Result<T, Error> {
         self.map_err(|err| Error(err.0.context(context())))
     }
 
-    fn todo_context(self) -> Result<T, Error> {
+    fn todo_context(self) -> Self {
         self.context(TODO_CONTEXT)
     }
 
-    fn enough_context(self) -> Result<T, Error> {
+    fn enough_context(self) -> Self {
         self
     }
 }

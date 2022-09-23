@@ -194,12 +194,12 @@ pub struct WalkDir {
 }
 
 impl WalkDir {
-    pub fn new(path: &HostPath) -> Result<WalkDir> {
+    pub fn new(path: &HostPath) -> Result<Self> {
         let dir =
             cap_std::fs::Dir::open_ambient_dir(path.as_host_raw(), cap_std::ambient_authority())
                 .todo_context()?;
         let entries = dir.entries().todo_context()?;
-        Ok(WalkDir {
+        Ok(Self {
             stack: vec![WalkDirCursor {
                 path: PathBuf::new(),
                 dir: Rc::new(dir),
@@ -304,8 +304,8 @@ pub fn create_tar_from_dir<W: io::Write>(dir: &HostPath, w: W, opts: &TarOptions
                 let metadata = entry.metadata().todo_context()?;
                 let mut header = tar::Header::new_gnu();
                 header.set_mtime(metadata.mtime() as u64);
-                header.set_uid(metadata.uid() as u64);
-                header.set_gid(metadata.gid() as u64);
+                header.set_uid(u64::from(metadata.uid()));
+                header.set_gid(u64::from(metadata.gid()));
                 header.set_mode(metadata.mode());
                 if file_type.is_dir() {
                     header.set_entry_type(tar::EntryType::Directory);

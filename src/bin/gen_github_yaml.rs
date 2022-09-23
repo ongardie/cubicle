@@ -4,7 +4,6 @@
     clippy::if_then_some_else_none,
     clippy::implicit_clone,
     clippy::redundant_else,
-    clippy::single_match_else,
     clippy::try_err,
     clippy::unreadable_literal
 )]
@@ -77,11 +76,12 @@ fn yaml_value_from_json(value: serde_json::Value) -> serde_yaml::Value {
         json::Number(value) => yaml::Number(serde_yaml::Number::from(value.as_f64().unwrap())),
         json::String(value) => yaml::String(value),
         json::Array(value) => yaml::Sequence(value.into_iter().map(yaml_value_from_json).collect()),
-        json::Object(value) => yaml::Mapping(serde_yaml::Mapping::from_iter(
+        json::Object(value) => yaml::Mapping(
             value
                 .into_iter()
-                .map(|(k, v)| (yaml::String(k), yaml_value_from_json(v))),
-        )),
+                .map(|(k, v)| (yaml::String(k), yaml_value_from_json(v)))
+                .collect::<serde_yaml::Mapping>(),
+        ),
     }
 }
 
@@ -194,15 +194,15 @@ enum Os {
 impl Os {
     fn as_str(&self) -> &'static str {
         match self {
-            Os::Ubuntu => "ubuntu-20.04",
-            Os::Mac => "macos-12",
+            Self::Ubuntu => "ubuntu-20.04",
+            Self::Mac => "macos-12",
         }
     }
 
     fn as_ident(&self) -> &'static str {
         match self {
-            Os::Ubuntu => "ubuntu-20-04",
-            Os::Mac => "macos-12",
+            Self::Ubuntu => "ubuntu-20-04",
+            Self::Mac => "macos-12",
         }
     }
 }
@@ -264,8 +264,8 @@ enum Rust {
 impl Display for Rust {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Rust::Stable => "stable",
-            Rust::Nightly => "nightly",
+            Self::Stable => "stable",
+            Self::Nightly => "nightly",
         }
         .fmt(f)
     }
@@ -282,10 +282,10 @@ enum Runner {
 impl Display for Runner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Runner::Bubblewrap => "bubblewrap",
-            Runner::Docker => "docker",
-            Runner::DockerBind => "docker-bind",
-            Runner::User => "user",
+            Self::Bubblewrap => "bubblewrap",
+            Self::Docker => "docker",
+            Self::DockerBind => "docker-bind",
+            Self::User => "user",
         }
         .fmt(f)
     }
@@ -351,6 +351,7 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
     jobs
 }
 
+#[derive(Clone, Copy)]
 struct RunOnceChecks(bool);
 
 fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job) {
@@ -488,7 +489,7 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
                 tar -C .. --create \\
                     cubicle/packages/ \\
                     cubicle/src/bin/system_test/github/ \\
-                    cubicle/target/debug/cubicle \\
+                    cubicle/target/debug/cub \\
                     cubicle/target/debug/system_test | \\
                 gzip -1 > debug-dist.tar.gz
             "}),
@@ -584,7 +585,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
     steps.push(Step {
         name: s("Run cub list"),
         details: Run {
-            run: format!("./target/debug/cubicle --config '{config}' list"),
+            run: format!("./target/debug/cub --config '{config}' list"),
         },
         env: dict! {"RUST_BACKTRACE" => "1"},
     });

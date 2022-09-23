@@ -159,7 +159,7 @@ impl Cubicle {
         if strict {
             strict_debian_packages(packages, specs)
         } else {
-            all_debian_packages(specs)
+            Ok(all_debian_packages(specs))
         }
     }
 
@@ -306,7 +306,7 @@ impl Cubicle {
         &self,
         packages: &BTreeSet<FullPackageName>,
         specs: &PackageSpecs,
-        conditions: UpdatePackagesConditions,
+        conditions: &UpdatePackagesConditions,
     ) -> Result<()> {
         let now = SystemTime::now();
         let mut todo: Vec<FullPackageName> =
@@ -948,7 +948,7 @@ impl Cubicle {
 ///
 /// Package names may not be empty, may not begin or end with whitespace,
 /// and may not contain control characters.
-#[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialOrd, PartialEq)]
 pub struct PackageName(String);
 
 impl PackageName {
@@ -1009,7 +1009,7 @@ impl Display for PackageName {
 }
 
 /// A namespace for packages. See [`FullPackageName`].
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub enum PackageNamespace {
     /// Top-level, normal Cubicle packages live here.
     Root,
@@ -1141,8 +1141,8 @@ pub fn write_package_list_tar(
     {
         use std::os::unix::fs::MetadataExt;
         header.set_mtime(metadata.mtime() as u64);
-        header.set_uid(metadata.uid() as u64);
-        header.set_gid(metadata.gid() as u64);
+        header.set_uid(u64::from(metadata.uid()));
+        header.set_gid(u64::from(metadata.gid()));
         header.set_mode(metadata.mode());
     }
 
@@ -1175,7 +1175,7 @@ fn strict_debian_packages(
         .collect())
 }
 
-fn all_debian_packages(specs: &PackageSpecs) -> Result<BTreeSet<PackageName>> {
+fn all_debian_packages(specs: &PackageSpecs) -> BTreeSet<PackageName> {
     let mut debian_packages = BTreeSet::new();
     for spec in specs.values() {
         if let Some(debian) = spec.manifest.depends.get(&PackageNamespace::Debian) {
@@ -1185,7 +1185,7 @@ fn all_debian_packages(specs: &PackageSpecs) -> Result<BTreeSet<PackageName>> {
             debian_packages.extend(debian.keys().cloned());
         }
     }
-    Ok(debian_packages)
+    debian_packages
 }
 
 /// Description of a package as returned by [`Cubicle::get_packages`].

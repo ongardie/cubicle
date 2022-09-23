@@ -4,7 +4,6 @@
     clippy::if_then_some_else_none,
     clippy::implicit_clone,
     clippy::redundant_else,
-    clippy::single_match_else,
     clippy::try_err,
     clippy::unreadable_literal
 )]
@@ -234,7 +233,7 @@ impl Cubicle {
             RunnerKind::User => Box::new(User::new(shared.clone())?),
         });
 
-        Ok(Cubicle { runner, shared })
+        Ok(Self { shared, runner })
     }
 
     /// Corresponds to `cub enter`.
@@ -398,7 +397,7 @@ impl Cubicle {
         self.update_packages(
             packages,
             &specs,
-            UpdatePackagesConditions {
+            &UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::IfStale,
                 named: ShouldPackageUpdate::IfStale,
             },
@@ -491,7 +490,7 @@ impl Cubicle {
         self.update_packages(
             &packages,
             &specs,
-            UpdatePackagesConditions {
+            &UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::IfStale,
                 named: ShouldPackageUpdate::IfStale,
             },
@@ -549,7 +548,7 @@ impl Display for ExitStatusError {
 }
 
 impl From<ExitStatusError> for somehow::Error {
-    fn from(error: ExitStatusError) -> somehow::Error {
+    fn from(error: ExitStatusError) -> Self {
         anyhow!(error)
     }
 }

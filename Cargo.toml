@@ -1,10 +1,21 @@
 [package]
 name = "cubicle"
 version = "0.0.0"
+
+categories = ["command-line-utilities", "virtualization"]
+description = "Manage isolated development environments"
+keywords = ["cli", "container", "dev-environment", "docker", "sandbox"]
+license = "MIT"
+repository = "https://github.com/ongardie/cubicle"
+
+default-run = "cub"
 edition = "2021"
-default-run = "cubicle"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "cub"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = { version = "1.0.60", features = ["backtrace"] }

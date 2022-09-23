@@ -4,7 +4,6 @@
     clippy::if_then_some_else_none,
     clippy::implicit_clone,
     clippy::redundant_else,
-    clippy::single_match_else,
     clippy::try_err,
     clippy::unreadable_literal
 )]
@@ -99,7 +98,7 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
         .update_packages(
             &not_exist,
             &cub.scan_packages()?,
-            UpdatePackagesConditions {
+            &UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::Always,
                 named: ShouldPackageUpdate::Always,
             },
@@ -157,7 +156,7 @@ fn main() -> Result<()> {
     cub.update_packages(
         &packages,
         &cub.scan_packages()?,
-        UpdatePackagesConditions {
+        &UpdatePackagesConditions {
             dependencies: ShouldPackageUpdate::Always,
             named: ShouldPackageUpdate::Always,
         },

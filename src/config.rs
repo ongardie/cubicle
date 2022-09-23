@@ -137,9 +137,9 @@ pub enum PathOrDisabled {
 impl std::convert::From<String> for PathOrDisabled {
     fn from(s: String) -> Self {
         if s == "dangerously-disabled" {
-            PathOrDisabled::DangerouslyDisabled
+            Self::DangerouslyDisabled
         } else {
-            PathOrDisabled::Path(tilde_expand(PathBuf::from(s), host_home_dir()))
+            Self::Path(tilde_expand(PathBuf::from(s), host_home_dir()))
         }
     }
 }
@@ -200,7 +200,7 @@ fn tilde_expand(path: PathBuf, home: &HostPath) -> PathBuf {
 impl Config {
     /// Parses and validates a TOML-formatted string into a Config.
     fn from_str(s: &str) -> LowLevelResult<Self> {
-        let config: Config = toml::from_str(s)?;
+        let config: Self = toml::from_str(s)?;
 
         match config.runner {
             RunnerKind::Bubblewrap => {

@@ -177,7 +177,7 @@ impl Bubblewrap {
             },
         );
         command.env("HOME", env_home.as_env_raw());
-        command.env("SANDBOX", name.as_str());
+        command.env("CUBICLE", name.as_str());
         command.env("TMPDIR", env_home.join("tmp").as_env_raw());
         for key in ["DISPLAY", "LANG", "SHELL", "TERM", "USER"] {
             if let Ok(value) = std::env::var(key) {
