@@ -76,11 +76,12 @@ fn yaml_value_from_json(value: serde_json::Value) -> serde_yaml::Value {
         json::Number(value) => yaml::Number(serde_yaml::Number::from(value.as_f64().unwrap())),
         json::String(value) => yaml::String(value),
         json::Array(value) => yaml::Sequence(value.into_iter().map(yaml_value_from_json).collect()),
-        json::Object(value) => yaml::Mapping(serde_yaml::Mapping::from_iter(
+        json::Object(value) => yaml::Mapping(
             value
                 .into_iter()
-                .map(|(k, v)| (yaml::String(k), yaml_value_from_json(v))),
-        )),
+                .map(|(k, v)| (yaml::String(k), yaml_value_from_json(v)))
+                .collect::<serde_yaml::Mapping>(),
+        ),
     }
 }
 
@@ -350,6 +351,7 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
     jobs
 }
 
+#[derive(Clone, Copy)]
 struct RunOnceChecks(bool);
 
 fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job) {

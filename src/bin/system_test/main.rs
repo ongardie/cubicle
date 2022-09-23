@@ -98,7 +98,7 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
         .update_packages(
             &not_exist,
             &cub.scan_packages()?,
-            UpdatePackagesConditions {
+            &UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::Always,
                 named: ShouldPackageUpdate::Always,
             },
@@ -156,7 +156,7 @@ fn main() -> Result<()> {
     cub.update_packages(
         &packages,
         &cub.scan_packages()?,
-        UpdatePackagesConditions {
+        &UpdatePackagesConditions {
             dependencies: ShouldPackageUpdate::Always,
             named: ShouldPackageUpdate::Always,
         },

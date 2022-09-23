@@ -233,7 +233,7 @@ impl Cubicle {
             RunnerKind::User => Box::new(User::new(shared.clone())?),
         });
 
-        Ok(Self { runner, shared })
+        Ok(Self { shared, runner })
     }
 
     /// Corresponds to `cub enter`.
@@ -397,7 +397,7 @@ impl Cubicle {
         self.update_packages(
             packages,
             &specs,
-            UpdatePackagesConditions {
+            &UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::IfStale,
                 named: ShouldPackageUpdate::IfStale,
             },
@@ -490,7 +490,7 @@ impl Cubicle {
         self.update_packages(
             &packages,
             &specs,
-            UpdatePackagesConditions {
+            &UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::IfStale,
                 named: ShouldPackageUpdate::IfStale,
             },

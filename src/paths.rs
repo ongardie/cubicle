@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 /// should be named differently to make the calling code look wrong when
 /// it's mixing namespaces.
 ///
-/// The resulting type has two key restrictions compared to PathBuf:
+/// The resulting type has two key restrictions compared to `PathBuf`:
 ///
 /// 1. It requires paths to be absolute.
 /// 2. It does not allow joining to absolute paths.

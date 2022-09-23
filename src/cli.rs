@@ -467,14 +467,14 @@ fn run_package_command(command: PackageCommands, program: &Cubicle) -> Result<()
                     program.purge_environment(
                         &EnvironmentName::for_builder_package(package),
                         Quiet(true),
-                    )?
+                    )?;
                 }
             }
             let specs = program.scan_packages()?;
             program.update_packages(
                 &packages,
                 &specs,
-                UpdatePackagesConditions {
+                &UpdatePackagesConditions {
                     dependencies: if skip_deps { IfRequired } else { IfStale },
                     named: Always,
                 },
