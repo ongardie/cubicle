@@ -489,7 +489,7 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
                 tar -C .. --create \\
                     cubicle/packages/ \\
                     cubicle/src/bin/system_test/github/ \\
-                    cubicle/target/debug/cubicle \\
+                    cubicle/target/debug/cub \\
                     cubicle/target/debug/system_test | \\
                 gzip -1 > debug-dist.tar.gz
             "}),
@@ -585,7 +585,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
     steps.push(Step {
         name: s("Run cub list"),
         details: Run {
-            run: format!("./target/debug/cubicle --config '{config}' list"),
+            run: format!("./target/debug/cub --config '{config}' list"),
         },
         env: dict! {"RUST_BACKTRACE" => "1"},
     });

@@ -48,7 +48,7 @@ jobs:
         tar -C .. --create \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
-            cubicle/target/debug/cubicle \
+            cubicle/target/debug/cub \
             cubicle/target/debug/system_test | \
         gzip -1 > debug-dist.tar.gz
     - name: Upload build artifact
@@ -94,7 +94,7 @@ jobs:
         tar -C .. --create \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
-            cubicle/target/debug/cubicle \
+            cubicle/target/debug/cub \
             cubicle/target/debug/system_test | \
         gzip -1 > debug-dist.tar.gz
     - name: Upload build artifact
@@ -163,7 +163,7 @@ jobs:
         tar -C .. --create \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
-            cubicle/target/debug/cubicle \
+            cubicle/target/debug/cub \
             cubicle/target/debug/system_test | \
         gzip -1 > debug-dist.tar.gz
     - name: Upload build artifact
@@ -198,8 +198,7 @@ jobs:
     - name: Unpack build artifact
       run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
     - name: Run cub list
-      run: ./target/debug/cubicle --config 'src/bin/system_test/github/docker.toml'
-        list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
       env:
         RUST_BACKTRACE: '1'
     - name: Run system test
@@ -222,7 +221,7 @@ jobs:
     - name: Unpack build artifact
       run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
     - name: Run cub list
-      run: ./target/debug/cubicle --config 'src/bin/system_test/github/bubblewrap.toml'
+      run: ./target/debug/cub --config 'src/bin/system_test/github/bubblewrap.toml'
         list
       env:
         RUST_BACKTRACE: '1'
@@ -246,8 +245,7 @@ jobs:
     - name: Unpack build artifact
       run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
     - name: Run cub list
-      run: ./target/debug/cubicle --config 'src/bin/system_test/github/docker.toml'
-        list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
       env:
         RUST_BACKTRACE: '1'
     - name: Run system test
@@ -270,7 +268,7 @@ jobs:
     - name: Unpack build artifact
       run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
     - name: Run cub list
-      run: ./target/debug/cubicle --config 'src/bin/system_test/github/docker-bind.toml'
+      run: ./target/debug/cub --config 'src/bin/system_test/github/docker-bind.toml'
         list
       env:
         RUST_BACKTRACE: '1'
@@ -294,8 +292,7 @@ jobs:
     - name: Unpack build artifact
       run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
     - name: Run cub list
-      run: ./target/debug/cubicle --config 'src/bin/system_test/github/user.toml'
-        list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/user.toml' list
       env:
         RUST_BACKTRACE: '1'
     - name: Run system test

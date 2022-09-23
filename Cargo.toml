@@ -8,10 +8,14 @@ keywords = ["cli", "container", "dev-environment", "docker", "sandbox"]
 license = "MIT"
 repository = "https://github.com/ongardie/cubicle"
 
-default-run = "cubicle"
+default-run = "cub"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "cub"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = { version = "1.0.60", features = ["backtrace"] }

@@ -95,7 +95,7 @@ cd ~/opt/
 git clone https://github.com/ongardie/cubicle/
 cd cubicle
 cargo build --release
-ln -s $(pwd)/target/release/cubicle ~/bin/cub
+ln -s $(pwd)/target/release/cub ~/bin/cub
 ```
 
 ## Configuration

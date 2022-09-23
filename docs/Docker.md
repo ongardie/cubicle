@@ -45,7 +45,7 @@ echo 'runner = "docker"' > ~/.config/cubicle.toml
 cd ~/opt/
 git clone https://github.com/ongardie/cubicle/
 cd cubicle
-ln -s $(pwd)/target/release/cubicle ~/bin/cub
+ln -s $(pwd)/target/release/cub ~/bin/cub
 ```
 
 Now, if you have a recent version of [Rust and
