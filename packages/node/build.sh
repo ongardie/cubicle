@@ -1,22 +1,12 @@
 #!/bin/sh
-set -e
+set -eu
 
-cp -a install-node node npm npx ~/bin/
+asdf plugin list | grep '^nodejs$' || asdf plugin add nodejs
 
-(
-    mkdir -p ~/tmp/lts
-    cd ~/tmp/lts
-    echo 'lts/*' > .nvmrc
-    echo "Installing/updating LTS Node.js release"
-    npm update --location=global
-)
+asdf install nodejs latest
 
-(
-    mkdir -p ~/tmp/current
-    cd ~/tmp/current
-    echo 'node' > .nvmrc
-    echo "Installing/updating current Node.js release"
-    npm update --location=global
-)
+mkdir -p ~/.dev-init/
+echo 'asdf global nodejs latest' > ~/.dev-init/node-asdf.sh
+chmod +x ~/.dev-init/node-asdf.sh
 
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar
