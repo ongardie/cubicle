@@ -6,5 +6,8 @@ if ! grep -q mold ~/.cargo/config.toml 2>/dev/null; then
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=$HOME/bin/mold"]
+[target.aarch64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=$HOME/bin/mold"]
 EOF
 fi
