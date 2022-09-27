@@ -10,6 +10,9 @@ set -e
 # be installed on the system already:
 # https://devguide.python.org/setup/#linux
 
+export PATH="$HOME/opt/python/latest/bin:$PATH"
+echo "$HOME/opt/python/latest/bin" > ~/.configs/profile.d/path/37-python
+
 have=$(python3 --version || true)
 echo "Have ${have:-no python3 version}"
 echo "Checking latest version of Python on GitHub"

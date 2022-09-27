@@ -1,0 +1,1 @@
+export TMPDIR=$HOME/tmp

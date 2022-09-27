@@ -1,0 +1,8 @@
+.bash_profile
+.bashrc
+.configs/bashrc.d/
+.configs/profile.d/
+.configs/zshrc.d/
+.profile
+.zprofile
+.zshrc

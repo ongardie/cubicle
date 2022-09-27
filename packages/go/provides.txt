@@ -1,3 +1,5 @@
+.profile.d/path/32-go
+.profile.d/70-goroot.sh
 bin/go
 go
 opt/go

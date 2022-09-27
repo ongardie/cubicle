@@ -1,0 +1,14 @@
+# This file is used as both `.bash_profile` and `.bashrc`, so it's used for
+# login and non-login shells. See
+# <https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html#Bash-Startup-Files>.
+set -eu
+
+if [ "${DOT_PROFILE_SOURCED:-}" != "1" ]; then
+    . ~/.profile
+fi
+
+for i in ~/.configs/bashrc.d/*.bash; do
+    . "$i"
+done
+
+set +eu

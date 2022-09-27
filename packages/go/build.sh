@@ -2,6 +2,10 @@
 set -eu
 cd
 
+
+echo 'export GOROOT=$HOME/opt/go' > ~/.profile.d/70-goroot.sh
+echo '$HOME/go/bin/' > ~/.profile.d/path/32-go
+
 CACHE_HOME=${XDG_CACHE_HOME:-"$HOME/.cache"}
 mkdir -p "$CACHE_HOME"
 

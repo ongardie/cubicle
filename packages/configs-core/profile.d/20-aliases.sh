@@ -1,0 +1,6 @@
+alias cp='cp --interactive'
+alias curl='curl --connect-timeout 10'
+alias df='df --human-readable'
+alias du='du --human-readable'
+alias free='free --human'
+alias ls='ls --almost-all --color=always --group-directories-first --human-readable --time-style=long-iso'
