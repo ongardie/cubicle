@@ -1,5 +1,6 @@
-.profile.d/path/32-go
-.profile.d/70-goroot.sh
-bin/go
-go
-opt/go
+.asdf/installs/golang/
+.asdf/plugins/golang/
+.asdf/shims/go
+.asdf/shims/gofmt
+.configs/profile.d/path/36-go
+.dev-init/go-asdf.sh

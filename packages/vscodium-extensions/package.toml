@@ -1,4 +1,5 @@
 [depends]
+vscodium-go = {}
 vscodium-rust-analyzer = {}
 
 [depends.open-vsx]
