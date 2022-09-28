@@ -1,17 +1,15 @@
 #!/bin/sh
 set -ex
 
-export PATH=~/.cargo/bin:$PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+echo "$HOME/.cargo/bin" > ~/.configs/profile.d/path/33-cargo
 
 if ! rustup run stable echo rustup ok; then
-    curl -sSfO 'https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init'
-    chmod +x rustup-init
     # Exclude rust-docs component since it's too many files and too large.
-    ./rustup-init -y --profile=minimal --component=rustfmt,clippy
-    rm rustup-init
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- \
+        -y --profile=minimal --component=rustfmt,clippy
 fi
 
-rustup toolchain install nightly
 rustup update
 
 # Update `~/.cargo/registry/index`. This previously used `cargo search`, which

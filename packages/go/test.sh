@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+asdf global golang latest
+
 go version
 
 cat > hello.go << EOF
@@ -14,7 +16,3 @@ func main() {
 EOF
 
 [ "$( go run hello.go )" = "Hello, World!" ]
-
-dlv version >/dev/null
-gopls version >/dev/null
-staticcheck hello.go

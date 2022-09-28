@@ -48,4 +48,6 @@ xdg-mime default firefox.desktop x-scheme-handler/https x-scheme-handler/http
 EOF
 chmod +x ~/.dev-init/firefox.sh
 
+echo 'export BROWSER=firefox' > ~/.configs/profile.d/60-browser.sh
+
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

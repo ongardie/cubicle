@@ -1,7 +1,8 @@
-.cache/node-versions.json
-.npm
-bin/install-node
-bin/node
-bin/npm
-bin/npx
-opt/node
+.asdf/installs/nodejs/
+.asdf/plugins/nodejs/
+.asdf/shims/corepack
+.asdf/shims/node
+.asdf/shims/npm
+.asdf/shims/npx
+.asdf/tmp/nodejs/
+.dev-init/node-asdf.sh

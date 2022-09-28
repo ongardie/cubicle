@@ -1,6 +1,7 @@
 .cargo/bin/
 .cargo/env
 .cargo/registry/
+.configs/profile.d/path/33-cargo
 .local/share/bash-completion/completions/cargo
 .local/share/bash-completion/completions/rustup
 .rustup/

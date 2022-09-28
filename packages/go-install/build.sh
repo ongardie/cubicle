@@ -1,8 +1,12 @@
 #!/bin/sh
 set -eu
+
 cd
-if ! [ -e exclude.txt ]; then
-    find go/bin/* > exclude.txt
-fi
+bin=$(basename "$PACKAGE")
 go install "$PACKAGE"@latest
-tar --create --file ~/provides.tar --exclude-from exclude.txt go/bin
+asdf reshim golang
+install="$(asdf where golang)/packages/bin/$bin"
+install="${install#$HOME/}"
+tar --create --verbose --file provides.tar \
+    "$install" \
+    ".asdf/shims/$bin"

@@ -10,13 +10,16 @@ set -e
 # be installed on the system already:
 # https://devguide.python.org/setup/#linux
 
+export PATH="$HOME/opt/python/latest/bin:$PATH"
+echo "$HOME/opt/python/latest/bin" > ~/.configs/profile.d/path/37-python
+
 have=$(python3 --version || true)
 echo "Have ${have:-no python3 version}"
 echo "Checking latest version of Python on GitHub"
 TAGS=$TMPDIR/python-tags
 curl -sS 'https://api.github.com/repos/python/cpython/tags' > $TAGS
 version=$(cat $TAGS | jq -r '.[] | .name' | grep -E '^v[0-9]+.[0-9]+.[0-9]+$' | sort --version-sort | tail -n 1 | cut -b2-)
-if [ "$have" = "Python $version" ] && [ "$(which python3)" -nt /usr/lib/x86_64-linux-gnu/libssl.a ]; then
+if [ "$have" = "Python $version" ] && [ "$(which python3)" -nt "/usr/lib/$(uname -m)-linux-gnu/libssl.a" ]; then
     echo "Have latest Python already ($version)"
 else
     echo "Downloading and installing Python $version"
