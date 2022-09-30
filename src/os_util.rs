@@ -26,19 +26,6 @@ pub fn host_home_dir() -> &'static HostPath {
     &HOME_DIR
 }
 
-pub fn get_hostname() -> Option<String> {
-    #[cfg(unix)]
-    {
-        let uname = rustix::process::uname();
-        if let Ok(node_name) = uname.nodename().to_str() {
-            if !node_name.is_empty() {
-                return Some(node_name.to_owned());
-            }
-        }
-    }
-    None
-}
-
 pub struct Uids {
     pub real_user: u64,
     pub group: u64,
@@ -112,12 +99,6 @@ fn timezone_from_localtime_target(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-
-    #[test]
-    fn get_hostname() {
-        println!("Hostname: {:?}", super::get_hostname());
-        // Yay, didn't crash!
-    }
 
     #[test]
     fn timezone_from_localtime_target() {

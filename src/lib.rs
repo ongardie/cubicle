@@ -57,7 +57,7 @@ mod fs_util;
 use fs_util::{try_exists, DirSummary};
 
 mod os_util;
-use os_util::{get_hostname, host_home_dir};
+use os_util::host_home_dir;
 
 mod packages;
 use packages::write_package_list_tar;
@@ -94,7 +94,6 @@ struct CubicleShared {
     config: Config,
     shell: String,
     exe_name: String,
-    hostname: Option<String>,
     home: HostPath,
     user: String,
     package_cache: HostPath,
@@ -121,7 +120,6 @@ impl Cubicle {
     /// - Loading and initializing filesystem structures.
     /// - Creating a runner.
     pub fn new(config: Config) -> Result<Self> {
-        let hostname = get_hostname();
         let home = host_home_dir().clone();
         let user = std::env::var("USER").context("Invalid $USER")?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/sh"));
@@ -212,7 +210,6 @@ impl Cubicle {
             config,
             shell,
             exe_name,
-            hostname,
             home,
             user,
             package_cache,
@@ -564,21 +561,6 @@ impl EnvironmentName {
     /// Returns a string slice representing the environment name.
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-
-    /// Returns a string representing the environment name for use in a domain
-    /// name.
-    fn as_hostname(&self) -> String {
-        self.0
-            .chars()
-            .map(|char| {
-                if char.is_ascii_alphanumeric() {
-                    char
-                } else {
-                    '-'
-                }
-            })
-            .collect()
     }
 
     /// Returns a string representing the environment name for use as a
