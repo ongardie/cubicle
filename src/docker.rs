@@ -22,6 +22,8 @@ use names::{ContainerName, ImageName, VolumeName};
 
 pub struct Docker {
     pub(super) program: Rc<CubicleShared>,
+    user: String,
+    uids: Uids,
     timezone: String,
     mounts: Mounts,
     base_image: ImageName,
@@ -49,6 +51,19 @@ enum EnvMounts {
 
 impl Docker {
     pub(super) fn new(program: Rc<CubicleShared>) -> Result<Self> {
+        let host_user = std::env::var("USER").context("Invalid $USER")?;
+        let (user, uids) = if host_user == "root" {
+            (
+                String::from("cubicle"),
+                Uids {
+                    real_user: 1000,
+                    group: 1000,
+                },
+            )
+        } else {
+            (host_user, get_uids())
+        };
+
         let timezone = get_timezone();
 
         let mounts = if program.config.docker.bind_mounts {
@@ -75,7 +90,7 @@ impl Docker {
 
         let container_home = EnvPath::try_from(String::from("/home"))
             .unwrap()
-            .join(&program.user);
+            .join(&user);
 
         if let Some(path) = &program.config.docker.seccomp {
             // Better give an early error message if this isn't configured right.
@@ -85,6 +100,8 @@ impl Docker {
 
         Ok(Self {
             program,
+            user,
+            uids,
             timezone,
             mounts,
             base_image,
@@ -199,8 +216,8 @@ impl Docker {
                 DockerfileArgs {
                     packages: &packages,
                     timezone: &self.timezone,
-                    user: &self.program.user,
-                    uids: &get_uids(),
+                    user: &self.user,
+                    uids: &self.uids,
                 },
             )
             .and_then(|_| stdin.flush())
@@ -235,7 +252,7 @@ impl Docker {
         // and Electron-based programs. See
         // <https://github.com/ongardie/cubicle/issues/3>.
         command.args(["--shm-size", &1_000_000_000.to_string()]);
-        command.args(["--user", &self.program.user]);
+        command.args(["--user", &self.user]);
 
         command.args(["--volume", "/tmp/.X11-unix:/tmp/.X11-unix:ro"]);
 

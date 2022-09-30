@@ -95,7 +95,6 @@ struct CubicleShared {
     shell: String,
     exe_name: String,
     home: HostPath,
-    user: String,
     package_cache: HostPath,
     code_package_dir: HostPath,
     user_package_dir: HostPath,
@@ -121,7 +120,6 @@ impl Cubicle {
     /// - Creating a runner.
     pub fn new(config: Config) -> Result<Self> {
         let home = host_home_dir().clone();
-        let user = std::env::var("USER").context("Invalid $USER")?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/sh"));
 
         let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
@@ -211,7 +209,6 @@ impl Cubicle {
             shell,
             exe_name,
             home,
-            user,
             package_cache,
             code_package_dir,
             user_package_dir,
