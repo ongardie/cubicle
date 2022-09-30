@@ -2,7 +2,7 @@ set -eu
 
 export DOT_PROFILE_SOURCED=1
 
-for i in ~/.configs/profile.d/*.sh; do
+for i in ~/.config/profile.d/*.sh; do
     . "$i"
 done
 

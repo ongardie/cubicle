@@ -4,7 +4,7 @@ if [ "${DOT_PROFILE_SOURCED:-}" != "1" ]; then
     . ~/.zprofile
 fi
 
-for i in ~/.configs/zshrc.d/*.zsh; do
+for i in ~/.config/zshrc.d/*.zsh; do
     . "$i"
 done
 
