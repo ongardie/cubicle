@@ -221,11 +221,6 @@ impl Docker {
         command.arg("run");
         command.arg("--detach");
         command.args(["--env", &format!("CUBICLE={}", env_name.as_str())]);
-        command.arg("--hostname");
-        match &self.program.hostname {
-            Some(hostname) => command.arg(format!("{}.{hostname}", env_name.as_hostname())),
-            None => command.arg(env_name.as_hostname()),
-        };
         command.arg("--init");
         command.args(["--name", &container_name.encoded()]);
         command.arg("--rm");

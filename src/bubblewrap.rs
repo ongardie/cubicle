@@ -199,12 +199,6 @@ impl Bubblewrap {
         command.arg("--unshare-pid");
         command.arg("--unshare-uts");
 
-        command.arg("--hostname");
-        match &self.program.hostname {
-            Some(hostname) => command.arg(format!("{}.{hostname}", name.as_hostname())),
-            None => command.arg(name.as_hostname()),
-        };
-
         command.args(["--symlink", "/usr/bin", "/bin"]);
         command.args(["--dev", "/dev"]);
 
