@@ -22,9 +22,9 @@ prompt_command() {
     visible="$visible%F{red}Command exited with status $st%f\n"
   fi
 
-  # Username and host
-  visible="$visible%F{yellow}%n@%m%f:"
-  title="$title'%n@%m:"
+  # Cubicle environment name (or username and host)
+  visible="$visible%F{yellow}${CUBICLE:-'%n@%m'}%f:"
+  title="$title${CUBICLE:-'%n@%m'}:"
 
   # Working directory
   visible="$visible%F{green}%~%f"

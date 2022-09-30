@@ -37,9 +37,9 @@ prompt_command() {
     prompt=$(color 1 31 "Command exited with status $status")'\n'
   fi
 
-  # Username and host
-  prompt=$prompt$(color 1 33 '\u@\h')$(color 1 37 ':')
-  title=$title'\u@\h':
+  # Cubicle environment name (or username and host)
+  prompt=$prompt$(color 1 33 "${CUBICLE:-'\u@\h'}")$(color 1 37 ':')
+  title=$title${CUBICLE:-'\u@\h'}:
 
   # Working directory
   prompt=$prompt$(color 1 32 '\w')
