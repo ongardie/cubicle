@@ -1,4 +1,4 @@
-.configs/profile.d/60-browser.sh
+.config/profile.d/60-browser.sh
 .dev-init/firefox.sh
 .local/share/applications/firefox.desktop
 .mozilla/firefox

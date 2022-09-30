@@ -1,4 +1,4 @@
 .cache/pip
-.configs/profile.d/path/37-python
+.config/profile.d/path/37-python
 .pylama.ini
 opt/python

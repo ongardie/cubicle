@@ -16,12 +16,12 @@ git reset --hard "$version"
 
 # Don't use `~/.asdf/asdf.sh`` since it doesn't support Dash.
 # See <https://github.com/asdf-vm/asdf/issues/653>.
-cat > ~/.configs/profile.d/90-asdf.sh <<"EOF"
+cat > ~/.config/profile.d/90-asdf.sh <<"EOF"
 export ASDF_DIR="$HOME/.asdf"
 . $HOME/.asdf/lib/asdf.sh
 EOF
 
-cat > ~/.configs/profile.d/path/35-asdf <<"EOF"
+cat > ~/.config/profile.d/path/35-asdf <<"EOF"
 $HOME/.asdf/shims
 $HOME/.asdf/bin
 EOF

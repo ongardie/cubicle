@@ -11,7 +11,7 @@ set -e
 # https://devguide.python.org/setup/#linux
 
 export PATH="$HOME/opt/python/latest/bin:$PATH"
-echo "$HOME/opt/python/latest/bin" > ~/.configs/profile.d/path/37-python
+echo "$HOME/opt/python/latest/bin" > ~/.config/profile.d/path/37-python
 
 have=$(python3 --version || true)
 echo "Have ${have:-no python3 version}"
