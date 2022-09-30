@@ -15,7 +15,12 @@ fi
 TAG=$(git tag | grep -E 'v1.[0-9]+.[0-9]+' | sort --version-sort | tail -n 1)
 git checkout $TAG
 
-make -j$(nproc)
+mkdir -p build
+cd build
+
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=c++ ..
+cmake --build . -j $(nproc)
+
 cp mold ~/bin/mold
 mold --version
 
