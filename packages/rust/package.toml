@@ -1,2 +1,4 @@
 [depends]
-mold = {}
+# Disabled for now as the mold build is slow and Cubicle caching is poor
+# (see <https://github.com/ongardie/cubicle/issues/30>).
+# mold = {}
