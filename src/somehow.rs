@@ -60,6 +60,38 @@ impl Error {
     {
         Self(self.0.context(context))
     }
+
+    /// See [`anyhow::Error::is`].
+    pub fn is<E>(&self) -> bool
+    where
+        E: Display + Debug + Send + Sync + 'static,
+    {
+        self.0.is::<E>()
+    }
+
+    /// See [`anyhow::Error::downcast`].
+    pub fn downcast<E>(self) -> Result<E, Self>
+    where
+        E: Display + Debug + Send + Sync + 'static,
+    {
+        self.0.downcast::<E>().map_err(Self)
+    }
+
+    /// See [`anyhow::Error::downcast_ref`].
+    pub fn downcast_ref<E>(&self) -> Option<&E>
+    where
+        E: Display + Debug + Send + Sync + 'static,
+    {
+        self.0.downcast_ref::<E>()
+    }
+
+    /// See [`anyhow::Error::downcast_mut`].
+    pub fn downcast_mut<E>(&mut self) -> Option<&mut E>
+    where
+        E: Display + Debug + Send + Sync + 'static,
+    {
+        self.0.downcast_mut::<E>()
+    }
 }
 
 /// See [`anyhow::Error`].
@@ -272,9 +304,14 @@ impl From<Error> for Box<dyn std::error::Error + Send + Sync + 'static> {
     }
 }
 
-/// Print a warning to stderr.
+/// Print a warning to stderr, with error chain and backtrace and all.
 pub fn warn(error: Error) {
     eprintln!("WARNING: {error:?}");
+}
+
+/// Print a brief warning to stderr.
+pub fn warn_brief(warning: String) {
+    eprintln!("WARNING: {warning}");
 }
 
 #[cfg(test)]

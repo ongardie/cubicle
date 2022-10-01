@@ -33,7 +33,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod somehow;
 pub use somehow::Result;
-use somehow::{somehow as anyhow, warn, Context, Error};
+use somehow::{somehow as anyhow, warn, warn_brief, Context, Error};
 
 mod paths;
 use paths::HostPath;
@@ -239,7 +239,16 @@ impl Cubicle {
                 "Environment {name} in broken state (try '{} reset')",
                 self.shared.exe_name
             )),
-            FullyExists => self.runner.run(name, &RunnerCommand::Interactive),
+            FullyExists => self
+                .runner
+                .run(name, &RunnerCommand::Interactive)
+                .or_else(|e| match e.downcast_ref::<ExitStatusError>() {
+                    Some(e) => {
+                        warn_brief(format!("exited from {name} with {}", e.status));
+                        Ok(())
+                    }
+                    None => Err(e),
+                }),
         }
     }
 
@@ -443,7 +452,15 @@ impl Cubicle {
             EnvironmentName::from_string(format!("tmp-{name}")).unwrap()
         };
         self.new_environment(&name, packages)?;
-        self.runner.run(&name, &RunnerCommand::Interactive)
+        self.runner
+            .run(&name, &RunnerCommand::Interactive)
+            .or_else(|e| match e.downcast_ref::<ExitStatusError>() {
+                Some(e) => {
+                    warn_brief(format!("exited from {name} with {}", e.status));
+                    Ok(())
+                }
+                None => Err(e),
+            })
     }
 
     /// Corresponds to `cub purge`.
