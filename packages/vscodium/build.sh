@@ -32,6 +32,7 @@ else
     echo "Downloading $download"
     curl --max-time 120 "https://github.com/VSCodium/vscodium/releases/download/$latest/$download.tar.gz" | tar -xz
 fi
-ln -fs ../opt/vscodium/bin/codium ~/bin/codium
+
+cp -a ~/w/codium ~/bin/codium
 
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

@@ -7,3 +7,4 @@ libdrm2 = {}
 libgbm1 = {}
 libgtk-3-0 = {}
 libnss3 = {}
+trash-cli = {}
