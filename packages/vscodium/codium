@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+# This instructs Electron to use
+# [trash-cli](https://github.com/andreafrancia/trash-cli) to delete files.
+# Without it, VS Code will show an extra dialog with a warning. See
+# <https://github.com/microsoft/vscode/issues/68359> and
+# <https://github.com/electron/electron/pull/7178>.
+export ELECTRON_TRASH=trash-cli
+
+exec "$HOME/opt/vscodium/bin/codium" "$@"
