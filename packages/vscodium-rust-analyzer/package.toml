@@ -1,2 +1,5 @@
+[[targets]]
+os = "linux"
+
 [depends]
 vscodium = {}

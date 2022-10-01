@@ -20,6 +20,7 @@ use super::runner::{EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{rel_time, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostPath, RunnerKind};
 
 mod manifest;
+pub(crate) use manifest::Target;
 use manifest::{Dependency, Manifest};
 
 /// Information about a package's source files.
@@ -198,6 +199,15 @@ impl Cubicle {
                     continue;
                 }
             };
+
+            if let Some(targets) = &manifest.targets {
+                if !self.runner.supports_any(targets)? {
+                    warn(anyhow!(
+                        "package {name} cannot be built on the current platform"
+                    ));
+                    continue;
+                }
+            }
 
             manifest
                 .depends

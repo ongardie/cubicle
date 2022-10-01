@@ -60,7 +60,7 @@ mod os_util;
 use os_util::host_home_dir;
 
 mod packages;
-use packages::write_package_list_tar;
+use packages::{write_package_list_tar, Target};
 pub use packages::{
     FullPackageName, ListPackagesFormat, PackageDetails, PackageName, PackageNamespace,
     PackageSpec, PackageSpecs, ShouldPackageUpdate, UpdatePackagesConditions,

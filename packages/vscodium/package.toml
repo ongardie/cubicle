@@ -1,3 +1,6 @@
+[[targets]]
+os = "linux"
+
 [depends.debian]
 libasound2 = {}
 libdrm2 = {}

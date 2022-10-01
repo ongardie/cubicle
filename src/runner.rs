@@ -2,6 +2,7 @@ use std::io;
 use std::path::Path;
 
 use super::fs_util::DirSummary;
+pub(crate) use super::Target;
 use super::{EnvironmentName, HostPath};
 use crate::somehow::{Context, Result};
 
@@ -82,6 +83,9 @@ pub trait Runner {
     ///
     /// The environment must fully exist already.
     fn run(&self, name: &EnvironmentName, command: &RunnerCommand) -> Result<()>;
+
+    /// Checks if the runner will run on any of the given platform patterns.
+    fn supports_any(&self, targets: &[Target]) -> Result<bool>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -254,5 +258,11 @@ impl Runner for CheckedRunner {
             "Environment {name} should fully exist after run"
         );
         Ok(())
+    }
+
+    fn supports_any(&self, targets: &[Target]) -> Result<bool> {
+        self.0
+            .supports_any(targets)
+            .context("failed to check if targets are supported")
     }
 }
