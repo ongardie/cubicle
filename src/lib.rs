@@ -60,7 +60,7 @@ mod os_util;
 use os_util::host_home_dir;
 
 mod packages;
-use packages::write_package_list_tar;
+use packages::{write_package_list_tar, Target};
 pub use packages::{
     FullPackageName, ListPackagesFormat, PackageDetails, PackageName, PackageNamespace,
     PackageSpec, PackageSpecs, ShouldPackageUpdate, UpdatePackagesConditions,
@@ -408,7 +408,7 @@ impl Cubicle {
         let packages_txt = write_package_list_tar(packages)?;
         let debian_packages = self.resolve_debian_packages(packages, &specs)?;
 
-        let mut seeds = self.packages_to_seeds(packages)?;
+        let mut seeds = self.packages_to_seeds(packages, &specs)?;
         seeds.push(HostPath::try_from(packages_txt.path().to_owned())?);
 
         self.runner
@@ -507,7 +507,7 @@ impl Cubicle {
             },
         )?;
         let debian_packages = self.resolve_debian_packages(&packages, &specs)?;
-        let mut seeds = self.packages_to_seeds(&packages)?;
+        let mut seeds = self.packages_to_seeds(&packages, &specs)?;
 
         let packages_txt: tempfile::NamedTempFile;
         if changed {

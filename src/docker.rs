@@ -13,7 +13,7 @@ use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::os_util::{get_timezone, get_uids, Uids};
 use super::paths::EnvPath;
-use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
+use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, warn, Context, LowLevelResult, Result};
 
@@ -959,6 +959,18 @@ impl Runner for Docker {
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
         self.run_(env_name, run_command)
+    }
+
+    fn supports_any(&self, targets: &[Target]) -> Result<bool> {
+        Ok(targets.iter().any(|Target { arch, os }| {
+            (match arch {
+                None => true,
+                Some(arch) => arch == std::env::consts::ARCH,
+            }) && (match os {
+                None => true,
+                Some(os) => os == "linux",
+            })
+        }))
     }
 }
 

@@ -10,7 +10,7 @@ use super::apt;
 use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::paths::EnvPath;
-use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
+use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{Context, Result};
 
@@ -435,5 +435,17 @@ impl Runner for Bubblewrap {
                 stdin: None,
             },
         )
+    }
+
+    fn supports_any(&self, targets: &[Target]) -> Result<bool> {
+        Ok(targets.iter().any(|Target { arch, os }| {
+            (match arch {
+                None => true,
+                Some(arch) => arch == std::env::consts::ARCH,
+            }) && (match os {
+                None => true,
+                Some(os) => os == "linux",
+            })
+        }))
     }
 }

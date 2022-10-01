@@ -12,6 +12,8 @@ pub struct TomlManifest {
     #[serde(default)]
     package_manager: bool,
     #[serde(default)]
+    targets: Option<Vec<Target>>,
+    #[serde(default)]
     depends: BTreeMap<String, DependencyOrTable>,
     #[serde(default)]
     build_depends: BTreeMap<String, DependencyOrTable>,
@@ -29,9 +31,17 @@ enum DependencyOrTable {
 #[serde(deny_unknown_fields)]
 pub struct Dependency {}
 
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Target {
+    pub arch: Option<String>,
+    pub os: Option<String>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Manifest {
     pub package_manager: bool,
+    pub targets: Option<Vec<Target>>,
     pub depends: BTreeMap<PackageNamespace, BTreeMap<PackageName, Dependency>>,
     pub build_depends: BTreeMap<PackageNamespace, BTreeMap<PackageName, Dependency>>,
 }
@@ -69,6 +79,7 @@ fn parse(buf: &str) -> Result<Manifest> {
 fn convert(manifest: TomlManifest) -> Result<Manifest> {
     Ok(Manifest {
         package_manager: manifest.package_manager,
+        targets: manifest.targets,
         depends: convert_depends(manifest.depends)?,
         build_depends: convert_depends(manifest.build_depends)?,
     })
@@ -110,6 +121,7 @@ mod tests {
         assert_eq!(
             Manifest {
                 package_manager: false,
+                targets: None,
                 depends: BTreeMap::from([(PackageNamespace::Root, BTreeMap::new())]),
                 build_depends: BTreeMap::from([(PackageNamespace::Root, BTreeMap::new())]),
             },
@@ -119,6 +131,9 @@ mod tests {
         assert_debug_snapshot!(
             super::parse("
                 package_manager = true
+                [[targets]]
+                arch = 'x86_64'
+                os = 'linux'
                 [depends]
                 x = {}
                 y = {}
@@ -134,6 +149,18 @@ mod tests {
             @r###"
         Manifest {
             package_manager: true,
+            targets: Some(
+                [
+                    Target {
+                        arch: Some(
+                            "x86_64",
+                        ),
+                        os: Some(
+                            "linux",
+                        ),
+                    },
+                ],
+            ),
             depends: {
                 Root: {
                     PackageName(

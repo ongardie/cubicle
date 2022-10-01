@@ -20,6 +20,7 @@ use super::runner::{EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{rel_time, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostPath, RunnerKind};
 
 mod manifest;
+pub(crate) use manifest::Target;
 use manifest::{Dependency, Manifest};
 
 /// Information about a package's source files.
@@ -199,6 +200,15 @@ impl Cubicle {
                 }
             };
 
+            if let Some(targets) = &manifest.targets {
+                if !self.runner.supports_any(targets)? {
+                    warn(anyhow!(
+                        "package {name} cannot be built on the current platform"
+                    ));
+                    continue;
+                }
+            }
+
             manifest
                 .depends
                 .get_mut(&PackageNamespace::Root)
@@ -308,37 +318,40 @@ impl Cubicle {
         specs: &PackageSpecs,
         conditions: &UpdatePackagesConditions,
     ) -> Result<()> {
-        let now = SystemTime::now();
-        let mut todo: Vec<FullPackageName> =
+        let mut todo: Vec<(FullPackageName, &PackageSpec)> =
             transitive_depends(packages, specs, BuildDepends(true))?
                 .into_iter()
                 .filter(|FullPackageName(ns, _name)| ns != &PackageNamespace::Debian)
-                .collect();
+                .map(|full_name| {
+                    let spec = match &full_name.0 {
+                        PackageNamespace::Debian => unreachable!(),
+                        PackageNamespace::Root => specs.get(&full_name.1).ok_or_else(|| {
+                            anyhow!("could not find definition for package {}", full_name.1)
+                        })?,
+                        PackageNamespace::Managed(manager) => {
+                            let spec = specs.get(manager).ok_or_else(|| {
+                                anyhow!("could not find definition for package manager {manager}")
+                            })?;
+                            if !spec.manifest.package_manager {
+                                return Err(anyhow!("package {manager} is not a package manager"));
+                            }
+                            spec
+                        }
+                    };
+                    Ok((full_name, spec))
+                })
+                .collect::<Result<_>>()?;
+
+        let now = SystemTime::now();
         let mut done: BTreeSet<FullPackageName> = BTreeSet::new();
         loop {
             let start_todos = todo.len();
             if start_todos == 0 {
                 return Ok(());
             }
-            let mut later = Vec::new();
+            let mut later: Vec<(FullPackageName, &PackageSpec)> = Vec::new();
 
-            for full_name in todo {
-                let spec = match &full_name.0 {
-                    PackageNamespace::Debian => unreachable!(),
-                    PackageNamespace::Root => specs.get(&full_name.1).ok_or_else(|| {
-                        anyhow!("could not find definition for package {}", full_name.1)
-                    })?,
-                    PackageNamespace::Managed(manager) => {
-                        let spec = specs.get(manager).ok_or_else(|| {
-                            anyhow!("could not find definition for package manager {manager}")
-                        })?;
-                        if !spec.manifest.package_manager {
-                            return Err(anyhow!("package {manager} is not a package manager"));
-                        }
-                        spec
-                    }
-                };
-
+            for (full_name, spec) in todo {
                 let deps_ready = spec
                     .manifest
                     .depends
@@ -377,18 +390,18 @@ impl Cubicle {
                     }
                     done.insert(full_name);
                 } else {
-                    later.push(full_name);
+                    later.push((full_name, spec));
                 }
             }
             if later.len() == start_todos {
-                later.sort();
+                let mut names = later
+                    .iter()
+                    .map(|(full_name, _)| full_name.to_string())
+                    .collect::<Vec<_>>();
+                names.sort_unstable();
                 return Err(anyhow!(
                     "package dependencies are unsatisfiable for: {}",
-                    later
-                        .iter()
-                        .map(|full_name| full_name.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    names.join(", ")
                 ));
             }
             todo = later;
@@ -629,7 +642,7 @@ impl Cubicle {
             debian_packages.extend(debian.keys().cloned());
         }
 
-        let mut seeds = self.packages_to_seeds(&packages)?;
+        let mut seeds = self.packages_to_seeds(&packages, specs)?;
 
         let tar_file = NamedTempFile::new().todo_context()?;
         create_tar_from_dir(
@@ -703,7 +716,7 @@ impl Cubicle {
             })
             .collect();
 
-        let mut seeds = self.packages_to_seeds(&packages)?;
+        let mut seeds = self.packages_to_seeds(&packages, specs)?;
         seeds.push(testing_tar.clone());
 
         let mut debian_packages = self.resolve_debian_packages(&packages, specs)?;
@@ -930,10 +943,10 @@ impl Cubicle {
     pub(super) fn packages_to_seeds(
         &self,
         packages: &BTreeSet<FullPackageName>,
+        specs: &PackageSpecs,
     ) -> Result<Vec<HostPath>> {
         let mut seeds = Vec::with_capacity(packages.len());
-        let specs = self.scan_packages()?;
-        let deps = transitive_depends(packages, &specs, BuildDepends(false))?;
+        let deps = transitive_depends(packages, specs, BuildDepends(false))?;
         for name in deps {
             let provides = self.package_tar(&name);
             if try_exists(&provides).todo_context()? {

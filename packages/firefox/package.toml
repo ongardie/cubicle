@@ -1,3 +1,7 @@
+[[targets]]
+os = "linux"
+arch = "x86_64"
+
 [depends.debian]
 libasound2 = {}
 libdbus-glib-1-2 = {}

@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::command_ext::Command;
 use super::fs_util::{summarize_dir, DirSummary};
-use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand};
+use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target};
 use super::{apt, CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::encoding::{percent_decode, percent_encode, FilenameEncoder};
 use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
@@ -580,6 +580,18 @@ impl Runner for User {
 
     fn run(&self, env_name: &EnvironmentName, run_command: &RunnerCommand) -> Result<()> {
         self.run_(env_name, run_command)
+    }
+
+    fn supports_any(&self, targets: &[Target]) -> Result<bool> {
+        Ok(targets.iter().any(|Target { arch, os }| {
+            (match arch {
+                None => true,
+                Some(arch) => arch == std::env::consts::ARCH,
+            }) && (match os {
+                None => true,
+                Some(os) => os == std::env::consts::OS,
+            })
+        }))
     }
 }
 
