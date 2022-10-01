@@ -23,14 +23,9 @@ use cubicle::{
 
 /// Manage sandboxed development environments.
 #[derive(Debug, Parser)]
-// clap shows only brief help messages (the top line of comments) with `-h` and
-// longer messages with `--help`. This custom help message gives people some
-// hope of learning that distinction. See
-// <https://github.com/clap-rs/clap/issues/1015>.
-#[clap(help_message("Print help information. Use --help for more details"))]
 pub struct Args {
     /// Path to configuration file.
-    #[clap(
+    #[arg(
         short,
         long,
         default_value_t = default_config_path(),
@@ -38,7 +33,7 @@ pub struct Args {
     )]
     config: PathWithVarExpansion,
 
-    #[clap(subcommand)]
+    #[command(subcommand)]
     command: Commands,
 }
 
@@ -60,14 +55,11 @@ enum Commands {
     /// detailed instructions, see:
     ///
     ///   $ rustup help completions
-    #[clap(arg_required_else_help(true))]
-    Completions {
-        #[clap(value_parser)]
-        shell: Shell,
-    },
+    #[command(arg_required_else_help(true))]
+    Completions { shell: Shell },
 
     /// Run a shell in an existing environment.
-    #[clap(arg_required_else_help(true))]
+    #[command(arg_required_else_help(true))]
     Enter {
         /// Environment name.
         ///
@@ -77,7 +69,7 @@ enum Commands {
     },
 
     /// Run a command in an existing environment.
-    #[clap(arg_required_else_help(true))]
+    #[command(arg_required_else_help(true))]
     Exec {
         /// Environment name.
         ///
@@ -85,26 +77,26 @@ enum Commands {
         /// matches zero or more characters.
         name: EnvironmentPattern,
         /// Command and arguments to run.
-        #[clap(last = true, required(true))]
+        #[arg(last = true, required(true))]
         command: Vec<String>,
     },
 
     /// Show existing environments.
     List {
         /// Set output format.
-        #[clap(long, value_enum, default_value_t)]
+        #[arg(long, value_enum, default_value_t)]
         format: ListFormat,
     },
 
     /// View and manage packages.
-    #[clap(subcommand)]
+    #[command(subcommand)]
     Package(PackageCommands),
 
     /// Create a new environment.
-    #[clap(arg_required_else_help(true))]
+    #[command(arg_required_else_help(true))]
     New {
         /// Run a shell in new environment.
-        #[clap(long)]
+        #[arg(long)]
         enter: bool,
         /// Comma-separated names of packages to inject into home directory.
         ///
@@ -112,25 +104,25 @@ enum Commands {
         ///
         /// Wildcards are allowed: `?` matches a single character and `*`
         /// matches zero or more characters.
-        #[clap(long, use_value_delimiter(true))]
+        #[arg(long, value_delimiter = ',')]
         packages: Option<Vec<String>>,
         /// New environment name.
         name: EnvironmentName,
     },
 
     /// Delete environment(s) and their work directories.
-    #[clap(arg_required_else_help(true))]
+    #[command(arg_required_else_help(true))]
     Purge {
         /// Environment name(s).
         ///
         /// Wildcards are allowed: `?` matches a single character and `*`
         /// matches zero or more characters.
-        #[clap(required(true))]
+        #[arg(required(true))]
         names: Vec<EnvironmentPattern>,
     },
 
     /// Recreate an environment (keeping only its work directory).
-    #[clap(arg_required_else_help(true))]
+    #[command(arg_required_else_help(true))]
     Reset {
         /// Comma-separated names of packages to inject into home directory.
         ///
@@ -140,13 +132,13 @@ enum Commands {
         ///
         /// Wildcards are allowed: `?` matches a single character and `*`
         /// matches zero or more characters.
-        #[clap(long, use_value_delimiter(true))]
+        #[arg(long, value_delimiter = ',')]
         packages: Option<Vec<String>>,
         /// Environment name(s).
         ///
         /// Wildcards are allowed: `?` matches a single character and `*`
         /// matches zero or more characters.
-        #[clap(required(true))]
+        #[arg(required(true))]
         names: Vec<EnvironmentPattern>,
     },
 
@@ -158,41 +150,42 @@ enum Commands {
         ///
         /// Wildcards are allowed: `?` matches a single character and `*`
         /// matches zero or more characters.
-        #[clap(long, use_value_delimiter(true))]
+        #[arg(long, value_delimiter = ',')]
         packages: Option<Vec<String>>,
     },
 }
 
+/// View and manage packages.
 #[derive(Debug, Subcommand)]
 enum PackageCommands {
     /// Show available packages.
     List {
         /// Set output format.
-        #[clap(long, value_enum, default_value_t)]
+        #[arg(long, value_enum, default_value_t)]
         format: ListPackagesFormat,
     },
 
     /// (Re-)build one or more packages.
-    #[clap(arg_required_else_help(true))]
+    #[command(arg_required_else_help(true))]
     Update {
         /// Clear out existing build environment first.
         ///
         /// This flag only applies to the named PACKAGES, not their
         /// dependencies.
-        #[clap(long)]
+        #[arg(long)]
         clean: bool,
         /// Build dependencies only if required.
         ///
         /// By default, this command will re-build dependencies if they are
         /// stale. With this flag, it will only build dependencies if they are
         /// strictly needed because have never been built successfully before.
-        #[clap(long)]
+        #[arg(long)]
         skip_deps: bool,
         /// Package name(s).
         ///
         /// Wildcards are allowed: `?` matches a single character and `*`
         /// matches zero or more characters.
-        #[clap(required(true))]
+        #[arg(required(true))]
         packages: Vec<String>,
     },
 }
@@ -231,7 +224,7 @@ impl Args {
 /// After that, I tried to only substitute in "$HOME" during Display but never
 /// expand "$HOME". This didn't work either because clap always converts the
 /// default value to a string, then parses that string.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct PathWithVarExpansion(PathBuf);
 
 impl PathWithVarExpansion {
@@ -483,7 +476,7 @@ fn run_package_command(command: PackageCommands, program: &Cubicle) -> Result<()
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct GlobPattern {
     str: String,
     pattern: Option<WildMatch>,
@@ -507,7 +500,7 @@ impl GlobPattern {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct EnvironmentPattern(GlobPattern);
 
 impl Display for EnvironmentPattern {
@@ -588,6 +581,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
     use insta::{assert_debug_snapshot, assert_display_snapshot, assert_snapshot};
 
     #[test]
@@ -731,7 +725,10 @@ mod tests {
             "tmp",
         ] {
             let split_cmd = shlex::split(&format!("cub {cmd} --help")).unwrap();
-            let err = Args::try_parse_from(split_cmd).unwrap_err();
+            let err = Args::command()
+                .term_width(100)
+                .try_get_matches_from(split_cmd)
+                .unwrap_err();
             let name = format!("usage_{}", if cmd.is_empty() { "cub" } else { cmd });
             assert_display_snapshot!(name, err);
         }

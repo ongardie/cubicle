@@ -23,7 +23,7 @@ use std::str::FromStr;
 #[derive(Parser)]
 struct Args {
     /// Path to configuration file.
-    #[clap(short, long, required(true), value_hint(clap::ValueHint::FilePath))]
+    #[arg(short, long, required(true), value_hint(clap::ValueHint::FilePath))]
     config: PathBuf,
 }
 

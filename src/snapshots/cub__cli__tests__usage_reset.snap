@@ -2,29 +2,27 @@
 source: src/cli.rs
 expression: err
 ---
-cub-reset 
 Recreate an environment (keeping only its work directory)
 
-USAGE:
-    cub reset [OPTIONS] <NAMES>...
+Usage: cub reset [OPTIONS] <NAMES>...
 
-ARGS:
-    <NAMES>...
-            Environment name(s).
-            
-            Wildcards are allowed: `?` matches a single character and `*` matches zero or more
-            characters.
+Arguments:
+  <NAMES>...
+          Environment name(s).
+          
+          Wildcards are allowed: `?` matches a single character and `*` matches zero or more
+          characters.
 
-OPTIONS:
-    -h, --help
-            Print help information. Use --help for more details
+Options:
+      --packages <PACKAGES>
+          Comma-separated names of packages to inject into home directory.
+          
+          If omitted, uses the packages from the `package.txt` file in the environment's work
+          directory. This is automatically written when the environment is created or reset.
+          
+          Wildcards are allowed: `?` matches a single character and `*` matches zero or more
+          characters.
 
-        --packages <PACKAGES>
-            Comma-separated names of packages to inject into home directory.
-            
-            If omitted, uses the packages from the `package.txt` file in the environment's work
-            directory. This is automatically written when the environment is created or reset.
-            
-            Wildcards are allowed: `?` matches a single character and `*` matches zero or more
-            characters.
+  -h, --help
+          Print help information (use `-h` for a summary)
 

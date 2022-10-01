@@ -2,25 +2,23 @@
 source: src/cli.rs
 expression: err
 ---
-cubicle 
 Manage sandboxed development environments
 
-USAGE:
-    cub [OPTIONS] <SUBCOMMAND>
+Usage: cub [OPTIONS] <COMMAND>
 
-OPTIONS:
-    -c, --config <CONFIG>    Path to configuration file [default: $HOME/.config/cubicle.toml]
-    -h, --help               Print help information. Use --help for more details
+Commands:
+  completions  Generate tab-completions for your shell
+  enter        Run a shell in an existing environment
+  exec         Run a command in an existing environment
+  list         Show existing environments
+  package      View and manage packages
+  new          Create a new environment
+  purge        Delete environment(s) and their work directories
+  reset        Recreate an environment (keeping only its work directory)
+  tmp          Create and enter a new temporary environment
+  help         Print this message or the help of the given subcommand(s)
 
-SUBCOMMANDS:
-    completions    Generate tab-completions for your shell
-    enter          Run a shell in an existing environment
-    exec           Run a command in an existing environment
-    help           Print this message or the help of the given subcommand(s)
-    list           Show existing environments
-    new            Create a new environment
-    package        View and manage packages
-    purge          Delete environment(s) and their work directories
-    reset          Recreate an environment (keeping only its work directory)
-    tmp            Create and enter a new temporary environment
+Options:
+  -c, --config <CONFIG>  Path to configuration file [default: $HOME/.config/cubicle.toml]
+  -h, --help             Print help information
 

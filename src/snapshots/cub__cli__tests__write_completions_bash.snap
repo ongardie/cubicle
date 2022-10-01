@@ -12,42 +12,93 @@ _cub() {
 
     for i in ${COMP_WORDS[@]}
     do
-        case "${i}" in
-            "$1")
+        case "${cmd},${i}" in
+            ",$1")
                 cmd="cub"
                 ;;
-            completions)
-                cmd+="__completions"
+            cubicle,completions)
+                cmd="cubicle__completions"
                 ;;
-            enter)
-                cmd+="__enter"
+            cubicle,enter)
+                cmd="cubicle__enter"
                 ;;
-            exec)
-                cmd+="__exec"
+            cubicle,exec)
+                cmd="cubicle__exec"
                 ;;
-            help)
-                cmd+="__help"
+            cubicle,help)
+                cmd="cubicle__help"
                 ;;
-            list)
-                cmd+="__list"
+            cubicle,list)
+                cmd="cubicle__list"
                 ;;
-            new)
-                cmd+="__new"
+            cubicle,new)
+                cmd="cubicle__new"
                 ;;
-            package)
-                cmd+="__package"
+            cubicle,package)
+                cmd="cubicle__package"
                 ;;
-            purge)
-                cmd+="__purge"
+            cubicle,purge)
+                cmd="cubicle__purge"
                 ;;
-            reset)
-                cmd+="__reset"
+            cubicle,reset)
+                cmd="cubicle__reset"
                 ;;
-            tmp)
-                cmd+="__tmp"
+            cubicle,tmp)
+                cmd="cubicle__tmp"
                 ;;
-            update)
-                cmd+="__update"
+            cubicle__help,completions)
+                cmd="cubicle__help__completions"
+                ;;
+            cubicle__help,enter)
+                cmd="cubicle__help__enter"
+                ;;
+            cubicle__help,exec)
+                cmd="cubicle__help__exec"
+                ;;
+            cubicle__help,help)
+                cmd="cubicle__help__help"
+                ;;
+            cubicle__help,list)
+                cmd="cubicle__help__list"
+                ;;
+            cubicle__help,new)
+                cmd="cubicle__help__new"
+                ;;
+            cubicle__help,package)
+                cmd="cubicle__help__package"
+                ;;
+            cubicle__help,purge)
+                cmd="cubicle__help__purge"
+                ;;
+            cubicle__help,reset)
+                cmd="cubicle__help__reset"
+                ;;
+            cubicle__help,tmp)
+                cmd="cubicle__help__tmp"
+                ;;
+            cubicle__help__package,list)
+                cmd="cubicle__help__package__list"
+                ;;
+            cubicle__help__package,update)
+                cmd="cubicle__help__package__update"
+                ;;
+            cubicle__package,help)
+                cmd="cubicle__package__help"
+                ;;
+            cubicle__package,list)
+                cmd="cubicle__package__list"
+                ;;
+            cubicle__package,update)
+                cmd="cubicle__package__update"
+                ;;
+            cubicle__package__help,help)
+                cmd="cubicle__package__help__help"
+                ;;
+            cubicle__package__help,list)
+                cmd="cubicle__package__help__list"
+                ;;
+            cubicle__package__help,update)
+                cmd="cubicle__package__help__update"
                 ;;
             *)
                 ;;
@@ -120,8 +171,176 @@ _cub() {
             return 0
             ;;
         cub__help)
-            opts="-h --help <SUBCOMMAND>..."
+            opts="completions enter exec list package new purge reset tmp help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__completions)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__enter)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__exec)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__new)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__package)
+            opts="list update"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__package__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__package__update)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__purge)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__reset)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__help__tmp)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -184,8 +403,50 @@ _cub() {
             return 0
             ;;
         cub__package__help)
-            opts="-h --help <SUBCOMMAND>..."
+            opts="list update help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__package__help__help)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__package__help__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        cub__package__help__update)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi

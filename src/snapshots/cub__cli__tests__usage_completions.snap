@@ -2,7 +2,6 @@
 source: src/cli.rs
 expression: err
 ---
-cub-completions 
 Generate tab-completions for your shell.
 
 Installation for Bash:
@@ -19,14 +18,13 @@ This installation works similarly as for rustup's completions. For detailed inst
 
 $ rustup help completions
 
-USAGE:
-    cub completions <SHELL>
+Usage: cub completions <SHELL>
 
-ARGS:
-    <SHELL>
-            [possible values: bash, elvish, fish, powershell, zsh]
+Arguments:
+  <SHELL>
+          [possible values: bash, elvish, fish, powershell, zsh]
 
-OPTIONS:
-    -h, --help
-            Print help information. Use --help for more details
+Options:
+  -h, --help
+          Print help information (use `-h` for a summary)
 
