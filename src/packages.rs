@@ -642,7 +642,7 @@ impl Cubicle {
             debian_packages.extend(debian.keys().cloned());
         }
 
-        let mut seeds = self.packages_to_seeds(&packages)?;
+        let mut seeds = self.packages_to_seeds(&packages, specs)?;
 
         let tar_file = NamedTempFile::new().todo_context()?;
         create_tar_from_dir(
@@ -716,7 +716,7 @@ impl Cubicle {
             })
             .collect();
 
-        let mut seeds = self.packages_to_seeds(&packages)?;
+        let mut seeds = self.packages_to_seeds(&packages, specs)?;
         seeds.push(testing_tar.clone());
 
         let mut debian_packages = self.resolve_debian_packages(&packages, specs)?;
@@ -943,10 +943,10 @@ impl Cubicle {
     pub(super) fn packages_to_seeds(
         &self,
         packages: &BTreeSet<FullPackageName>,
+        specs: &PackageSpecs,
     ) -> Result<Vec<HostPath>> {
         let mut seeds = Vec::with_capacity(packages.len());
-        let specs = self.scan_packages()?;
-        let deps = transitive_depends(packages, &specs, BuildDepends(false))?;
+        let deps = transitive_depends(packages, specs, BuildDepends(false))?;
         for name in deps {
             let provides = self.package_tar(&name);
             if try_exists(&provides).todo_context()? {
