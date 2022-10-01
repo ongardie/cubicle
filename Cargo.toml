@@ -21,8 +21,8 @@ path = "src/main.rs"
 anyhow = { version = "1.0.60", features = ["backtrace"] }
 atty = "0.2.14"
 cap-std = "0.25.2"
-clap = { version = "3.2.16", features = ["derive"] }
-clap_complete = "3.2.4"
+clap = { version = "4.0.7", features = ["derive", "wrap_help"] }
+clap_complete = "4.0.2"
 indoc = "1.0.7"
 # this is a dev-dependency but needed in `system_test` bin
 insta = "1.18.2"

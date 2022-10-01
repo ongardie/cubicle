@@ -221,8 +221,7 @@ jobs:
     - name: Unpack build artifact
       run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
     - name: Run cub list
-      run: ./target/debug/cub --config 'src/bin/system_test/github/bubblewrap.toml'
-        list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/bubblewrap.toml' list
       env:
         RUST_BACKTRACE: '1'
     - name: Run system test
@@ -268,8 +267,7 @@ jobs:
     - name: Unpack build artifact
       run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
     - name: Run cub list
-      run: ./target/debug/cub --config 'src/bin/system_test/github/docker-bind.toml'
-        list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/docker-bind.toml' list
       env:
         RUST_BACKTRACE: '1'
     - name: Run system test
