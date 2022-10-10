@@ -1,0 +1,7 @@
+.config/profile.d/70-opam.sh
+.config/profile.d/path/37-opam
+.local/share/bash-completion/completions/opam
+.opam/
+.zfunc/_opam
+.zfunc/_opam
+bin/opam
