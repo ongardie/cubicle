@@ -1,2 +1,5 @@
 .dev-init/mold-init.sh
+bin/ld.mold
+bin/ld64.mold
 bin/mold
+opt/mold/

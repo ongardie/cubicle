@@ -114,7 +114,7 @@ values of `{}`. Third-party dependencies are given by the Cubicle namespace as
 the key and values that map from package names in the third-party namespace to
 `{}`.
 
-For example, the `cargo-script` package needs both Rust and the `cargo-script`
+For example, the `rust-script` package needs both Rust and the `rust-script`
 binary from `crates-io`. It lists dependencies like this:
 
 ```toml
@@ -122,7 +122,7 @@ binary from `crates-io`. It lists dependencies like this:
 rust = {}
 
 [depends.crates-io]
-cargo-script = {}
+rust-script = {}
 ```
 
 ### `package_manager`
