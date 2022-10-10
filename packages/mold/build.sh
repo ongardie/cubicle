@@ -1,28 +1,28 @@
 #!/bin/sh
-set -ex
+set -eux
 
-mkdir -p ~/opt
-cd ~/opt
+echo "Checking latest version of mold on GitHub"
+RELEASES=mold-releases.json
+curl -sS 'https://api.github.com/repos/rui314/mold/releases' > $RELEASES
 
-if [ -d mold ]; then
-    cd mold
-    git fetch --all
-else
-    git clone https://github.com/rui314/mold.git
-    cd mold
+machine=$(uname -m)
+download=$(cat $RELEASES | jq -r 'map(select(.prerelease == false)) | .[0].assets | map(.browser_download_url | select(test("/mold-.*-'"$machine"'-linux\\.tar\\.gz$")))[0]')
+tarball=$(basename "$download")
+
+if [ -z "$download" ] || [ "$download" = "null" ]; then
+    exit 1
 fi
 
-TAG=$(git tag | grep -E 'v1.[0-9]+.[0-9]+' | sort --version-sort | tail -n 1)
-git checkout $TAG
+if ! [ -f "$tarball" ]; then
+    curl -LO "$download"
+fi
 
-mkdir -p build
-cd build
+mkdir -p ~/opt/mold
+tar -C ~/opt/mold --extract --strip-components=1 --file "$tarball"
 
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=c++ ..
-cmake --build . -j $(nproc)
-
-cp mold ~/bin/mold
-mold --version
+ln -fs ../opt/mold/bin/mold ~/bin/
+ln -fs ../opt/mold/bin/ld.mold ~/bin/
+ln -fs ../opt/mold/bin/ld64.mold ~/bin/
 
 mkdir -p ~/.dev-init
 cp -a ~/w/mold-init.sh ~/.dev-init/
