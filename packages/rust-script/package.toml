@@ -2,4 +2,4 @@
 rust = {}
 
 [depends.crates-io]
-cargo-script = {}
+rust-script = {}
