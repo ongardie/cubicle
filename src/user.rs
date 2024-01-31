@@ -353,7 +353,7 @@ impl User {
                 command.arg("-c");
                 command.arg(format!(
                     "cd w && {}",
-                    shlex::join(exec.iter().map(|a| a.as_str()))
+                    shlex::try_join(exec.iter().map(|a| a.as_str())).expect("TODO")
                 ));
             }
         }

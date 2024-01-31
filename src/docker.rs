@@ -691,7 +691,7 @@ impl Docker {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
-                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
+                command.arg(shlex::try_join(exec.iter().map(|a| a.as_str())).expect("TODO"));
             }
         }
 
@@ -1028,10 +1028,10 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
     let packages: Vec<String> = args
         .packages
         .iter()
-        .map(|p| shlex::quote(p).into_owned())
+        .map(|p| shlex::try_quote(p).expect("TODO").into_owned())
         .collect();
-    let timezone = shlex::quote(args.timezone);
-    let user = shlex::quote(args.user);
+    let timezone = shlex::try_quote(args.timezone).expect("TODO");
+    let user = shlex::try_quote(args.user).expect("TODO");
     let has_apt_file = args.packages.contains("apt-file");
     let has_sudo = args.packages.contains("sudo");
     let uid = args.uids.real_user;

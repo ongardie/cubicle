@@ -243,7 +243,7 @@ impl Bubblewrap {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
-                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
+                command.arg(shlex::try_join(exec.iter().map(|a| a.as_str())).expect("TODO"));
             }
         }
 
