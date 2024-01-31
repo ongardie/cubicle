@@ -320,7 +320,7 @@ impl Docker {
             }
         }
 
-        command.arg("--workdir").arg(&container_work.as_env_raw());
+        command.arg("--workdir").arg(container_work.as_env_raw());
         command.arg(self.base_image.encoded());
         command.args(["sleep", "90d"]);
         command.stdout(Stdio::null());
@@ -668,7 +668,7 @@ impl Docker {
         match run_command {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { env_vars, .. } => {
-                for (var, value) in env_vars.iter() {
+                for (var, value) in *env_vars {
                     command.arg("--env").arg(format!("{}={}", var, value));
                 }
             }
@@ -980,7 +980,7 @@ fn fallback_path(container_home: &EnvPath) -> OsString {
         Path::new("/usr/bin"),
         Path::new("/usr/sbin"),
     ];
-    let joined = match std::env::join_paths(&paths)
+    let joined = match std::env::join_paths(paths)
         .with_context(|| format!("unable to add container home dir ({container_home:?}) to $PATH"))
     {
         Ok(joined) => joined,

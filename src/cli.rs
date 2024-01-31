@@ -229,7 +229,7 @@ struct PathWithVarExpansion(PathBuf);
 impl PathWithVarExpansion {
     /// Helper for Display. Split out for unit testing.
     fn sub_home_prefix(&self, home: &Path) -> String {
-        if let Ok(rest) = self.0.strip_prefix(&home) {
+        if let Ok(rest) = self.0.strip_prefix(home) {
             format!("$HOME{}{}", std::path::MAIN_SEPARATOR, rest.display())
         } else {
             format!("{}", self.0.display())
@@ -353,6 +353,7 @@ fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
                     }
                     r#"_cub "$@""# => {
                         counts[4] += 1;
+                        #[allow(clippy::write_literal)]
                         writeln!(
                             out,
                             "{}",

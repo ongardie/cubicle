@@ -337,7 +337,7 @@ impl User {
         match run_command {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { env_vars, .. } => {
-                for (var, value) in env_vars.iter() {
+                for (var, value) in *env_vars {
                     command.env(var, value).arg(format!("--preserve-env={var}"));
                 }
             }
@@ -474,7 +474,7 @@ impl Runner for User {
         let username = self.username_from_environment(env_name);
         self.kill_username(&username)?;
 
-        std::fs::create_dir_all(&self.work_tars.as_host_raw()).todo_context()?;
+        std::fs::create_dir_all(self.work_tars.as_host_raw()).todo_context()?;
         let work_tar = self.work_tars.join(
             FilenameEncoder::new()
                 .push(env_name.as_str())
@@ -509,7 +509,7 @@ impl Runner for User {
                 let mut f = std::fs::OpenOptions::new()
                     .create_new(true)
                     .write(true)
-                    .open(&work_tar.as_host_raw())
+                    .open(work_tar.as_host_raw())
                     .with_context(|| format!("failed to open {work_tar} for writing"))?;
                 io::copy(&mut stdout, &mut f).context("failed to copy data")?;
                 f.flush().context("failed to flush data")?;

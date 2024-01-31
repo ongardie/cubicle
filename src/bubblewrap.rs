@@ -187,7 +187,7 @@ impl Bubblewrap {
         match run {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { env_vars, .. } => {
-                for (var, value) in env_vars.iter() {
+                for (var, value) in *env_vars {
                     command.env(var, value);
                 }
             }
@@ -202,7 +202,7 @@ impl Bubblewrap {
         command.args(["--symlink", "/usr/bin", "/bin"]);
         command.args(["--dev", "/dev"]);
 
-        for (host_path, env_path) in bind.iter() {
+        for (host_path, env_path) in bind {
             command
                 .arg("--ro-bind-try")
                 .arg(host_path.as_host_raw())
@@ -276,7 +276,7 @@ where
     // This is pretty ugly, but it's how bwrap likes it.
     let mut flags = rustix::fs::fcntl_getfd(file)?;
     flags.remove(rustix::fs::FdFlags::CLOEXEC);
-    rustix::fs::fcntl_setfd(&file, flags)?;
+    rustix::fs::fcntl_setfd(file, flags)?;
     Ok(file.as_raw_fd().to_string())
 }
 
@@ -293,7 +293,7 @@ impl Runner for Bubblewrap {
     ) -> Result<()> {
         let Dirs { host_home, .. } = self.dirs(name);
         let home_dir = cap_std::fs::Dir::open_ambient_dir(
-            &host_home.as_host_raw(),
+            host_home.as_host_raw(),
             cap_std::ambient_authority(),
         )
         .todo_context()?;
@@ -310,7 +310,7 @@ impl Runner for Bubblewrap {
     ) -> Result<()> {
         let Dirs { host_work, .. } = self.dirs(name);
         let work_dir = cap_std::fs::Dir::open_ambient_dir(
-            &host_work.as_host_raw(),
+            host_work.as_host_raw(),
             cap_std::ambient_authority(),
         )
         .todo_context()?;
@@ -324,8 +324,8 @@ impl Runner for Bubblewrap {
             host_home,
             host_work,
         } = self.dirs(name);
-        std::fs::create_dir_all(&host_home.as_host_raw()).todo_context()?;
-        std::fs::create_dir_all(&host_work.as_host_raw()).todo_context()?;
+        std::fs::create_dir_all(host_home.as_host_raw()).todo_context()?;
+        std::fs::create_dir_all(host_work.as_host_raw()).todo_context()?;
         self.init(name, init)
     }
 
