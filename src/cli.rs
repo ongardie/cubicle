@@ -6,7 +6,6 @@
 
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
-use std::borrow::Borrow;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug, Display};
 use std::io;
@@ -547,7 +546,7 @@ fn matching_environments(
     for pattern in patterns {
         let start = matched.len();
         matched.extend(drain_filter(&mut unmatched, |name| pattern.matches(name)));
-        if matched.len() == start && !matched.iter().any(|name| pattern.matches(name.borrow())) {
+        if matched.len() == start && !matched.iter().any(|name| pattern.matches(name)) {
             if pattern.0.is_pattern() {
                 warn(anyhow!(
                     "pattern {pattern} did not match any environment names"

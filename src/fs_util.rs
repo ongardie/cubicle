@@ -95,7 +95,7 @@ pub fn file_size(metadata: &std::fs::Metadata) -> Option<u64> {
 pub fn file_size_cap(metadata: &cap_std::fs::Metadata) -> Option<u64> {
     #[cfg(unix)]
     return {
-        use std::os::unix::fs::MetadataExt;
+        use cap_std::fs::MetadataExt;
         Some(metadata.size())
     };
     #[allow(unreachable_code)]
@@ -300,7 +300,7 @@ pub fn create_tar_from_dir<W: io::Write>(dir: &HostPath, w: W, opts: &TarOptions
             }
             #[cfg(unix)]
             {
-                use std::os::unix::fs::MetadataExt;
+                use cap_std::fs::MetadataExt;
                 let metadata = entry.metadata().todo_context()?;
                 let mut header = tar::Header::new_gnu();
                 header.set_mtime(metadata.mtime() as u64);
