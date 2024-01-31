@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
@@ -678,10 +678,7 @@ impl Docker {
 
         // If we really don't have a TTY, Docker will exit with status 1 when
         // we request one.
-        if atty::is(atty::Stream::Stdin)
-            || atty::is(atty::Stream::Stdout)
-            || atty::is(atty::Stream::Stderr)
-        {
+        if io::stdin().is_terminal() || io::stdout().is_terminal() || io::stderr().is_terminal() {
             command.arg("--tty");
         }
 
