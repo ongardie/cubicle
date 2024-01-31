@@ -470,7 +470,7 @@ impl Docker {
                 name.encoded()
             ))
             .arg("--rm")
-            .arg("debian:11")
+            .arg("debian:12")
             .arg("du")
             .arg("--block-size=1")
             .arg("--summarize")
@@ -574,7 +574,7 @@ impl Docker {
             ))
             .arg("--rm")
             .args(["--workdir", "/v"])
-            .arg("debian:11")
+            .arg("debian:12")
             .arg("cat")
             .arg(path)
             .stdout(Stdio::piped())
@@ -978,10 +978,8 @@ fn fallback_path(container_home: &EnvPath) -> OsString {
     let home_bin = container_home.join("bin");
     let paths = [
         home_bin.as_env_raw(),
-        // The debian:11 image hasn't gone through usrmerge, so
-        // /usr/bin and /bin are distinct there.
-        Path::new("/bin"),
-        Path::new("/sbin"),
+        // The debian:12 image has usrmerge, so /bin and /sbin are symlinks and
+        // do not need to be included.
         Path::new("/usr/bin"),
         Path::new("/usr/sbin"),
     ];
@@ -1000,6 +998,7 @@ fn fallback_path(container_home: &EnvPath) -> OsString {
 /// Debian packages that many packages might depend on for basic functionality.
 /// They are installed in the CI system.
 const BASE_PACKAGES: &[&str] = &[
+    "apt-utils", // Silences a warning from apt about package configuration.
     "bzip2",
     "ca-certificates",
     "curl",
@@ -1043,8 +1042,8 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
     std::mem::drop(args);
 
     // Note: If we wanted to trim this down even more for CI, we might be able
-    // to use the '11-slim' base image here.
-    writeln!(w, "FROM debian:11")?;
+    // to use the '12-slim' base image here.
+    writeln!(w, "FROM debian:12")?;
 
     // Set time zone.
     writeln!(w, "RUN echo {timezone} > /etc/timezone && \\")?;
@@ -1083,7 +1082,7 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
     // Configure and Update apt.
     writeln!(
         w,
-        r#"RUN sed -i 's/ main$/ main contrib non-free/' /etc/apt/sources.list"#
+        r#"RUN sed -i 's/^Components: main$/Components: main contrib non-free/' /etc/apt/sources.list.d/debian.sources"#
     )?;
     writeln!(w, "RUN apt-get update && apt-get upgrade --yes")?;
 
@@ -1127,11 +1126,11 @@ mod tests {
     fn fallback_path() {
         assert_snapshot!(
             super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/foo")).unwrap()).to_string_lossy(),
-            @"PATH=/home/foo/bin:/bin:/sbin:/usr/bin:/usr/sbin"
+            @"PATH=/home/foo/bin:/usr/bin:/usr/sbin"
         );
         assert_snapshot!(
             super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/fo:oo")).unwrap()).to_string_lossy(),
-            @"PATH=/bin:/sbin:/usr/bin:/usr/sbin"
+            @"PATH=/usr/bin:/usr/sbin"
         );
     }
 

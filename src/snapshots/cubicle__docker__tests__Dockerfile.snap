@@ -2,7 +2,7 @@
 source: src/docker.rs
 expression: dockerfile
 ---
-FROM debian:11
+FROM debian:12
 RUN echo "Etc/Timez'one" > /etc/timezone && \
     ln -fs '/usr/share/zoneinfo/'"Etc/Timez'one" /etc/localtime
 RUN addgroup --gid 7331 "h#x*r" || addgroup "h#x*r" && \
@@ -10,7 +10,7 @@ RUN addgroup --gid 7331 "h#x*r" || addgroup "h#x*r" && \
     adduser "h#x*r" sudo && \
     mkdir /home/"h#x*r"/w && \
     chown "h#x*r":"h#x*r" /home/"h#x*r"/w
-RUN sed -i 's/ main$/ main contrib non-free/' /etc/apt/sources.list
+RUN sed -i 's/^Components: main$/Components: main contrib non-free/' /etc/apt/sources.list.d/debian.sources
 RUN apt-get update && apt-get upgrade --yes
 RUN apt-get install --no-install-recommends --yes \
     apt-file \

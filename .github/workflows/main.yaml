@@ -190,7 +190,7 @@ jobs:
         eval "$(docker-machine env default)" && \
         env | grep DOCKER >> $GITHUB_ENV
     - name: Docker hello world
-      run: docker run --rm debian:11 echo 'Hello world'
+      run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:
@@ -236,7 +236,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
     - name: Docker hello world
-      run: docker run --rm debian:11 echo 'Hello world'
+      run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:
@@ -259,7 +259,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
     - name: Docker hello world
-      run: docker run --rm debian:11 echo 'Hello world'
+      run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:

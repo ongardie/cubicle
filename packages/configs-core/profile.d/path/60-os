@@ -1,4 +1,4 @@
+# The paths `/sbin` and `/bin` aren't needed, since they're symlinks (after
+# usrmerge in Debian 12).
 /usr/sbin
 /usr/bin
-/sbin
-/bin

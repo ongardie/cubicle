@@ -546,7 +546,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
             steps.push(Step {
                 name: s("Docker hello world"),
                 details: Run {
-                    run: s("docker run --rm debian:11 echo 'Hello world'"),
+                    run: s("docker run --rm debian:12 echo 'Hello world'"),
                 },
                 env: dict! {},
             });

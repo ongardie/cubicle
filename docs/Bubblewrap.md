@@ -54,7 +54,7 @@ This [short C
 program](https://github.com/bradfa/tlpi-dist/blob/master/seccomp/dump_seccomp_filter.c)
 can dump a compiled BFP seccomp filter that is installed in a running process.
 It uses
-[`PTRACE_SECCOMP_GET_FILTER`](https://manpages.debian.org/bullseye/manpages-dev/ptrace.2.en.html#PTRACE_SECCOMP_GET_FILTER)
+[`PTRACE_SECCOMP_GET_FILTER`](https://manpages.debian.org/bookworm/manpages-dev/ptrace.2.en.html#PTRACE_SECCOMP_GET_FILTER)
 to do this. Extracting a filter this way can be easier than trying to compile a
 BPF filter from the above source code.
 
@@ -66,7 +66,7 @@ shell scripts for package setup that run in containers.
 ### Installing Dependencies
 
 You'll need [Rust and Cargo](https://www.rust-lang.org/tools/install). The
-version in Debian 11 is too old.
+version in Debian 12 may be too old.
 
 Install the other dependencies:
 
@@ -78,7 +78,7 @@ Install the other dependencies:
 - `jq` - command-line JSON processor.
 - `pv` - pipe viewer, displays progress bars.
 
-On Debian 11, you can install the dependencies using `apt`:
+On Debian 12, you can install the dependencies using `apt`:
 
 ```sh
 sudo apt install bubblewrap curl git jq pv

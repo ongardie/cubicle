@@ -81,7 +81,7 @@ fn try_get_timezone() -> Option<String> {
 /// Returns the name of a time zone from a filesystem path inside a timezone
 /// database directory.
 fn timezone_from_localtime_target(path: &Path) -> Option<String> {
-    // Debian 11 has its timezone db at '/usr/share/zoneinfo/'.
+    // Debian 12 has its timezone db at '/usr/share/zoneinfo/'.
     // Mac OS 12 has its timezone db at '/var/db/timezone/zoneinfo/'.
     let mut iter = path.iter();
     loop {
