@@ -442,7 +442,23 @@ impl Docker {
         let status = output.status;
         if !status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            if status.code() == Some(1) && stderr.starts_with("Error: No such volume") {
+            // Errors for missing volume on Debian 12 with docker.io
+            // 20.10.24+dfsg1 are like:
+            //
+            // ```
+            // [blank line]
+            // Error: No such volume: [name]
+            // ```
+            //
+            // However, on ubuntu-20.04 and macos-12 in CI, they're like:
+            //
+            // ```
+            // Error response from daemon: get NAME: no such volume
+            // ```
+            if status.code() == Some(1)
+                && (stderr.starts_with("Error: No such volume")
+                    || stderr.ends_with(": no such volume"))
+            {
                 return Ok(None);
             }
             return Err(anyhow!(
