@@ -223,6 +223,8 @@ impl Display for Os {
 enum Action {
     Checkout,
     Cache,
+    CacheRestore,
+    CacheSave,
     Cargo,
     DownloadArtifact,
     RustToolchain,
@@ -235,6 +237,8 @@ impl Action {
         match self {
             Checkout => "actions/checkout@v2",
             Cache => "actions/cache@v3",
+            CacheRestore => "actions/cache/restore@v3",
+            CacheSave => "actions/cache/save@v3",
             Cargo => "actions-rs/cargo@v1",
             DownloadArtifact => "actions/download-artifact@v3",
             RustToolchain => "actions-rs/toolchain@v1",
@@ -540,7 +544,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
 
         Runner::Docker | Runner::DockerBind => {
             if os == Os::Mac {
-                steps.extend(docker_mac_install_steps());
+                steps.extend(docker_mac_install_steps(os));
             }
 
             steps.push(Step {
@@ -616,7 +620,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
 
 // Docker isn't installed on the Mac runners due to licensing issues:
 // see <https://github.com/actions/runner-images/issues/2150>.
-fn docker_mac_install_steps() -> Vec<Step> {
+fn docker_mac_install_steps(os: Os) -> Vec<Step> {
     let print_homebrew_info = || Step {
         name: s("Print homebrew info"),
         details: Run {
@@ -628,7 +632,21 @@ fn docker_mac_install_steps() -> Vec<Step> {
         },
         env: dict! {},
     };
+    let homebrew_cache_path = "~/Library/Caches/Homebrew/";
+    let homebrew_cache_key = format!("homebrew-{os}");
     vec![
+        print_homebrew_info(),
+        Step {
+            name: s("Restore Homebrew cache"),
+            details: Uses {
+                uses: Action::CacheRestore,
+                with: dict! {
+                    "path" => homebrew_cache_path,
+                    "key" => homebrew_cache_key,
+                },
+            },
+            env: dict! {},
+        },
         print_homebrew_info(),
         Step {
             name: s("Install Docker"),
@@ -646,6 +664,18 @@ fn docker_mac_install_steps() -> Vec<Step> {
             env: dict! {},
         },
         print_homebrew_info(),
+        // Save the cache early in case a later step fails.
+        Step {
+            name: s("Save Homebrew cache"),
+            details: Uses {
+                uses: Action::CacheSave,
+                with: dict! {
+                    "path" => homebrew_cache_path,
+                    "key" => homebrew_cache_key,
+                },
+            },
+            env: dict! {},
+        },
         Step {
             name: s("Start Colima"),
             details: Run {
