@@ -1,6 +1,6 @@
-use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use std::str::FromStr;
+use std::sync::OnceLock;
 
 use crate::command_ext::Command;
 use crate::somehow::{somehow as anyhow, warn, Context, Result};
@@ -54,15 +54,16 @@ pub fn simulate_satisfy(deps: &[&str]) -> Result<Summary> {
     let stdout = String::from_utf8(output.stdout)
         .context("failed to read `apt-get satisfy --dry-run ...` output")?;
 
-    lazy_static! {
-        static ref RE: Regex = RegexBuilder::new(
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(||
+        RegexBuilder::new(
             r#"^([0-9]+) upgraded, ([0-9]+) newly installed, ([0-9]+) to remove and ([0-9]+) not upgraded.$"#
         )
         .multi_line(true)
         .build()
-        .unwrap();
-    }
-    match RE.captures(&stdout) {
+        .unwrap());
+
+    match re.captures(&stdout) {
         Some(caps) => {
             let count = |i| usize::from_str(caps.get(i).unwrap().as_str()).unwrap();
             Ok(Summary {

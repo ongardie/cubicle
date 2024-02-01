@@ -294,7 +294,6 @@ dependencies = [
  "clap_complete",
  "expect-test",
  "indoc",
- "lazy_static",
  "rand",
  "regex",
  "reqwest",

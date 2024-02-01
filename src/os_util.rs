@@ -1,7 +1,7 @@
-use lazy_static::lazy_static;
 use std::ffi::OsStr;
 use std::fmt::Write;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use super::HostPath;
 use crate::somehow::{somehow as anyhow, warn, Context, Error};
@@ -18,12 +18,10 @@ fn get_home_dir() -> HostPath {
     }
 }
 
-lazy_static! {
-    static ref HOME_DIR: HostPath = get_home_dir();
-}
+static HOME_DIR: OnceLock<HostPath> = OnceLock::new();
 
 pub fn host_home_dir() -> &'static HostPath {
-    &HOME_DIR
+    HOME_DIR.get_or_init(get_home_dir)
 }
 
 pub struct Uids {

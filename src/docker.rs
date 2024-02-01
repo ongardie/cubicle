@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
@@ -7,6 +6,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::OnceLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 use super::command_ext::Command;
@@ -510,13 +510,14 @@ impl Docker {
         let stdout = String::from_utf8(output.stdout)
             .context("failed to read `docker run ... -- du ...` output")?;
 
-        lazy_static! {
-            static ref RE: Regex =
-                RegexBuilder::new(r#"^(?P<size>[0-9]+)\t(?P<mtime>[0-9]+)\t/v$"#)
-                    .build()
-                    .unwrap();
-        }
-        match RE.captures(stdout.trim_end()) {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        let re = RE.get_or_init(|| {
+            RegexBuilder::new(r#"^(?P<size>[0-9]+)\t(?P<mtime>[0-9]+)\t/v$"#)
+                .build()
+                .unwrap()
+        });
+
+        match re.captures(stdout.trim_end()) {
             Some(caps) => {
                 let size = caps.name("size").unwrap().as_str();
                 let size = u64::from_str(size).unwrap();
