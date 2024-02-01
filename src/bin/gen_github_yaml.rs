@@ -646,10 +646,11 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
         Step {
             name: s("Install Colima"),
             details: Run {
-                // The `--overwite` flag is a workaround because this may
-                // install or upgrade openssl to version 3, which conflicts
-                // with version 1.1. They fight over the symlink
-                // `/usr/local/bin/openssl`.
+                // Currently, installing colima upgrades openssl from 3.2.0_1
+                // to 3.2.1.  Somehow, this conflicts with version 1.1,
+                // fighting over the symlink `/usr/local/bin/openssl`. To work
+                // around this, install openssl explicitly with the
+                // `--overwrite` flag.
                 run: s(indoc! {"
                     brew install --overwrite openssl@3
                     brew install colima
