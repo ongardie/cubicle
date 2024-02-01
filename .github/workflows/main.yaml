@@ -186,7 +186,7 @@ jobs:
     - name: Install Docker
       run: brew install docker
     - name: Install Colima
-      run: brew install colima --overwrite
+      run: brew install --overwrite colima
     - name: Save Homebrew cache
       uses: actions/cache/save@v3
       with:

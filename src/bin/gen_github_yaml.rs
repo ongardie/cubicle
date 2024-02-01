@@ -650,7 +650,7 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
                 // install or upgrade openssl to version 3, which conflicts
                 // with version 1.1. They fight over the symlink
                 // `/usr/local/bin/openssl`.
-                run: s("brew install colima --overwrite"),
+                run: s("brew install --overwrite colima"),
             },
             env: dict! {},
         },
