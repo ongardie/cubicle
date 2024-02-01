@@ -632,6 +632,7 @@ fn install_docker(os: Os) -> Vec<Step> {
     // Docker isn't installed on the Mac runners due to licensing issues:
     // see <https://github.com/actions/runner-images/issues/2150>.
     match os {
+        // This takes about 2 minutes to get through the Docker "Hello world".
         Os::Mac12 => vec![
             Step {
                 name: s("Install Docker"),
@@ -642,15 +643,16 @@ fn install_docker(os: Os) -> Vec<Step> {
             },
             Step {
                 name: s("Create VirtualBox VM for Docker"),
-                // Normally docker-machine would check for the latest boot2docker
-                // URL, but it gives the error: `Error with pre-create check:
-                // "failure getting a version tag from the Github API response (are
-                // you getting rate limited by Github?)"`. Its README says to pass
-                // `--github-api-token`, but that doesn't work due to
+                // Normally docker-machine would check for the latest
+                // boot2docker URL, but it gives the error: `Error with
+                // pre-create check: "failure getting a version tag from the
+                // Github API response (are you getting rate limited by
+                // Github?)"`. Its README says to pass `--github-api-token`,
+                // but that doesn't work due to
                 // <https://github.com/docker/machine/issues/2765> and
-                // <https://github.com/docker/machine/issues/2296>. This just sets
-                // a static URL. Because boot2docker is no longer maintained,
-                // there's no risk of a newer ISO being released.
+                // <https://github.com/docker/machine/issues/2296>. This just
+                // sets a static URL. Because boot2docker is no longer
+                // maintained, there's no risk of a newer ISO being released.
 
                 // Then, set a different IPv4 range to work around this error:
                 //
@@ -681,8 +683,14 @@ fn install_docker(os: Os) -> Vec<Step> {
             },
         ],
 
-        // This works, but it takes about 7 minutes to do the Docker "Hello
-        // world".
+        // This works, but it takes about 7 minutes to get through the Docker
+        // "Hello world".
+        //
+        // It doesn't seem like we can continue using the Mac OS 12 approach:
+        // - Virtualbox isn't installed and doesn't seem to work (with `brew
+        //   install virtualbox`) on the Mac OS 13 runners.
+        // - boot2docker is deprecated.
+        // - docker-machine is deprecated.
         Os::Mac13 => vec![
             Step {
                 name: s("Install Docker"),
@@ -730,7 +738,7 @@ fn install_docker(os: Os) -> Vec<Step> {
             },
         ],
 
-        Os::Ubuntu => vec![/* none */],
+        Os::Ubuntu => vec![/* works out of the box */],
     }
 }
 
