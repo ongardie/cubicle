@@ -194,15 +194,15 @@ enum Os {
 impl Os {
     fn as_str(&self) -> &'static str {
         match self {
-            Self::Ubuntu => "ubuntu-20.04",
-            Self::Mac => "macos-12",
+            Self::Ubuntu => "ubuntu-22.04",
+            Self::Mac => "macos-13",
         }
     }
 
     fn as_ident(&self) -> &'static str {
         match self {
-            Self::Ubuntu => "ubuntu-20-04",
-            Self::Mac => "macos-12",
+            Self::Ubuntu => "ubuntu-22-04",
+            Self::Mac => "macos-13",
         }
     }
 }
