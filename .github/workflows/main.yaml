@@ -11,44 +11,6 @@ on:
   - cron: 0 16 * * *
   workflow_dispatch: {}
 jobs:
-  build-macos-12-stable:
-    name: Build & check (macos-12, Rust stable)
-    runs-on: macos-12
-    steps:
-    - name: Check out sources
-      uses: actions/checkout@v4
-    - name: Install Rust stable toolchain
-      run: |
-        rustup toolchain install stable --profile minimal --component clippy,rustfmt
-        rustup default stable
-    - name: Use Rust/Cargo cache
-      uses: actions/cache@v4
-      with:
-        key: cargo-macos-12-stable-${{ hashFiles('Cargo.lock') }}
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git/
-          target/
-        restore-keys: cargo-macos-12-stable-
-    - name: Run cargo build
-      run: cargo build
-    - name: Run cargo test
-      run: cargo test
-      env:
-        RUST_BACKTRACE: '1'
-    - name: Save build artifact
-      run: |
-        tar -C .. --create --file debug-dist.tar.zst \
-            cubicle/packages/ \
-            cubicle/src/bin/system_test/github/ \
-            cubicle/target/debug/cub \
-            cubicle/target/debug/system_test
-    - name: Upload build artifact
-      uses: actions/upload-artifact@v4
-      with:
-        if-no-files-found: error
-        name: debug-dist-macos-12-stable
-        path: debug-dist.tar.zst
   build-macos-13-stable:
     name: Build & check (macos-13, Rust stable)
     runs-on: macos-13
@@ -175,33 +137,6 @@ jobs:
         if-no-files-found: error
         name: debug-dist-ubuntu-22.04-stable
         path: debug-dist.tar.zst
-  system_test-macos-12-docker:
-    name: System tests (macos-12, docker)
-    needs:
-    - build-macos-12-stable
-    runs-on: macos-12
-    steps:
-    - name: Install Docker
-      run: brew install docker
-    - name: Start Colima
-      run: colima start
-    - name: Docker hello world
-      run: docker run --rm debian:12 echo 'Hello world'
-    - name: Download build artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: debug-dist-macos-12-stable
-    - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
-    - name: Run cub list
-      run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
-      env:
-        RUST_BACKTRACE: '1'
-    - name: Run system test
-      run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
-      env:
-        INSTA_WORKSPACE_ROOT: .
-        RUST_BACKTRACE: '1'
   system_test-macos-13-docker:
     name: System tests (macos-13, docker)
     needs:

@@ -188,9 +188,10 @@ use StepDetails::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Os {
     Ubuntu,
-
-    // Use both Mac OS 12 and 13 for now. Both are slow at Docker. Race them
-    // for a while to find out which one is faster or more reliable.
+    // Both Mac versions are slow to run Docker. Despite having to install
+    // Colima, Mac OS 13 is more current and not much slower (relatively), so
+    // prefer it.
+    #[allow(unused)]
     Mac12,
     Mac13,
 }
@@ -333,12 +334,7 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
 
     jobs.extend([build_job(Os::Ubuntu, Rust::Nightly, RunOnceChecks(false))]);
 
-    let mac12_stable_key = {
-        let (key, job) = build_job(Os::Mac12, Rust::Stable, RunOnceChecks(false));
-        jobs.insert(key.clone(), job);
-        key
-    };
-    let mac13_stable_key = {
+    let mac_stable_key = {
         let (key, job) = build_job(Os::Mac13, Rust::Stable, RunOnceChecks(false));
         jobs.insert(key.clone(), job);
         key
@@ -357,8 +353,7 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
             vec![ubuntu_stable_key.clone()],
         ),
         system_test_job(Os::Ubuntu, Runner::User, vec![ubuntu_stable_key]),
-        system_test_job(Os::Mac12, Runner::Docker, vec![mac12_stable_key]),
-        system_test_job(Os::Mac13, Runner::Docker, vec![mac13_stable_key]),
+        system_test_job(Os::Mac13, Runner::Docker, vec![mac_stable_key]),
     ]);
 
     jobs
