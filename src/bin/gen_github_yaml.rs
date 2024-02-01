@@ -232,7 +232,6 @@ enum Action {
     Cache,
     CacheRestore,
     CacheSave,
-    Cargo,
     DownloadArtifact,
     UploadArtifact,
 }
@@ -245,7 +244,6 @@ impl Action {
             Cache => "actions/cache@v4",
             CacheRestore => "actions/cache/restore@v4",
             CacheSave => "actions/cache/save@v4",
-            Cargo => "actions-rs/cargo@v1",
             DownloadArtifact => "actions/download-artifact@v4",
             UploadArtifact => "actions/upload-artifact@v4",
         }
@@ -412,18 +410,16 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
 
     steps.push(Step {
         name: s("Run cargo build"),
-        details: Uses {
-            uses: Action::Cargo,
-            with: dict! { "command" => "build" },
+        details: Run {
+            run: s("cargo build"),
         },
         env: dict! {},
     });
 
     steps.push(Step {
         name: s("Run cargo test"),
-        details: Uses {
-            uses: Action::Cargo,
-            with: dict! { "command" => "test" },
+        details: Run {
+            run: s("cargo test"),
         },
         env: dict! { "RUST_BACKTRACE" => "1" },
     });
@@ -433,24 +429,16 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
     if run_once_checks.0 {
         steps.push(Step {
             name: s("Run cargo fmt"),
-            details: Uses {
-                uses: Action::Cargo,
-                with: dict! {
-                    "command" => "fmt",
-                    "args" => "--all -- --check",
-                },
+            details: Run {
+                run: s("cargo fmt --all -- --check"),
             },
             env: dict! {},
         });
 
         steps.push(Step {
             name: s("Run clippy"),
-            details: Uses {
-                uses: Action::Cargo,
-                with: dict! {
-                    "command" => "clippy",
-                    "args" => "-- -D warnings",
-                },
+            details: Run {
+                run: s("cargo clippy -- -D warnings"),
             },
             env: dict! {},
         });
@@ -468,21 +456,16 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
 
         steps.push(Step {
             name: s("Install cargo audit"),
-            details: Uses {
-                uses: Action::Cargo,
-                with: dict! {
-                    "command" => "install",
-                    "args" => "cargo-audit",
-                },
+            details: Run {
+                run: s("cargo install cargo-audit"),
             },
             env: dict! {},
         });
 
         steps.push(Step {
             name: s("Run cargo audit"),
-            details: Uses {
-                uses: Action::Cargo,
-                with: dict! { "command" => "audit" },
+            details: Run {
+                run: s("cargo audit"),
             },
             env: dict! {},
         });
