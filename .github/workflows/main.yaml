@@ -26,8 +26,12 @@ jobs:
             default && \
         eval "$(docker-machine env default)" && \
         env | grep DOCKER >> $GITHUB_ENV
-    - name: Docker hello world
-      run: docker run --rm debian:12 sh -c 'env; dpkg -l debian-archive-keyring; apt-get update'
+    - name: Docker debian 11
+      run: docker run --rm debian:11 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; true'
+    - name: Docker debian 12
+      run: docker run --rm debian:12 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; true'
+    - name: Abort
+      run: 'false'
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:

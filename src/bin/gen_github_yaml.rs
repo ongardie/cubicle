@@ -565,12 +565,20 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         Runner::Docker | Runner::DockerBind => {
             steps.extend(install_docker(os));
 
+            for version in [11, 12] {
+                steps.push(Step {
+                    name: format!("Docker debian {version}"),
+                    details: Run {
+                        // run: s("docker run --rm debian:12 echo 'Hello world'"),
+                        run: format!("docker run --rm debian:{version} sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; true'"),
+                    },
+                    env: dict! {},
+                });
+            }
+
             steps.push(Step {
-                name: s("Docker hello world"),
-                details: Run {
-                    // run: s("docker run --rm debian:12 echo 'Hello world'"),
-                    run: s("docker run --rm debian:12 sh -c 'env; dpkg -l debian-archive-keyring; apt-get update'"),
-                },
+                name: s("Abort"),
+                details: Run { run: s("false") },
                 env: dict! {},
             });
         }
