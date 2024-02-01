@@ -188,21 +188,28 @@ use StepDetails::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Os {
     Ubuntu,
-    Mac,
+    // Both Mac versions are slow to run Docker. Despite having to install
+    // Colima, Mac OS 13 is more current and not much slower (relatively), so
+    // prefer it.
+    #[allow(unused)]
+    Mac12,
+    Mac13,
 }
 
 impl Os {
     fn as_str(&self) -> &'static str {
         match self {
-            Self::Ubuntu => "ubuntu-20.04",
-            Self::Mac => "macos-12",
+            Self::Ubuntu => "ubuntu-22.04",
+            Self::Mac12 => "macos-12",
+            Self::Mac13 => "macos-13",
         }
     }
 
     fn as_ident(&self) -> &'static str {
         match self {
-            Self::Ubuntu => "ubuntu-20-04",
-            Self::Mac => "macos-12",
+            Self::Ubuntu => "ubuntu-22-04",
+            Self::Mac12 => "macos-12",
+            Self::Mac13 => "macos-13",
         }
     }
 }
@@ -220,9 +227,12 @@ impl Display for Os {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(unused)]
 enum Action {
     Checkout,
     Cache,
+    CacheRestore,
+    CacheSave,
     Cargo,
     DownloadArtifact,
     RustToolchain,
@@ -233,12 +243,14 @@ impl Action {
     fn as_str(&self) -> &'static str {
         use Action::*;
         match self {
-            Checkout => "actions/checkout@v2",
-            Cache => "actions/cache@v3",
+            Checkout => "actions/checkout@v4",
+            Cache => "actions/cache@v4",
+            CacheRestore => "actions/cache/restore@v4",
+            CacheSave => "actions/cache/save@v4",
             Cargo => "actions-rs/cargo@v1",
-            DownloadArtifact => "actions/download-artifact@v3",
+            DownloadArtifact => "actions/download-artifact@v4",
             RustToolchain => "actions-rs/toolchain@v1",
-            UploadArtifact => "actions/upload-artifact@v3",
+            UploadArtifact => "actions/upload-artifact@v4",
         }
     }
 }
@@ -327,7 +339,7 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
     jobs.extend([build_job(Os::Ubuntu, Rust::Nightly, RunOnceChecks(false))]);
 
     let mac_stable_key = {
-        let (key, job) = build_job(Os::Mac, Rust::Stable, RunOnceChecks(false));
+        let (key, job) = build_job(Os::Mac13, Rust::Stable, RunOnceChecks(false));
         jobs.insert(key.clone(), job);
         key
     };
@@ -345,7 +357,7 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
             vec![ubuntu_stable_key.clone()],
         ),
         system_test_job(Os::Ubuntu, Runner::User, vec![ubuntu_stable_key]),
-        system_test_job(Os::Mac, Runner::Docker, vec![mac_stable_key]),
+        system_test_job(Os::Mac13, Runner::Docker, vec![mac_stable_key]),
     ]);
 
     jobs
@@ -476,22 +488,15 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
         });
     }
 
-    // The uploader currently uses gzip internally and will aggressively and
-    // slowly gzip anything it doesn't think is already compressed. It has an
-    // exception for a very small number of file extensions, including `.gz`.
-    // This uses `gzip -1` first, which saves a second or two. We can switch to
-    // Zstd (which would save another couple of seconds) once this PR is
-    // merged: <https://github.com/actions/toolkit/pull/1118>.
     steps.push(Step {
         name: s("Save build artifact"),
         details: Run {
             run: s(indoc! {"
-                tar -C .. --create \\
+                tar -C .. --create --file debug-dist.tar.zst \\
                     cubicle/packages/ \\
                     cubicle/src/bin/system_test/github/ \\
                     cubicle/target/debug/cub \\
-                    cubicle/target/debug/system_test | \\
-                gzip -1 > debug-dist.tar.gz
+                    cubicle/target/debug/system_test
             "}),
         },
         env: dict! {},
@@ -503,7 +508,7 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
             uses: Action::UploadArtifact,
             with: dict! {
                 "name" => format!("debug-dist-{os}-{rust}"),
-                "path" => "debug-dist.tar.gz",
+                "path" => "debug-dist.tar.zst",
                 "if-no-files-found" => "error",
             },
         },
@@ -539,9 +544,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         }
 
         Runner::Docker | Runner::DockerBind => {
-            if os == Os::Mac {
-                steps.extend(docker_mac_install_steps());
-            }
+            steps.extend(install_docker(os));
 
             steps.push(Step {
                 name: s("Docker hello world"),
@@ -576,7 +579,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
     steps.push(Step {
         name: s("Unpack build artifact"),
         details: Run {
-            run: s("tar --directory .. --extract --verbose --file debug-dist.tar.gz"),
+            run: s("tar --directory .. --extract --verbose --file debug-dist.tar.zst"),
         },
         env: dict! {},
     });
@@ -614,57 +617,82 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
     (key, job)
 }
 
-// Docker isn't installed on the Mac runners due to licensing issues:
-// see <https://github.com/actions/runner-images/issues/2150>.
-fn docker_mac_install_steps() -> Vec<Step> {
-    vec![
-        Step {
-            name: s("Install Docker"),
-            details: Run {
-                run: s("brew install docker docker-machine"),
-            },
-            env: dict! {},
-        },
-        Step {
-            name: s("Create VirtualBox VM for Docker"),
-            // Normally docker-machine would check for the latest boot2docker
-            // URL, but it gives the error: `Error with pre-create check:
-            // "failure getting a version tag from the Github API response (are
-            // you getting rate limited by Github?)"`. Its README says to pass
-            // `--github-api-token`, but that doesn't work due to
-            // <https://github.com/docker/machine/issues/2765> and
-            // <https://github.com/docker/machine/issues/2296>. This just sets
-            // a static URL. Because boot2docker is no longer maintained,
-            // there's no risk of a newer ISO being released.
+fn install_docker(os: Os) -> Vec<Step> {
+    // Docker isn't installed on the Mac runners due to licensing issues:
+    // see <https://github.com/actions/runner-images/issues/2150>.
+    match os {
+        // Using Colima works for Mac OS 12 and 13, but it takes about 7
+        // minutes to get through the Docker "Hello world".
+        //
+        // It doesn't seem like we can continue using the prior
+        // docker-machine/boot2docker/Virtualbox approach:
+        // - Virtualbox isn't installed and doesn't seem to work (with `brew
+        //   install virtualbox`) on the Mac OS 13 runners.
+        // - boot2docker is deprecated.
+        // - docker-machine is deprecated.
+        // - Even on Mac OS 12, there were odd gpg issues with debian:12 when
+        //   running apt-update (that don't happen with Colima or elsewhere).
+        Os::Mac12 | Os::Mac13 => {
+            let install_docker = Step {
+                name: s("Install Docker"),
+                details: Run {
+                    run: s("brew install docker"),
+                },
+                env: dict! {},
+            };
 
-            // Then, set a different IPv4 range to work around this error:
-            //
-            // ```
-            // Error creating machine: Error in driver during machine creation:
-            //     Error setting up host only network on machine start:
-            //     /usr/local/bin/VBoxManage hostonlyif ipconfig vboxnet0 --ip
-            //     192.168.99.1 --netmask 255.255.255.0 failed:
-            // VBoxManage: error: Code E_ACCESSDENIED (0x80070005) - Access denied
-            //     (extended info not available)
-            // VBoxManage: error: Context: "EnableStaticIPConfig(Bstr(pszIp).raw(),
-            //     Bstr(pszNetmask).raw())" at line 242 of file VBoxManageHostonly.cpp
-            // ```
-            //
-            // See <https://github.com/nektos/act/issues/858>.
-            details: Run {
-                run: s(indoc! {r#"
-                    docker-machine create \
-                        --driver virtualbox \
-                        --virtualbox-boot2docker-url 'https://github.com/boot2docker/boot2docker/releases/download/v19.03.12/boot2docker.iso' \
-                        --virtualbox-hostonly-cidr '192.168.56.1/24' \
-                        default && \
-                    eval "$(docker-machine env default)" && \
-                    env | grep DOCKER >> $GITHUB_ENV
-                "#}),
-            },
-            env: dict! {},
-        },
-    ]
+            let start_colima = Step {
+                name: s("Start Colima"),
+                details: Run {
+                    // Unfortunately, VZ seems to hang forever as of 2024-01-31.
+                    //
+                    // The Lima docs say that the VZ backend is faster and the
+                    // example uses virtiofs. VZ is only available starting in Mac
+                    // OS 13. See <https://lima-vm.io/docs/config/vmtype/>.
+                    //
+                    // The default disk size is 60 GiB, and the VZ backend appears
+                    // to unpack and "expand" the QCOW2 image. The runner only has
+                    // 14 GB and is slow to write to disk, so set the disk size
+                    // smaller. The QCOW2 image expands to a 3.5 GiB raw disk, and
+                    // the `--disk` flag takes an int, so the smallest reasonable
+                    // size is probably 4.
+                    //
+                    // run: s("colima start --disk 4 --mount-type virtiofs --vm-type vz"),
+                    run: s("colima start"), // using QEMU by default, not VZ
+                },
+                env: dict! {},
+            };
+
+            match os {
+                Os::Mac12 => vec![install_docker, start_colima],
+
+                // Colima isn't installed in the Mac OS 13 runners.
+                Os::Mac13 => vec![
+                    install_docker,
+                    Step {
+                        name: s("Install Colima"),
+                        details: Run {
+                            // Currently, installing colima upgrades openssl from 3.2.0_1
+                            // to 3.2.1.  Somehow, this conflicts with version 1.1,
+                            // fighting over the symlink `/usr/local/bin/openssl`. To work
+                            // around this, install openssl explicitly with the
+                            // `--overwrite` flag.
+                            run: s(indoc! {"
+                                brew install --overwrite openssl@3
+                                brew install colima
+                            "}),
+                        },
+                        env: dict! {},
+                    },
+                    start_colima,
+                ],
+
+                Os::Ubuntu => unreachable!(),
+            }
+        }
+
+        Os::Ubuntu => vec![/* works out of the box */],
+    }
 }
 
 fn write<W: Write>(mut w: W, workflow: &Workflow) -> anyhow::Result<()> {

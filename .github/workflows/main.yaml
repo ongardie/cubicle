@@ -11,12 +11,12 @@ on:
   - cron: 0 16 * * *
   workflow_dispatch: {}
 jobs:
-  build-macos-12-stable:
-    name: Build & check (macos-12, Rust stable)
-    runs-on: macos-12
+  build-macos-13-stable:
+    name: Build & check (macos-13, Rust stable)
+    runs-on: macos-13
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Install Rust stable toolchain
       uses: actions-rs/toolchain@v1
       with:
@@ -25,14 +25,14 @@ jobs:
         profile: minimal
         toolchain: stable
     - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
-        key: cargo-macos-12-stable-${{ hashFiles('Cargo.lock') }}
+        key: cargo-macos-13-stable-${{ hashFiles('Cargo.lock') }}
         path: |
           ~/.cargo/registry
           ~/.cargo/git/
           target/
-        restore-keys: cargo-macos-12-stable-
+        restore-keys: cargo-macos-13-stable-
     - name: Run cargo build
       uses: actions-rs/cargo@v1
       with:
@@ -45,24 +45,23 @@ jobs:
         RUST_BACKTRACE: '1'
     - name: Save build artifact
       run: |
-        tar -C .. --create \
+        tar -C .. --create --file debug-dist.tar.zst \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cub \
-            cubicle/target/debug/system_test | \
-        gzip -1 > debug-dist.tar.gz
+            cubicle/target/debug/system_test
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         if-no-files-found: error
-        name: debug-dist-macos-12-stable
-        path: debug-dist.tar.gz
-  build-ubuntu-20-04-nightly:
-    name: Build & check (ubuntu-20.04, Rust nightly)
-    runs-on: ubuntu-20.04
+        name: debug-dist-macos-13-stable
+        path: debug-dist.tar.zst
+  build-ubuntu-22-04-nightly:
+    name: Build & check (ubuntu-22.04, Rust nightly)
+    runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Install Rust nightly toolchain
       uses: actions-rs/toolchain@v1
       with:
@@ -71,14 +70,14 @@ jobs:
         profile: minimal
         toolchain: nightly
     - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
-        key: cargo-ubuntu-20.04-nightly-${{ hashFiles('Cargo.lock') }}
+        key: cargo-ubuntu-22.04-nightly-${{ hashFiles('Cargo.lock') }}
         path: |
           ~/.cargo/registry
           ~/.cargo/git/
           target/
-        restore-keys: cargo-ubuntu-20.04-nightly-
+        restore-keys: cargo-ubuntu-22.04-nightly-
     - name: Run cargo build
       uses: actions-rs/cargo@v1
       with:
@@ -91,24 +90,23 @@ jobs:
         RUST_BACKTRACE: '1'
     - name: Save build artifact
       run: |
-        tar -C .. --create \
+        tar -C .. --create --file debug-dist.tar.zst \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cub \
-            cubicle/target/debug/system_test | \
-        gzip -1 > debug-dist.tar.gz
+            cubicle/target/debug/system_test
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         if-no-files-found: error
-        name: debug-dist-ubuntu-20.04-nightly
-        path: debug-dist.tar.gz
-  build-ubuntu-20-04-stable:
-    name: Build & check (ubuntu-20.04, Rust stable)
-    runs-on: ubuntu-20.04
+        name: debug-dist-ubuntu-22.04-nightly
+        path: debug-dist.tar.zst
+  build-ubuntu-22-04-stable:
+    name: Build & check (ubuntu-22.04, Rust stable)
+    runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Install Rust stable toolchain
       uses: actions-rs/toolchain@v1
       with:
@@ -117,14 +115,14 @@ jobs:
         profile: minimal
         toolchain: stable
     - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
-        key: cargo-ubuntu-20.04-stable-${{ hashFiles('Cargo.lock') }}
+        key: cargo-ubuntu-22.04-stable-${{ hashFiles('Cargo.lock') }}
         path: |
           ~/.cargo/registry
           ~/.cargo/git/
           target/
-        restore-keys: cargo-ubuntu-20.04-stable-
+        restore-keys: cargo-ubuntu-22.04-stable-
     - name: Run cargo build
       uses: actions-rs/cargo@v1
       with:
@@ -160,43 +158,39 @@ jobs:
         command: audit
     - name: Save build artifact
       run: |
-        tar -C .. --create \
+        tar -C .. --create --file debug-dist.tar.zst \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cub \
-            cubicle/target/debug/system_test | \
-        gzip -1 > debug-dist.tar.gz
+            cubicle/target/debug/system_test
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         if-no-files-found: error
-        name: debug-dist-ubuntu-20.04-stable
-        path: debug-dist.tar.gz
-  system_test-macos-12-docker:
-    name: System tests (macos-12, docker)
+        name: debug-dist-ubuntu-22.04-stable
+        path: debug-dist.tar.zst
+  system_test-macos-13-docker:
+    name: System tests (macos-13, docker)
     needs:
-    - build-macos-12-stable
-    runs-on: macos-12
+    - build-macos-13-stable
+    runs-on: macos-13
     steps:
     - name: Install Docker
-      run: brew install docker docker-machine
-    - name: Create VirtualBox VM for Docker
+      run: brew install docker
+    - name: Install Colima
       run: |
-        docker-machine create \
-            --driver virtualbox \
-            --virtualbox-boot2docker-url 'https://github.com/boot2docker/boot2docker/releases/download/v19.03.12/boot2docker.iso' \
-            --virtualbox-hostonly-cidr '192.168.56.1/24' \
-            default && \
-        eval "$(docker-machine env default)" && \
-        env | grep DOCKER >> $GITHUB_ENV
+        brew install --overwrite openssl@3
+        brew install colima
+    - name: Start Colima
+      run: colima start
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
-        name: debug-dist-macos-12-stable
+        name: debug-dist-macos-13-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
       env:
@@ -206,20 +200,20 @@ jobs:
       env:
         INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
-  system_test-ubuntu-20-04-bubblewrap:
-    name: System tests (ubuntu-20.04, bubblewrap)
+  system_test-ubuntu-22-04-bubblewrap:
+    name: System tests (ubuntu-22.04, bubblewrap)
     needs:
-    - build-ubuntu-20-04-stable
-    runs-on: ubuntu-20.04
+    - build-ubuntu-22-04-stable
+    runs-on: ubuntu-22.04
     steps:
     - name: Install Bubblewrap and minor dependencies
       run: sudo apt-get install -y bubblewrap pv
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
-        name: debug-dist-ubuntu-20.04-stable
+        name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/bubblewrap.toml' list
       env:
@@ -229,20 +223,20 @@ jobs:
       env:
         INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
-  system_test-ubuntu-20-04-docker:
-    name: System tests (ubuntu-20.04, docker)
+  system_test-ubuntu-22-04-docker:
+    name: System tests (ubuntu-22.04, docker)
     needs:
-    - build-ubuntu-20-04-stable
-    runs-on: ubuntu-20.04
+    - build-ubuntu-22-04-stable
+    runs-on: ubuntu-22.04
     steps:
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
-        name: debug-dist-ubuntu-20.04-stable
+        name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
       env:
@@ -252,20 +246,20 @@ jobs:
       env:
         INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
-  system_test-ubuntu-20-04-docker-bind:
-    name: System tests (ubuntu-20.04, docker-bind)
+  system_test-ubuntu-22-04-docker-bind:
+    name: System tests (ubuntu-22.04, docker-bind)
     needs:
-    - build-ubuntu-20-04-stable
-    runs-on: ubuntu-20.04
+    - build-ubuntu-22-04-stable
+    runs-on: ubuntu-22.04
     steps:
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
-        name: debug-dist-ubuntu-20.04-stable
+        name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/docker-bind.toml' list
       env:
@@ -275,20 +269,20 @@ jobs:
       env:
         INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'
-  system_test-ubuntu-20-04-user:
-    name: System tests (ubuntu-20.04, user)
+  system_test-ubuntu-22-04-user:
+    name: System tests (ubuntu-22.04, user)
     needs:
-    - build-ubuntu-20-04-stable
-    runs-on: ubuntu-20.04
+    - build-ubuntu-22-04-stable
+    runs-on: ubuntu-22.04
     steps:
     - name: Install minor dependencies
       run: sudo apt-get install -y pv
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
-        name: debug-dist-ubuntu-20.04-stable
+        name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/user.toml' list
       env:
