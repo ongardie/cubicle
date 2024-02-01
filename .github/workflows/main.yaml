@@ -186,7 +186,9 @@ jobs:
     - name: Install Docker
       run: brew install docker
     - name: Install Colima
-      run: brew install colima
+      run: |
+        brew unlink openssl@1.1 || true
+        brew install colima
     - name: Save Homebrew cache
       uses: actions/cache/save@v3
       with:

@@ -646,7 +646,11 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
         Step {
             name: s("Install Colima"),
             details: Run {
-                run: s("brew install colima"),
+                // This may depend on openssl 3, which conflicts with 1.1.
+                run: s(indoc! {"
+                    brew unlink openssl@1.1 || true
+                    brew install colima
+                "}),
             },
             env: dict! {},
         },
