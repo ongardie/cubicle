@@ -21,8 +21,8 @@ _cub() {
     _arguments "${_arguments_options[@]}" \
 '-c+[Path to configuration file]:CONFIG:_files' \
 '--config=[Path to configuration file]:CONFIG:_files' \
-'-h[Print help information]' \
-'--help[Print help information]' \
+'-h[Print help]' \
+'--help[Print help]' \
 ":: :_cub_commands" \
 "*::: :->cubicle" \
 && ret=0
@@ -34,22 +34,22 @@ _cub() {
         case $line[1] in
             (completions)
 _arguments "${_arguments_options[@]}" \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 ':shell:(bash elvish fish powershell zsh)' \
 && ret=0
 ;;
 (enter)
 _arguments "${_arguments_options[@]}" \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 ':name -- Environment name:_cub_envs' \
 && ret=0
 ;;
 (exec)
 _arguments "${_arguments_options[@]}" \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 ':name -- Environment name:_cub_envs' \
 '*::command -- Command and arguments to run:' \
 && ret=0
@@ -59,14 +59,14 @@ _arguments "${_arguments_options[@]}" \
 '--format=[Set output format]:FORMAT:((default\:"Human-formatted table"
 json\:"Detailed JSON output for machine consumption"
 names\:"Newline-delimited list of environment names only"))' \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (package)
 _arguments "${_arguments_options[@]}" \
-'-h[Print help information]' \
-'--help[Print help information]' \
+'-h[Print help]' \
+'--help[Print help]' \
 ":: :_cub__package_commands" \
 "*::: :->package" \
 && ret=0
@@ -82,16 +82,16 @@ _arguments "${_arguments_options[@]}" \
 '--format=[Set output format]:FORMAT:((default\:"Human-formatted table"
 json\:"Detailed JSON output for machine consumption"
 names\:"Newline-delimited list of package names only"))' \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (update)
 _arguments "${_arguments_options[@]}" \
 '--clean[Clear out existing build environment first]' \
 '--skip-deps[Build dependencies only if required]' \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '*::packages -- Package name(s):_cub_pkgs' \
 && ret=0
 ;;
@@ -131,31 +131,31 @@ esac
 _arguments "${_arguments_options[@]}" \
 '*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \
 '--enter[Run a shell in new environment]' \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 ':name -- New environment name:' \
 && ret=0
 ;;
 (purge)
 _arguments "${_arguments_options[@]}" \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '*::names -- Environment name(s):_cub_envs' \
 && ret=0
 ;;
 (reset)
 _arguments "${_arguments_options[@]}" \
 '*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 '*::names -- Environment name(s):_cub_envs' \
 && ret=0
 ;;
 (tmp)
 _arguments "${_arguments_options[@]}" \
 '*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \
-'-h[Print help information (use `--help` for more detail)]' \
-'--help[Print help information (use `--help` for more detail)]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (help)
@@ -429,5 +429,9 @@ _cub_pkgs_comma() {
     _values -s , -w 'packages' $(cub package list --format=names)
 }
 
-_cub "$@"
+if [ "$funcstack[1]" = "_cub" ]; then
+    _cub "$@"
+else
+    compdef _cub cub
+fi
 

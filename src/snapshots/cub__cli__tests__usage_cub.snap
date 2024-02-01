@@ -20,5 +20,5 @@ Commands:
 
 Options:
   -c, --config <CONFIG>  Path to configuration file [default: $HOME/.config/cubicle.toml]
-  -h, --help             Print help information
+  -h, --help             Print help
 

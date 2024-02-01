@@ -351,7 +351,7 @@ fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
                             r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \"#
                         )?;
                     }
-                    r#"_cub "$@""# => {
+                    r#"if [ "$funcstack[1]" = "_cub" ]; then"# => {
                         counts[4] += 1;
                         #[allow(clippy::write_literal)]
                         writeln!(
