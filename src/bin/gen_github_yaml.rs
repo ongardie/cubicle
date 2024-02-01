@@ -188,9 +188,10 @@ use StepDetails::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Os {
     Ubuntu,
+
+    // Use both Mac OS 12 and 13 for now. Both are slow at Docker. Race them
+    // for a while to find out which one is faster or more reliable.
     Mac12,
-    // The Docker setup on Mac OS 13 is currently very slooooow.
-    #[allow(unused)]
     Mac13,
 }
 
@@ -632,74 +633,17 @@ fn install_docker(os: Os) -> Vec<Step> {
     // Docker isn't installed on the Mac runners due to licensing issues:
     // see <https://github.com/actions/runner-images/issues/2150>.
     match os {
-        // This used to work but doesn't seem reliable as of 2024-02-01.
-        // When it does work, it takes about 2 minutes to get through the Docker
-        // "Hello world".
+        // Using Colima works for Mac OS 12 and 13, but it takes about 7
+        // minutes to get through the Docker "Hello world".
         //
-        // For some bizarre reason, the debian:12 (currently 12.4) Docker image
-        // can't verify the GPG signatures during `apt-update`: "The following
-        // signatures couldn't be verified because the public key is not
-        // available". The same image works on Linux and Mac OS 13 with Colima,
-        // and the debian:11 image works on Mac OS 12 with boot2docker.
-        /*
-        Os::Mac12 => vec![
-            Step {
-                name: s("Install Docker"),
-                details: Run {
-                    run: s("brew install docker docker-machine"),
-                },
-                env: dict! {},
-            },
-            Step {
-                name: s("Create VirtualBox VM for Docker"),
-                // Normally docker-machine would check for the latest
-                // boot2docker URL, but it gives the error: `Error with
-                // pre-create check: "failure getting a version tag from the
-                // Github API response (are you getting rate limited by
-                // Github?)"`. Its README says to pass `--github-api-token`,
-                // but that doesn't work due to
-                // <https://github.com/docker/machine/issues/2765> and
-                // <https://github.com/docker/machine/issues/2296>. This just
-                // sets a static URL. Because boot2docker is no longer
-                // maintained, there's no risk of a newer ISO being released.
-
-                // Then, set a different IPv4 range to work around this error:
-                //
-                // ```
-                // Error creating machine: Error in driver during machine creation:
-                //     Error setting up host only network on machine start:
-                //     /usr/local/bin/VBoxManage hostonlyif ipconfig vboxnet0 --ip
-                //     192.168.99.1 --netmask 255.255.255.0 failed:
-                // VBoxManage: error: Code E_ACCESSDENIED (0x80070005) - Access denied
-                //     (extended info not available)
-                // VBoxManage: error: Context: "EnableStaticIPConfig(Bstr(pszIp).raw(),
-                //     Bstr(pszNetmask).raw())" at line 242 of file VBoxManageHostonly.cpp
-                // ```
-                //
-                // See <https://github.com/nektos/act/issues/858>.
-                details: Run {
-                    run: s(indoc! {r#"
-                        docker-machine create \
-                            --driver virtualbox \
-                            --virtualbox-boot2docker-url 'https://github.com/boot2docker/boot2docker/releases/download/v19.03.12/boot2docker.iso' \
-                            --virtualbox-hostonly-cidr '192.168.56.1/24' \
-                            default && \
-                        eval "$(docker-machine env default)" && \
-                        env | grep DOCKER >> $GITHUB_ENV
-                    "#}),
-                },
-                env: dict! {},
-            },
-        ],
-        */
-        // This works, but it takes about 7 minutes to get through the Docker
-        // "Hello world".
-        //
-        // It doesn't seem like we can continue using the Mac OS 12 approach:
+        // It doesn't seem like we can continue using the prior
+        // docker-machine/boot2docker/Virtualbox approach:
         // - Virtualbox isn't installed and doesn't seem to work (with `brew
         //   install virtualbox`) on the Mac OS 13 runners.
         // - boot2docker is deprecated.
         // - docker-machine is deprecated.
+        // - Even on Mac OS 12, there were odd gpg issues with debian:12 when
+        //   running apt-update (that don't happen with Colima or elsewhere).
         Os::Mac12 | Os::Mac13 => {
             let install_docker = Step {
                 name: s("Install Docker"),
