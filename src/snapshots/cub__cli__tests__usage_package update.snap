@@ -1,7 +1,3 @@
----
-source: src/cli.rs
-expression: err
----
 (Re-)build one or more packages
 
 Usage: cub package update [OPTIONS] <PACKAGES>...
@@ -28,4 +24,3 @@ Options:
 
   -h, --help
           Print help (see a summary with '-h')
-

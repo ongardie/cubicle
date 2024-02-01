@@ -1,7 +1,3 @@
----
-source: src/docker.rs
-expression: dockerfile
----
 FROM debian:12
 RUN echo "Etc/Timez'one" > /etc/timezone && \
     ln -fs '/usr/share/zoneinfo/'"Etc/Timez'one" /etc/localtime
@@ -20,4 +16,3 @@ RUN apt-get install --no-install-recommends --yes \
 RUN apt-file update
 RUN sh -c 'echo "Defaults umask = 0027" > /etc/sudoers.d/umask' && \
     sh -c 'echo "%sudo ALL=(ALL) CWD=* NOPASSWD: ALL" > /etc/sudoers.d/nopasswd'
-

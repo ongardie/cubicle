@@ -15,7 +15,7 @@ use cubicle::{
     Cubicle, EnvironmentName, FullPackageName, ListFormat, ListPackagesFormat, Quiet,
     ShouldPackageUpdate, UpdatePackagesConditions,
 };
-use insta::assert_snapshot;
+use expect_test::expect;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -51,10 +51,8 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
     let err = cub
         .new_environment(test_env, Some(&not_exist))
         .expect_err("should not be able to use does-not-exist package in `cub new`");
-    assert_snapshot!(
-        err.debug_without_backtrace(),
-        @r###"could not find package definition for "does-not-exist""###
-    );
+    expect![[r#"could not find package definition for "does-not-exist""#]]
+        .assert_eq(&err.debug_without_backtrace());
 
     let envs = cub.get_environment_names()?;
     assert!(
@@ -66,10 +64,8 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
     let err = cub
         .create_enter_tmp_environment(Some(&not_exist))
         .expect_err("should not be able to use does-not-exist package in `cub tmp`");
-    assert_snapshot!(
-        err.debug_without_backtrace(),
-        @r###"could not find package definition for "does-not-exist""###
-    );
+    expect![[r#"could not find package definition for "does-not-exist""#]]
+        .assert_eq(&err.debug_without_backtrace());
     let new_envs = cub
         .get_environment_names()?
         .difference(&envs)
@@ -86,10 +82,8 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
     let err = cub
         .reset_environment(test_env, Some(&not_exist))
         .expect_err("should not be able to use does-not-exist package in `cub reset`");
-    assert_snapshot!(
-        err.debug_without_backtrace(),
-        @r###"could not find package definition for "does-not-exist""###
-    );
+    expect![[r#"could not find package definition for "does-not-exist""#]]
+        .assert_eq(&err.debug_without_backtrace());
     cub.exec_environment(test_env, &[String::from("cat"), String::from("../foo")])
         .context("file `../foo` should still exist")?;
 
@@ -104,10 +98,8 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
             },
         )
         .expect_err("should not be able to use does-not-exist package in `cub tmp`");
-    assert_snapshot!(
-        err.debug_without_backtrace(),
-        @r###"could not find package definition for "does-not-exist""###
-    );
+    expect![[r#"could not find package definition for "does-not-exist""#]]
+        .assert_eq(&err.debug_without_backtrace());
 
     Ok(())
 }

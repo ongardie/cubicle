@@ -1132,18 +1132,18 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use insta::assert_snapshot;
+    use expect_test::{expect, expect_file};
     use std::path::PathBuf;
 
     #[test]
     fn fallback_path() {
-        assert_snapshot!(
-            super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/foo")).unwrap()).to_string_lossy(),
-            @"PATH=/home/foo/bin:/usr/bin:/usr/sbin"
+        expect!["PATH=/home/foo/bin:/usr/bin:/usr/sbin"].assert_eq(
+            &super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/foo")).unwrap())
+                .to_string_lossy(),
         );
-        assert_snapshot!(
-            super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/fo:oo")).unwrap()).to_string_lossy(),
-            @"PATH=/usr/bin:/usr/sbin"
+        expect!["PATH=/usr/bin:/usr/sbin"].assert_eq(
+            &super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/fo:oo")).unwrap())
+                .to_string_lossy(),
         );
     }
 
@@ -1164,6 +1164,6 @@ mod tests {
         )
         .unwrap();
         let dockerfile = String::from_utf8(buf).unwrap();
-        assert_snapshot!("Dockerfile", dockerfile);
+        expect_file!["snapshots/cubicle__docker__tests__Dockerfile.snap"].assert_eq(&dockerfile);
     }
 }

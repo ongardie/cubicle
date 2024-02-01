@@ -1,7 +1,3 @@
----
-source: src/cli.rs
-expression: err
----
 Run a shell in an existing environment
 
 Usage: cub enter <NAME>
@@ -16,4 +12,3 @@ Arguments:
 Options:
   -h, --help
           Print help (see a summary with '-h')
-

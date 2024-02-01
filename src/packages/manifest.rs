@@ -114,7 +114,7 @@ fn convert_table(table: BTreeMap<String, Dependency>) -> Result<BTreeMap<Package
 #[cfg(test)]
 mod tests {
     use super::*;
-    use insta::assert_debug_snapshot;
+    use expect_test::expect;
 
     #[test]
     fn parse() {
@@ -128,8 +128,56 @@ mod tests {
             super::parse("").unwrap()
         );
 
-        assert_debug_snapshot!(
-            super::parse("
+        expect![[r#"
+            Manifest {
+                package_manager: true,
+                targets: Some(
+                    [
+                        Target {
+                            arch: Some(
+                                "x86_64",
+                            ),
+                            os: Some(
+                                "linux",
+                            ),
+                        },
+                    ],
+                ),
+                depends: {
+                    Root: {
+                        PackageName(
+                            "x",
+                        ): Dependency,
+                        PackageName(
+                            "y",
+                        ): Dependency,
+                    },
+                    Debian: {
+                        PackageName(
+                            "ca-certificates",
+                        ): Dependency,
+                    },
+                },
+                build_depends: {
+                    Root: {
+                        PackageName(
+                            "z",
+                        ): Dependency,
+                    },
+                    Debian: {
+                        PackageName(
+                            "clang",
+                        ): Dependency,
+                        PackageName(
+                            "cmake",
+                        ): Dependency,
+                    },
+                },
+            }
+        "#]]
+        .assert_debug_eq(
+            &super::parse(
+                "
                 package_manager = true
                 [[targets]]
                 arch = 'x86_64'
@@ -144,55 +192,9 @@ mod tests {
                 [build_depends.debian]
                 clang = {}
                 cmake = {}
-                "
-            ).unwrap(),
-            @r###"
-        Manifest {
-            package_manager: true,
-            targets: Some(
-                [
-                    Target {
-                        arch: Some(
-                            "x86_64",
-                        ),
-                        os: Some(
-                            "linux",
-                        ),
-                    },
-                ],
-            ),
-            depends: {
-                Root: {
-                    PackageName(
-                        "x",
-                    ): Dependency,
-                    PackageName(
-                        "y",
-                    ): Dependency,
-                },
-                Debian: {
-                    PackageName(
-                        "ca-certificates",
-                    ): Dependency,
-                },
-            },
-            build_depends: {
-                Root: {
-                    PackageName(
-                        "z",
-                    ): Dependency,
-                },
-                Debian: {
-                    PackageName(
-                        "clang",
-                    ): Dependency,
-                    PackageName(
-                        "cmake",
-                    ): Dependency,
-                },
-            },
-        }
-        "###
+                ",
+            )
+            .unwrap(),
         );
     }
 }

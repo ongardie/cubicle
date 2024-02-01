@@ -1,7 +1,3 @@
----
-source: src/cli.rs
-expression: err
----
 Run a command in an existing environment
 
 Usage: cub exec <NAME> -- <COMMAND>...
@@ -19,4 +15,3 @@ Arguments:
 Options:
   -h, --help
           Print help (see a summary with '-h')
-

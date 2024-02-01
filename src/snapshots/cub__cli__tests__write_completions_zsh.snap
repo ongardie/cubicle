@@ -1,7 +1,3 @@
----
-source: src/cli.rs
-expression: buf
----
 #compdef cub
 
 autoload -U is-at-least
@@ -434,4 +430,3 @@ if [ "$funcstack[1]" = "_cub" ]; then
 else
     compdef _cub cub
 fi
-

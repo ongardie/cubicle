@@ -122,7 +122,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::HostPath;
-    use insta::assert_snapshot;
+    use expect_test::expect;
 
     #[test]
     fn download_or_open_eff_list() {
@@ -134,12 +134,12 @@ mod tests {
             .download_or_open_eff_list()
             .unwrap_err()
             .debug_without_backtrace();
-        assert_snapshot!(err, @r###"
-        error downloading word list from "will://not work"
+        expect![[r#"
+            error downloading word list from "will://not work"
 
-        Caused by:
-            0: builder error: invalid domain character
-            1: invalid domain character
-        "###);
+            Caused by:
+                0: builder error: invalid domain character
+                1: invalid domain character"#]]
+        .assert_eq(&err);
     }
 }
