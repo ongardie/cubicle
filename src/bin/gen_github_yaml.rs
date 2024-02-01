@@ -46,7 +46,7 @@
 //! The types in this file do not aim to model all the functionality of GitHub
 //! workflows. They are tailored specifically to the needs of Cubicle.
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 use serde::{Serialize, Serializer};
 use serde_json::json;
 use serde_yaml::{Mapping, Value};
@@ -234,7 +234,6 @@ enum Action {
     CacheSave,
     Cargo,
     DownloadArtifact,
-    RustToolchain,
     UploadArtifact,
 }
 
@@ -248,7 +247,6 @@ impl Action {
             CacheSave => "actions/cache/save@v4",
             Cargo => "actions-rs/cargo@v1",
             DownloadArtifact => "actions/download-artifact@v4",
-            RustToolchain => "actions-rs/toolchain@v1",
             UploadArtifact => "actions/upload-artifact@v4",
         }
     }
@@ -385,14 +383,11 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
 
     steps.push(Step {
         name: format!("Install Rust {rust} toolchain"),
-        details: Uses {
-            uses: Action::RustToolchain,
-            with: dict! {
-                "profile" => "minimal",
-                "toolchain" => rust,
-                "override" => true,
-                "components" => "rustfmt, clippy",
-            },
+        details: Run {
+            run: formatdoc! {"
+                rustup toolchain install {rust} --profile minimal --component clippy,rustfmt
+                rustup default {rust}
+            "},
         },
         env: dict! {},
     });

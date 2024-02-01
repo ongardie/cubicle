@@ -18,12 +18,9 @@ jobs:
     - name: Check out sources
       uses: actions/checkout@v4
     - name: Install Rust stable toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        components: rustfmt, clippy
-        override: 'true'
-        profile: minimal
-        toolchain: stable
+      run: |
+        rustup toolchain install stable --profile minimal --component clippy,rustfmt
+        rustup default stable
     - name: Use Rust/Cargo cache
       uses: actions/cache@v4
       with:
@@ -63,12 +60,9 @@ jobs:
     - name: Check out sources
       uses: actions/checkout@v4
     - name: Install Rust stable toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        components: rustfmt, clippy
-        override: 'true'
-        profile: minimal
-        toolchain: stable
+      run: |
+        rustup toolchain install stable --profile minimal --component clippy,rustfmt
+        rustup default stable
     - name: Use Rust/Cargo cache
       uses: actions/cache@v4
       with:
@@ -108,12 +102,9 @@ jobs:
     - name: Check out sources
       uses: actions/checkout@v4
     - name: Install Rust nightly toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        components: rustfmt, clippy
-        override: 'true'
-        profile: minimal
-        toolchain: nightly
+      run: |
+        rustup toolchain install nightly --profile minimal --component clippy,rustfmt
+        rustup default nightly
     - name: Use Rust/Cargo cache
       uses: actions/cache@v4
       with:
@@ -153,12 +144,9 @@ jobs:
     - name: Check out sources
       uses: actions/checkout@v4
     - name: Install Rust stable toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        components: rustfmt, clippy
-        override: 'true'
-        profile: minimal
-        toolchain: stable
+      run: |
+        rustup toolchain install stable --profile minimal --component clippy,rustfmt
+        rustup default stable
     - name: Use Rust/Cargo cache
       uses: actions/cache@v4
       with:
