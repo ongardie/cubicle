@@ -230,6 +230,8 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    use indoc::{formatdoc, indoc};
+
     use super::*;
 
     #[test]
@@ -280,15 +282,35 @@ mod tests {
     #[test]
     fn config_from_str_bad_runner() {
         assert_eq!(
-            "missing field `runner`",
+            formatdoc! {"
+                TOML parse error at line 1, column 1
+                  |
+                1 |{trailing}
+                  | ^
+                missing field `runner`
+                ",
+                // The trailing space is written this way so that code editors
+                // don't strip it out.
+                trailing = " ",
+            },
             Config::from_str("")
                 .enough_context()
                 .unwrap_err()
-                .to_string()
+                .to_string(),
         );
+
         assert_eq!(
-            "unknown variant `q`, expected one of `Bubblewrap`, `Docker`, `User` for key `runner` at line 1 column 1",
-            Config::from_str("runner = 'q'").enough_context().unwrap_err().to_string()
+            indoc! {"
+                TOML parse error at line 1, column 10
+                  |
+                1 | runner = 'q'
+                  |          ^^^
+                unknown variant `q`, expected one of `Bubblewrap`, `Docker`, `User`
+            "},
+            Config::from_str("runner = 'q'")
+                .enough_context()
+                .unwrap_err()
+                .to_string(),
         );
     }
 

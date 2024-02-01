@@ -26,7 +26,7 @@ Cubicle can also manage two types of third-party packages:
 1. Depending on the runner used, Cubicle can install or verify the installation
    of operating system-level packages. For example, you can depend on
    `debian.sl` to have Cubicle install the
-   [Steam Locomotive package](https://packages.debian.org/bullseye/sl) using
+   [Steam Locomotive package](https://packages.debian.org/bookworm/sl) using
    `apt`. Currently, only the `debian` namespace is supported.
 
 2. Some special Cubicle packages are designated as package managers. They can

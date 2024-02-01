@@ -140,7 +140,7 @@ fn transitive_depends(
         build_depends,
         visited: BTreeSet::new(),
     };
-    for p in packages.iter() {
+    for p in packages {
         visitor.visit(p, None)?;
     }
     Ok(visitor.visited)
@@ -561,10 +561,10 @@ impl Cubicle {
             .with_context(|| format!("error building package {package_name}"))?;
 
         let package_cache = &self.shared.package_cache;
-        std::fs::create_dir_all(&package_cache.as_host_raw())
+        std::fs::create_dir_all(package_cache.as_host_raw())
             .with_context(|| format!("failed to create directory {package_cache:?}"))?;
         let package_cache_dir = cap_std::fs::Dir::open_ambient_dir(
-            &package_cache.as_host_raw(),
+            package_cache.as_host_raw(),
             cap_std::ambient_authority(),
         )
         .with_context(|| format!("failed to open directory {package_cache:?}"))?;
@@ -605,7 +605,7 @@ impl Cubicle {
             .rename(
                 testing_tar_name,
                 &package_cache_dir,
-                &package_tar_name,
+                package_tar_name,
             )
             .with_context(|| {
                 format!(
@@ -1160,7 +1160,7 @@ pub fn write_package_list_tar(
     }
 
     let mut buf = Vec::new();
-    for name in packages.iter() {
+    for name in packages {
         writeln!(buf, "{}", name.unquoted()).todo_context()?;
     }
     header.set_size(buf.len() as u64);

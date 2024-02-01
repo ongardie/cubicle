@@ -28,7 +28,7 @@ shell scripts for package setup that run in containers.
 
 ### Installing Dependencies
 
-[Install Docker](https://docs.docker.com/get-docker/). On Debian 11, you can
+[Install Docker](https://docs.docker.com/get-docker/). On Debian 12, you can
 install it using `apt`:
 
 ```sh
@@ -56,13 +56,13 @@ cargo build --release
 ```
 
 Alternatively, you can use Docker to run the Rust compiler, if the host system
-is similar enough to Debian 11 (Bullseye):
+is similar enough to Debian 12 (Bookworm):
 
 ```sh
 docker run --rm \
     --user "$(id -u):$(id -g)" \
     -v "$PWD:$PWD" -w "$PWD" \
-    rust:1-bullseye \
+    rust:1-bookworm \
     cargo build --release
 ```
 
@@ -179,7 +179,7 @@ Each Cubicle environment consists of three logical filesystem layers:
 | 3. work | cub-ENV-work Docker volume    | `~/w/`           | long     |
 
 1. The base operating system. This is the "cub-cubicle-base" Docker image that
-   is built automatically by Cubicle. It's currently based on Debian 11.
+   is built automatically by Cubicle. It's currently based on Debian 12.
 
 2. A home directory. Inside the environment, this is at the same path as the
    host's `$HOME`, but it's not shared with the host. It lives in

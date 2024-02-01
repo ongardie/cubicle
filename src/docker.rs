@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
@@ -320,7 +320,7 @@ impl Docker {
             }
         }
 
-        command.arg("--workdir").arg(&container_work.as_env_raw());
+        command.arg("--workdir").arg(container_work.as_env_raw());
         command.arg(self.base_image.encoded());
         command.args(["sleep", "90d"]);
         command.stdout(Stdio::null());
@@ -442,7 +442,23 @@ impl Docker {
         let status = output.status;
         if !status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            if status.code() == Some(1) && stderr.starts_with("Error: No such volume") {
+            // Errors for missing volume on Debian 12 with docker.io
+            // 20.10.24+dfsg1 are like:
+            //
+            // ```
+            // [blank line]
+            // Error: No such volume: [name]
+            // ```
+            //
+            // However, on ubuntu-20.04 and macos-12 in CI, they're like:
+            //
+            // ```
+            // Error response from daemon: get NAME: no such volume
+            // ```
+            if status.code() == Some(1)
+                && (stderr.starts_with("Error: No such volume")
+                    || stderr.ends_with(": no such volume"))
+            {
                 return Ok(None);
             }
             return Err(anyhow!(
@@ -470,7 +486,7 @@ impl Docker {
                 name.encoded()
             ))
             .arg("--rm")
-            .arg("debian:11")
+            .arg("debian:12")
             .arg("du")
             .arg("--block-size=1")
             .arg("--summarize")
@@ -574,7 +590,7 @@ impl Docker {
             ))
             .arg("--rm")
             .args(["--workdir", "/v"])
-            .arg("debian:11")
+            .arg("debian:12")
             .arg("cat")
             .arg(path)
             .stdout(Stdio::piped())
@@ -668,7 +684,7 @@ impl Docker {
         match run_command {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { env_vars, .. } => {
-                for (var, value) in env_vars.iter() {
+                for (var, value) in *env_vars {
                     command.arg("--env").arg(format!("{}={}", var, value));
                 }
             }
@@ -678,10 +694,7 @@ impl Docker {
 
         // If we really don't have a TTY, Docker will exit with status 1 when
         // we request one.
-        if atty::is(atty::Stream::Stdin)
-            || atty::is(atty::Stream::Stdout)
-            || atty::is(atty::Stream::Stderr)
-        {
+        if io::stdin().is_terminal() || io::stdout().is_terminal() || io::stderr().is_terminal() {
             command.arg("--tty");
         }
 
@@ -691,7 +704,7 @@ impl Docker {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { command: exec, .. } => {
                 command.arg("-c");
-                command.arg(shlex::join(exec.iter().map(|a| a.as_str())));
+                command.arg(shlex::try_join(exec.iter().map(|a| a.as_str())).expect("TODO"));
             }
         }
 
@@ -978,14 +991,12 @@ fn fallback_path(container_home: &EnvPath) -> OsString {
     let home_bin = container_home.join("bin");
     let paths = [
         home_bin.as_env_raw(),
-        // The debian:11 image hasn't gone through usrmerge, so
-        // /usr/bin and /bin are distinct there.
-        Path::new("/bin"),
-        Path::new("/sbin"),
+        // The debian:12 image has usrmerge, so /bin and /sbin are symlinks and
+        // do not need to be included.
         Path::new("/usr/bin"),
         Path::new("/usr/sbin"),
     ];
-    let joined = match std::env::join_paths(&paths)
+    let joined = match std::env::join_paths(paths)
         .with_context(|| format!("unable to add container home dir ({container_home:?}) to $PATH"))
     {
         Ok(joined) => joined,
@@ -1000,6 +1011,7 @@ fn fallback_path(container_home: &EnvPath) -> OsString {
 /// Debian packages that many packages might depend on for basic functionality.
 /// They are installed in the CI system.
 const BASE_PACKAGES: &[&str] = &[
+    "apt-utils", // Silences a warning from apt about package configuration.
     "bzip2",
     "ca-certificates",
     "curl",
@@ -1029,10 +1041,10 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
     let packages: Vec<String> = args
         .packages
         .iter()
-        .map(|p| shlex::quote(p).into_owned())
+        .map(|p| shlex::try_quote(p).expect("TODO").into_owned())
         .collect();
-    let timezone = shlex::quote(args.timezone);
-    let user = shlex::quote(args.user);
+    let timezone = shlex::try_quote(args.timezone).expect("TODO");
+    let user = shlex::try_quote(args.user).expect("TODO");
     let has_apt_file = args.packages.contains("apt-file");
     let has_sudo = args.packages.contains("sudo");
     let uid = args.uids.real_user;
@@ -1043,8 +1055,8 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
     std::mem::drop(args);
 
     // Note: If we wanted to trim this down even more for CI, we might be able
-    // to use the '11-slim' base image here.
-    writeln!(w, "FROM debian:11")?;
+    // to use the '12-slim' base image here.
+    writeln!(w, "FROM debian:12")?;
 
     // Set time zone.
     writeln!(w, "RUN echo {timezone} > /etc/timezone && \\")?;
@@ -1083,7 +1095,7 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
     // Configure and Update apt.
     writeln!(
         w,
-        r#"RUN sed -i 's/ main$/ main contrib non-free/' /etc/apt/sources.list"#
+        r#"RUN sed -i 's/^Components: main$/Components: main contrib non-free/' /etc/apt/sources.list.d/debian.sources"#
     )?;
     writeln!(w, "RUN apt-get update && apt-get upgrade --yes")?;
 
@@ -1127,11 +1139,11 @@ mod tests {
     fn fallback_path() {
         assert_snapshot!(
             super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/foo")).unwrap()).to_string_lossy(),
-            @"PATH=/home/foo/bin:/bin:/sbin:/usr/bin:/usr/sbin"
+            @"PATH=/home/foo/bin:/usr/bin:/usr/sbin"
         );
         assert_snapshot!(
             super::fallback_path(&EnvPath::try_from(PathBuf::from("/home/fo:oo")).unwrap()).to_string_lossy(),
-            @"PATH=/bin:/sbin:/usr/bin:/usr/sbin"
+            @"PATH=/usr/bin:/usr/sbin"
         );
     }
 

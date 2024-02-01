@@ -1,6 +1,6 @@
 [depends.debian]
 clang = {}
-"libssl1.1" = {}
+libssl3 = {}
 zlib1g = {}
 
 [build_depends.debian]

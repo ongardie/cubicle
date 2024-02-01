@@ -6,7 +6,6 @@
 
 use clap::{Parser, Subcommand};
 use clap_complete::{generate, shells::Shell};
-use std::borrow::Borrow;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug, Display};
 use std::io;
@@ -230,7 +229,7 @@ struct PathWithVarExpansion(PathBuf);
 impl PathWithVarExpansion {
     /// Helper for Display. Split out for unit testing.
     fn sub_home_prefix(&self, home: &Path) -> String {
-        if let Ok(rest) = self.0.strip_prefix(&home) {
+        if let Ok(rest) = self.0.strip_prefix(home) {
             format!("$HOME{}{}", std::path::MAIN_SEPARATOR, rest.display())
         } else {
             format!("{}", self.0.display())
@@ -352,8 +351,9 @@ fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
                             r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \"#
                         )?;
                     }
-                    r#"_cub "$@""# => {
+                    r#"if [ "$funcstack[1]" = "_cub" ]; then"# => {
                         counts[4] += 1;
+                        #[allow(clippy::write_literal)]
                         writeln!(
                             out,
                             "{}",
@@ -547,7 +547,7 @@ fn matching_environments(
     for pattern in patterns {
         let start = matched.len();
         matched.extend(drain_filter(&mut unmatched, |name| pattern.matches(name)));
-        if matched.len() == start && !matched.iter().any(|name| pattern.matches(name.borrow())) {
+        if matched.len() == start && !matched.iter().any(|name| pattern.matches(name)) {
             if pattern.0.is_pattern() {
                 warn(anyhow!(
                     "pattern {pattern} did not match any environment names"

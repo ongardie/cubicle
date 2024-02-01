@@ -73,7 +73,7 @@ impl RandomNameGenerator {
 
     fn download_or_open_eff_list(&self) -> Result<std::fs::File> {
         let eff_word_list = self.cache_dir.join("eff_short_wordlist_1.txt");
-        let file = match std::fs::File::open(&eff_word_list.as_host_raw()) {
+        let file = match std::fs::File::open(eff_word_list.as_host_raw()) {
             Ok(file) => file,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 println!("Downloading EFF short wordlist");
@@ -83,8 +83,8 @@ impl RandomNameGenerator {
                         format!("error downloading word list from {:?}", self.eff_url)
                     })?;
                 std::fs::create_dir_all(self.cache_dir.as_host_raw()).todo_context()?;
-                std::fs::write(&eff_word_list.as_host_raw(), body).todo_context()?;
-                std::fs::File::open(&eff_word_list.as_host_raw()).todo_context()?
+                std::fs::write(eff_word_list.as_host_raw(), body).todo_context()?;
+                std::fs::File::open(eff_word_list.as_host_raw()).todo_context()?
             }
             Err(e) => return Err(e).todo_context(),
         };
