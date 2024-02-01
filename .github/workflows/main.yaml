@@ -11,8 +11,217 @@ on:
   - cron: 0 16 * * *
   workflow_dispatch: {}
 jobs:
+  build-macos-12-stable:
+    name: Build & check (macos-12, Rust stable)
+    runs-on: macos-12
+    steps:
+    - name: Check out sources
+      uses: actions/checkout@v2
+    - name: Install Rust stable toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        components: rustfmt, clippy
+        override: 'true'
+        profile: minimal
+        toolchain: stable
+    - name: Use Rust/Cargo cache
+      uses: actions/cache@v3
+      with:
+        key: cargo-macos-12-stable-${{ hashFiles('Cargo.lock') }}
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git/
+          target/
+        restore-keys: cargo-macos-12-stable-
+    - name: Run cargo build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+    - name: Run cargo test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Save build artifact
+      run: |
+        tar -C .. --create \
+            cubicle/packages/ \
+            cubicle/src/bin/system_test/github/ \
+            cubicle/target/debug/cub \
+            cubicle/target/debug/system_test | \
+        gzip -1 > debug-dist.tar.gz
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        if-no-files-found: error
+        name: debug-dist-macos-12-stable
+        path: debug-dist.tar.gz
+  build-macos-13-stable:
+    name: Build & check (macos-13, Rust stable)
+    runs-on: macos-13
+    steps:
+    - name: Check out sources
+      uses: actions/checkout@v2
+    - name: Install Rust stable toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        components: rustfmt, clippy
+        override: 'true'
+        profile: minimal
+        toolchain: stable
+    - name: Use Rust/Cargo cache
+      uses: actions/cache@v3
+      with:
+        key: cargo-macos-13-stable-${{ hashFiles('Cargo.lock') }}
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git/
+          target/
+        restore-keys: cargo-macos-13-stable-
+    - name: Run cargo build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+    - name: Run cargo test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Save build artifact
+      run: |
+        tar -C .. --create \
+            cubicle/packages/ \
+            cubicle/src/bin/system_test/github/ \
+            cubicle/target/debug/cub \
+            cubicle/target/debug/system_test | \
+        gzip -1 > debug-dist.tar.gz
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        if-no-files-found: error
+        name: debug-dist-macos-13-stable
+        path: debug-dist.tar.gz
+  build-ubuntu-22-04-nightly:
+    name: Build & check (ubuntu-22.04, Rust nightly)
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Check out sources
+      uses: actions/checkout@v2
+    - name: Install Rust nightly toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        components: rustfmt, clippy
+        override: 'true'
+        profile: minimal
+        toolchain: nightly
+    - name: Use Rust/Cargo cache
+      uses: actions/cache@v3
+      with:
+        key: cargo-ubuntu-22.04-nightly-${{ hashFiles('Cargo.lock') }}
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git/
+          target/
+        restore-keys: cargo-ubuntu-22.04-nightly-
+    - name: Run cargo build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+    - name: Run cargo test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Save build artifact
+      run: |
+        tar -C .. --create \
+            cubicle/packages/ \
+            cubicle/src/bin/system_test/github/ \
+            cubicle/target/debug/cub \
+            cubicle/target/debug/system_test | \
+        gzip -1 > debug-dist.tar.gz
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        if-no-files-found: error
+        name: debug-dist-ubuntu-22.04-nightly
+        path: debug-dist.tar.gz
+  build-ubuntu-22-04-stable:
+    name: Build & check (ubuntu-22.04, Rust stable)
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Check out sources
+      uses: actions/checkout@v2
+    - name: Install Rust stable toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        components: rustfmt, clippy
+        override: 'true'
+        profile: minimal
+        toolchain: stable
+    - name: Use Rust/Cargo cache
+      uses: actions/cache@v3
+      with:
+        key: cargo-ubuntu-22.04-stable-${{ hashFiles('Cargo.lock') }}
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git/
+          target/
+        restore-keys: cargo-ubuntu-22.04-stable-
+    - name: Run cargo build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+    - name: Run cargo test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run cargo fmt
+      uses: actions-rs/cargo@v1
+      with:
+        args: --all -- --check
+        command: fmt
+    - name: Run clippy
+      uses: actions-rs/cargo@v1
+      with:
+        args: -- -D warnings
+        command: clippy
+    - name: Check GitHub YAML
+      run: |
+        cargo run --bin gen_github_yaml > .github/workflows/main.gen.yaml
+        diff .github/workflows/main.yaml .github/workflows/main.gen.yaml
+    - name: Install cargo audit
+      uses: actions-rs/cargo@v1
+      with:
+        args: cargo-audit
+        command: install
+    - name: Run cargo audit
+      uses: actions-rs/cargo@v1
+      with:
+        command: audit
+    - name: Save build artifact
+      run: |
+        tar -C .. --create \
+            cubicle/packages/ \
+            cubicle/src/bin/system_test/github/ \
+            cubicle/target/debug/cub \
+            cubicle/target/debug/system_test | \
+        gzip -1 > debug-dist.tar.gz
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        if-no-files-found: error
+        name: debug-dist-ubuntu-22.04-stable
+        path: debug-dist.tar.gz
   system_test-macos-12-docker:
     name: System tests (macos-12, docker)
+    needs:
+    - build-macos-12-stable
     runs-on: macos-12
     steps:
     - name: Install Docker
@@ -26,18 +235,8 @@ jobs:
             default && \
         eval "$(docker-machine env default)" && \
         env | grep DOCKER >> $GITHUB_ENV
-    - name: Docker debian 11
-      run: docker run --rm debian:11 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
-    - name: Docker debian 12.2
-      run: docker run --rm debian:12.2 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
-    - name: Docker debian 12-slim
-      run: docker run --rm debian:12-slim sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
-    - name: Docker debian 12
-      run: docker run --rm debian:12 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
-    - name: Docker debian testing
-      run: docker run --rm debian:testing sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
-    - name: Abort
-      run: 'false'
+    - name: Docker hello world
+      run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:
@@ -50,6 +249,129 @@ jobs:
         RUST_BACKTRACE: '1'
     - name: Run system test
       run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
+      env:
+        INSTA_WORKSPACE_ROOT: .
+        RUST_BACKTRACE: '1'
+  system_test-macos-13-docker:
+    name: System tests (macos-13, docker)
+    needs:
+    - build-macos-13-stable
+    runs-on: macos-13
+    steps:
+    - name: Install Docker
+      run: brew install docker
+    - name: Install Colima
+      run: |
+        brew install --overwrite openssl@3
+        brew install colima
+    - name: Start Colima
+      run: colima start
+    - name: Docker hello world
+      run: docker run --rm debian:12 echo 'Hello world'
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: debug-dist-macos-13-stable
+    - name: Unpack build artifact
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+    - name: Run cub list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run system test
+      run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
+      env:
+        INSTA_WORKSPACE_ROOT: .
+        RUST_BACKTRACE: '1'
+  system_test-ubuntu-22-04-bubblewrap:
+    name: System tests (ubuntu-22.04, bubblewrap)
+    needs:
+    - build-ubuntu-22-04-stable
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Install Bubblewrap and minor dependencies
+      run: sudo apt-get install -y bubblewrap pv
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: debug-dist-ubuntu-22.04-stable
+    - name: Unpack build artifact
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+    - name: Run cub list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/bubblewrap.toml' list
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run system test
+      run: ./target/debug/system_test --config 'src/bin/system_test/github/bubblewrap.toml'
+      env:
+        INSTA_WORKSPACE_ROOT: .
+        RUST_BACKTRACE: '1'
+  system_test-ubuntu-22-04-docker:
+    name: System tests (ubuntu-22.04, docker)
+    needs:
+    - build-ubuntu-22-04-stable
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Docker hello world
+      run: docker run --rm debian:12 echo 'Hello world'
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: debug-dist-ubuntu-22.04-stable
+    - name: Unpack build artifact
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+    - name: Run cub list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run system test
+      run: ./target/debug/system_test --config 'src/bin/system_test/github/docker.toml'
+      env:
+        INSTA_WORKSPACE_ROOT: .
+        RUST_BACKTRACE: '1'
+  system_test-ubuntu-22-04-docker-bind:
+    name: System tests (ubuntu-22.04, docker-bind)
+    needs:
+    - build-ubuntu-22-04-stable
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Docker hello world
+      run: docker run --rm debian:12 echo 'Hello world'
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: debug-dist-ubuntu-22.04-stable
+    - name: Unpack build artifact
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+    - name: Run cub list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/docker-bind.toml' list
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run system test
+      run: ./target/debug/system_test --config 'src/bin/system_test/github/docker-bind.toml'
+      env:
+        INSTA_WORKSPACE_ROOT: .
+        RUST_BACKTRACE: '1'
+  system_test-ubuntu-22-04-user:
+    name: System tests (ubuntu-22.04, user)
+    needs:
+    - build-ubuntu-22-04-stable
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Install minor dependencies
+      run: sudo apt-get install -y pv
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: debug-dist-ubuntu-22.04-stable
+    - name: Unpack build artifact
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+    - name: Run cub list
+      run: ./target/debug/cub --config 'src/bin/system_test/github/user.toml' list
+      env:
+        RUST_BACKTRACE: '1'
+    - name: Run system test
+      run: ./target/debug/system_test --config 'src/bin/system_test/github/user.toml'
       env:
         INSTA_WORKSPACE_ROOT: .
         RUST_BACKTRACE: '1'

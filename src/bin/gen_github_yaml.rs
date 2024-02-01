@@ -328,7 +328,6 @@ fn ci_workflow() -> Workflow {
 fn ci_jobs() -> BTreeMap<JobKey, Job> {
     let mut jobs = BTreeMap::new();
 
-    /*
     let ubuntu_stable_key = {
         let (key, job) = build_job(Os::Ubuntu, Rust::Stable, RunOnceChecks(true));
         jobs.insert(key.clone(), job);
@@ -364,13 +363,6 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
         system_test_job(Os::Mac12, Runner::Docker, vec![mac12_stable_key]),
         system_test_job(Os::Mac13, Runner::Docker, vec![mac13_stable_key]),
     ]);
-    */
-
-    jobs.extend([system_test_job(
-        Os::Mac12,
-        Runner::Docker,
-        vec![/*mac12_stable_key*/],
-    )]);
 
     jobs
 }
@@ -565,20 +557,11 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
         Runner::Docker | Runner::DockerBind => {
             steps.extend(install_docker(os));
 
-            for version in ["11", "12.2", "12-slim", "12", "testing"] {
-                steps.push(Step {
-                    name: format!("Docker debian {version}"),
-                    details: Run {
-                        // run: s("docker run --rm debian:12 echo 'Hello world'"),
-                        run: format!("docker run --rm debian:{version} sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'"),
-                    },
-                    env: dict! {},
-                });
-            }
-
             steps.push(Step {
-                name: s("Abort"),
-                details: Run { run: s("false") },
+                name: s("Docker hello world"),
+                details: Run {
+                    run: s("docker run --rm debian:12 echo 'Hello world'"),
+                },
                 env: dict! {},
             });
         }
