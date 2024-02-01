@@ -493,22 +493,15 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
         });
     }
 
-    // The uploader currently uses gzip internally and will aggressively and
-    // slowly gzip anything it doesn't think is already compressed. It has an
-    // exception for a very small number of file extensions, including `.gz`.
-    // This uses `gzip -1` first, which saves a second or two. We can switch to
-    // Zstd (which would save another couple of seconds) once this PR is
-    // merged: <https://github.com/actions/toolkit/pull/1118>.
     steps.push(Step {
         name: s("Save build artifact"),
         details: Run {
             run: s(indoc! {"
-                tar -C .. --create \\
+                tar -C .. --create --file debug-dist.tar.zst \\
                     cubicle/packages/ \\
                     cubicle/src/bin/system_test/github/ \\
                     cubicle/target/debug/cub \\
-                    cubicle/target/debug/system_test | \\
-                gzip -1 > debug-dist.tar.gz
+                    cubicle/target/debug/system_test
             "}),
         },
         env: dict! {},
@@ -520,7 +513,7 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
             uses: Action::UploadArtifact,
             with: dict! {
                 "name" => format!("debug-dist-{os}-{rust}"),
-                "path" => "debug-dist.tar.gz",
+                "path" => "debug-dist.tar.zst",
                 "if-no-files-found" => "error",
             },
         },
@@ -591,7 +584,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
     steps.push(Step {
         name: s("Unpack build artifact"),
         details: Run {
-            run: s("tar --directory .. --extract --verbose --file debug-dist.tar.gz"),
+            run: s("tar --directory .. --extract --verbose --file debug-dist.tar.zst"),
         },
         env: dict! {},
     });

@@ -45,18 +45,17 @@ jobs:
         RUST_BACKTRACE: '1'
     - name: Save build artifact
       run: |
-        tar -C .. --create \
+        tar -C .. --create --file debug-dist.tar.zst \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cub \
-            cubicle/target/debug/system_test | \
-        gzip -1 > debug-dist.tar.gz
+            cubicle/target/debug/system_test
     - name: Upload build artifact
       uses: actions/upload-artifact@v3
       with:
         if-no-files-found: error
         name: debug-dist-macos-12-stable
-        path: debug-dist.tar.gz
+        path: debug-dist.tar.zst
   build-macos-13-stable:
     name: Build & check (macos-13, Rust stable)
     runs-on: macos-13
@@ -91,18 +90,17 @@ jobs:
         RUST_BACKTRACE: '1'
     - name: Save build artifact
       run: |
-        tar -C .. --create \
+        tar -C .. --create --file debug-dist.tar.zst \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cub \
-            cubicle/target/debug/system_test | \
-        gzip -1 > debug-dist.tar.gz
+            cubicle/target/debug/system_test
     - name: Upload build artifact
       uses: actions/upload-artifact@v3
       with:
         if-no-files-found: error
         name: debug-dist-macos-13-stable
-        path: debug-dist.tar.gz
+        path: debug-dist.tar.zst
   build-ubuntu-22-04-nightly:
     name: Build & check (ubuntu-22.04, Rust nightly)
     runs-on: ubuntu-22.04
@@ -137,18 +135,17 @@ jobs:
         RUST_BACKTRACE: '1'
     - name: Save build artifact
       run: |
-        tar -C .. --create \
+        tar -C .. --create --file debug-dist.tar.zst \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cub \
-            cubicle/target/debug/system_test | \
-        gzip -1 > debug-dist.tar.gz
+            cubicle/target/debug/system_test
     - name: Upload build artifact
       uses: actions/upload-artifact@v3
       with:
         if-no-files-found: error
         name: debug-dist-ubuntu-22.04-nightly
-        path: debug-dist.tar.gz
+        path: debug-dist.tar.zst
   build-ubuntu-22-04-stable:
     name: Build & check (ubuntu-22.04, Rust stable)
     runs-on: ubuntu-22.04
@@ -206,18 +203,17 @@ jobs:
         command: audit
     - name: Save build artifact
       run: |
-        tar -C .. --create \
+        tar -C .. --create --file debug-dist.tar.zst \
             cubicle/packages/ \
             cubicle/src/bin/system_test/github/ \
             cubicle/target/debug/cub \
-            cubicle/target/debug/system_test | \
-        gzip -1 > debug-dist.tar.gz
+            cubicle/target/debug/system_test
     - name: Upload build artifact
       uses: actions/upload-artifact@v3
       with:
         if-no-files-found: error
         name: debug-dist-ubuntu-22.04-stable
-        path: debug-dist.tar.gz
+        path: debug-dist.tar.zst
   system_test-macos-12-docker:
     name: System tests (macos-12, docker)
     needs:
@@ -235,7 +231,7 @@ jobs:
       with:
         name: debug-dist-macos-12-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
       env:
@@ -266,7 +262,7 @@ jobs:
       with:
         name: debug-dist-macos-13-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
       env:
@@ -289,7 +285,7 @@ jobs:
       with:
         name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/bubblewrap.toml' list
       env:
@@ -312,7 +308,7 @@ jobs:
       with:
         name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/docker.toml' list
       env:
@@ -335,7 +331,7 @@ jobs:
       with:
         name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/docker-bind.toml' list
       env:
@@ -358,7 +354,7 @@ jobs:
       with:
         name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
-      run: tar --directory .. --extract --verbose --file debug-dist.tar.gz
+      run: tar --directory .. --extract --verbose --file debug-dist.tar.zst
     - name: Run cub list
       run: ./target/debug/cub --config 'src/bin/system_test/github/user.toml' list
       env:
