@@ -16,7 +16,7 @@ jobs:
     runs-on: macos-12
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Install Rust stable toolchain
       uses: actions-rs/toolchain@v1
       with:
@@ -25,7 +25,7 @@ jobs:
         profile: minimal
         toolchain: stable
     - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         key: cargo-macos-12-stable-${{ hashFiles('Cargo.lock') }}
         path: |
@@ -51,7 +51,7 @@ jobs:
             cubicle/target/debug/cub \
             cubicle/target/debug/system_test
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         if-no-files-found: error
         name: debug-dist-macos-12-stable
@@ -61,7 +61,7 @@ jobs:
     runs-on: macos-13
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Install Rust stable toolchain
       uses: actions-rs/toolchain@v1
       with:
@@ -70,7 +70,7 @@ jobs:
         profile: minimal
         toolchain: stable
     - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         key: cargo-macos-13-stable-${{ hashFiles('Cargo.lock') }}
         path: |
@@ -96,7 +96,7 @@ jobs:
             cubicle/target/debug/cub \
             cubicle/target/debug/system_test
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         if-no-files-found: error
         name: debug-dist-macos-13-stable
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Install Rust nightly toolchain
       uses: actions-rs/toolchain@v1
       with:
@@ -115,7 +115,7 @@ jobs:
         profile: minimal
         toolchain: nightly
     - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         key: cargo-ubuntu-22.04-nightly-${{ hashFiles('Cargo.lock') }}
         path: |
@@ -141,7 +141,7 @@ jobs:
             cubicle/target/debug/cub \
             cubicle/target/debug/system_test
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         if-no-files-found: error
         name: debug-dist-ubuntu-22.04-nightly
@@ -151,7 +151,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Install Rust stable toolchain
       uses: actions-rs/toolchain@v1
       with:
@@ -160,7 +160,7 @@ jobs:
         profile: minimal
         toolchain: stable
     - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         key: cargo-ubuntu-22.04-stable-${{ hashFiles('Cargo.lock') }}
         path: |
@@ -209,7 +209,7 @@ jobs:
             cubicle/target/debug/cub \
             cubicle/target/debug/system_test
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         if-no-files-found: error
         name: debug-dist-ubuntu-22.04-stable
@@ -227,7 +227,7 @@ jobs:
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: debug-dist-macos-12-stable
     - name: Unpack build artifact
@@ -258,7 +258,7 @@ jobs:
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: debug-dist-macos-13-stable
     - name: Unpack build artifact
@@ -281,7 +281,7 @@ jobs:
     - name: Install Bubblewrap and minor dependencies
       run: sudo apt-get install -y bubblewrap pv
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
@@ -304,7 +304,7 @@ jobs:
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
@@ -327,7 +327,7 @@ jobs:
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact
@@ -350,7 +350,7 @@ jobs:
     - name: Install minor dependencies
       run: sudo apt-get install -y pv
     - name: Download build artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: debug-dist-ubuntu-22.04-stable
     - name: Unpack build artifact

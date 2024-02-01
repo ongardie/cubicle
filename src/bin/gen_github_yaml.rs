@@ -242,14 +242,14 @@ impl Action {
     fn as_str(&self) -> &'static str {
         use Action::*;
         match self {
-            Checkout => "actions/checkout@v2",
-            Cache => "actions/cache@v3",
-            CacheRestore => "actions/cache/restore@v3",
-            CacheSave => "actions/cache/save@v3",
+            Checkout => "actions/checkout@v4",
+            Cache => "actions/cache@v4",
+            CacheRestore => "actions/cache/restore@v4",
+            CacheSave => "actions/cache/save@v4",
             Cargo => "actions-rs/cargo@v1",
-            DownloadArtifact => "actions/download-artifact@v3",
+            DownloadArtifact => "actions/download-artifact@v4",
             RustToolchain => "actions-rs/toolchain@v1",
-            UploadArtifact => "actions/upload-artifact@v3",
+            UploadArtifact => "actions/upload-artifact@v4",
         }
     }
 }
