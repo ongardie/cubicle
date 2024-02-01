@@ -685,8 +685,11 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
                 //
                 // The default disk size is 60 GiB, and the VZ backend appears
                 // to unpack and "expand" the QCOW2 image. The runner only has
-                // 14 GB, so set the disk size smaller.
-                run: s("colima start --disk 6 --vm-type vz"),
+                // 14 GB and is slow to write to disk, so set the disk size
+                // smaller. The QCOW2 image expands to a 3.5 GiB raw disk, and
+                // the `--disk` flag takes an int, so the smallest reasonable
+                // size is probably 4.
+                run: s("colima start --disk 4 --vm-type vz"),
             },
             env: dict! {},
         },
