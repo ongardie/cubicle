@@ -639,7 +639,7 @@ fn docker_mac_install_steps() -> Vec<Step> {
                 // The Lima docs say that the VZ backend is faster. It's only
                 // available starting in Mac OS 13. See
                 // <https://lima-vm.io/docs/config/vmtype/>.
-                run: s("colima start -vm-type vz"),
+                run: s("colima start --vm-type vz"),
             },
             env: dict! {},
         },
