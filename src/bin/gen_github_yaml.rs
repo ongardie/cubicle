@@ -632,7 +632,16 @@ fn install_docker(os: Os) -> Vec<Step> {
     // Docker isn't installed on the Mac runners due to licensing issues:
     // see <https://github.com/actions/runner-images/issues/2150>.
     match os {
-        // This takes about 2 minutes to get through the Docker "Hello world".
+        // This used to work but doesn't seem reliable as of 2024-02-01.
+        // When it does work, it takes about 2 minutes to get through the Docker
+        // "Hello world".
+        //
+        // For some bizarre reason, the debian:12 (currently 12.4) Docker image
+        // can't verify the GPG signatures during `apt-update`: "The following
+        // signatures couldn't be verified because the public key is not
+        // available". The same image works on Linux and Mac OS 13 with Colima,
+        // and the debian:11 image works on Mac OS 12 with boot2docker.
+        /*
         Os::Mac12 => vec![
             Step {
                 name: s("Install Docker"),
@@ -682,7 +691,7 @@ fn install_docker(os: Os) -> Vec<Step> {
                 env: dict! {},
             },
         ],
-
+        */
         // This works, but it takes about 7 minutes to get through the Docker
         // "Hello world".
         //
@@ -691,31 +700,16 @@ fn install_docker(os: Os) -> Vec<Step> {
         //   install virtualbox`) on the Mac OS 13 runners.
         // - boot2docker is deprecated.
         // - docker-machine is deprecated.
-        Os::Mac13 => vec![
-            Step {
+        Os::Mac12 | Os::Mac13 => {
+            let install_docker = Step {
                 name: s("Install Docker"),
                 details: Run {
                     run: s("brew install docker"),
                 },
                 env: dict! {},
-            },
-            // Colima isn't installed in the Mac OS 13 runners.
-            Step {
-                name: s("Install Colima"),
-                details: Run {
-                    // Currently, installing colima upgrades openssl from 3.2.0_1
-                    // to 3.2.1.  Somehow, this conflicts with version 1.1,
-                    // fighting over the symlink `/usr/local/bin/openssl`. To work
-                    // around this, install openssl explicitly with the
-                    // `--overwrite` flag.
-                    run: s(indoc! {"
-                    brew install --overwrite openssl@3
-                    brew install colima
-                "}),
-                },
-                env: dict! {},
-            },
-            Step {
+            };
+
+            let start_colima = Step {
                 name: s("Start Colima"),
                 details: Run {
                     // Unfortunately, VZ seems to hang forever as of 2024-01-31.
@@ -735,8 +729,35 @@ fn install_docker(os: Os) -> Vec<Step> {
                     run: s("colima start"), // using QEMU by default, not VZ
                 },
                 env: dict! {},
-            },
-        ],
+            };
+
+            match os {
+                Os::Mac12 => vec![install_docker, start_colima],
+
+                // Colima isn't installed in the Mac OS 13 runners.
+                Os::Mac13 => vec![
+                    install_docker,
+                    Step {
+                        name: s("Install Colima"),
+                        details: Run {
+                            // Currently, installing colima upgrades openssl from 3.2.0_1
+                            // to 3.2.1.  Somehow, this conflicts with version 1.1,
+                            // fighting over the symlink `/usr/local/bin/openssl`. To work
+                            // around this, install openssl explicitly with the
+                            // `--overwrite` flag.
+                            run: s(indoc! {"
+                                brew install --overwrite openssl@3
+                                brew install colima
+                            "}),
+                        },
+                        env: dict! {},
+                    },
+                    start_colima,
+                ],
+
+                Os::Ubuntu => unreachable!(),
+            }
+        }
 
         Os::Ubuntu => vec![/* works out of the box */],
     }
