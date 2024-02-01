@@ -220,8 +220,6 @@ jobs:
         path: debug-dist.tar.gz
   system_test-macos-12-docker:
     name: System tests (macos-12, docker)
-    needs:
-    - build-macos-12-stable
     runs-on: macos-12
     steps:
     - name: Install Docker
@@ -236,7 +234,7 @@ jobs:
         eval "$(docker-machine env default)" && \
         env | grep DOCKER >> $GITHUB_ENV
     - name: Docker hello world
-      run: docker run --rm debian:12 echo 'Hello world'
+      run: docker run --rm debian:12 apt-get update
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:
@@ -267,7 +265,7 @@ jobs:
     - name: Start Colima
       run: colima start
     - name: Docker hello world
-      run: docker run --rm debian:12 echo 'Hello world'
+      run: docker run --rm debian:12 apt-get update
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:
@@ -313,7 +311,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Docker hello world
-      run: docker run --rm debian:12 echo 'Hello world'
+      run: docker run --rm debian:12 apt-get update
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:
@@ -336,7 +334,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Docker hello world
-      run: docker run --rm debian:12 echo 'Hello world'
+      run: docker run --rm debian:12 apt-get update
     - name: Download build artifact
       uses: actions/download-artifact@v3
       with:

@@ -360,7 +360,7 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
             vec![ubuntu_stable_key.clone()],
         ),
         system_test_job(Os::Ubuntu, Runner::User, vec![ubuntu_stable_key]),
-        system_test_job(Os::Mac12, Runner::Docker, vec![mac12_stable_key]),
+        system_test_job(Os::Mac12, Runner::Docker, vec![/*mac12_stable_key*/]),
         system_test_job(Os::Mac13, Runner::Docker, vec![mac13_stable_key]),
     ]);
 
@@ -560,7 +560,8 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
             steps.push(Step {
                 name: s("Docker hello world"),
                 details: Run {
-                    run: s("docker run --rm debian:12 echo 'Hello world'"),
+                    // run: s("docker run --rm debian:12 echo 'Hello world'"),
+                    run: s("docker run --rm debian:12 apt-get update"),
                 },
                 env: dict! {},
             });
