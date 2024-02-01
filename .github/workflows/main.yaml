@@ -18,12 +18,9 @@ jobs:
     - name: Check out sources
       uses: actions/checkout@v4
     - name: Install Rust stable toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        components: rustfmt, clippy
-        override: 'true'
-        profile: minimal
-        toolchain: stable
+      run: |
+        rustup toolchain install stable --profile minimal --component clippy,rustfmt
+        rustup default stable
     - name: Use Rust/Cargo cache
       uses: actions/cache@v4
       with:
@@ -34,13 +31,9 @@ jobs:
           target/
         restore-keys: cargo-macos-13-stable-
     - name: Run cargo build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
+      run: cargo build
     - name: Run cargo test
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
+      run: cargo test
       env:
         RUST_BACKTRACE: '1'
     - name: Save build artifact
@@ -63,12 +56,9 @@ jobs:
     - name: Check out sources
       uses: actions/checkout@v4
     - name: Install Rust nightly toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        components: rustfmt, clippy
-        override: 'true'
-        profile: minimal
-        toolchain: nightly
+      run: |
+        rustup toolchain install nightly --profile minimal --component clippy,rustfmt
+        rustup default nightly
     - name: Use Rust/Cargo cache
       uses: actions/cache@v4
       with:
@@ -79,13 +69,9 @@ jobs:
           target/
         restore-keys: cargo-ubuntu-22.04-nightly-
     - name: Run cargo build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
+      run: cargo build
     - name: Run cargo test
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
+      run: cargo test
       env:
         RUST_BACKTRACE: '1'
     - name: Save build artifact
@@ -108,12 +94,9 @@ jobs:
     - name: Check out sources
       uses: actions/checkout@v4
     - name: Install Rust stable toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        components: rustfmt, clippy
-        override: 'true'
-        profile: minimal
-        toolchain: stable
+      run: |
+        rustup toolchain install stable --profile minimal --component clippy,rustfmt
+        rustup default stable
     - name: Use Rust/Cargo cache
       uses: actions/cache@v4
       with:
@@ -124,38 +107,23 @@ jobs:
           target/
         restore-keys: cargo-ubuntu-22.04-stable-
     - name: Run cargo build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
+      run: cargo build
     - name: Run cargo test
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
+      run: cargo test
       env:
         RUST_BACKTRACE: '1'
     - name: Run cargo fmt
-      uses: actions-rs/cargo@v1
-      with:
-        args: --all -- --check
-        command: fmt
+      run: cargo fmt --all -- --check
     - name: Run clippy
-      uses: actions-rs/cargo@v1
-      with:
-        args: -- -D warnings
-        command: clippy
+      run: cargo clippy -- -D warnings
     - name: Check GitHub YAML
       run: |
         cargo run --bin gen_github_yaml > .github/workflows/main.gen.yaml
         diff .github/workflows/main.yaml .github/workflows/main.gen.yaml
     - name: Install cargo audit
-      uses: actions-rs/cargo@v1
-      with:
-        args: cargo-audit
-        command: install
+      run: cargo install cargo-audit
     - name: Run cargo audit
-      uses: actions-rs/cargo@v1
-      with:
-        command: audit
+      run: cargo audit
     - name: Save build artifact
       run: |
         tar -C .. --create --file debug-dist.tar.zst \

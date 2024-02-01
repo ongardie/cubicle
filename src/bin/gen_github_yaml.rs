@@ -46,7 +46,7 @@
 //! The types in this file do not aim to model all the functionality of GitHub
 //! workflows. They are tailored specifically to the needs of Cubicle.
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 use serde::{Serialize, Serializer};
 use serde_json::json;
 use serde_yaml::{Mapping, Value};
@@ -233,9 +233,7 @@ enum Action {
     Cache,
     CacheRestore,
     CacheSave,
-    Cargo,
     DownloadArtifact,
-    RustToolchain,
     UploadArtifact,
 }
 
@@ -247,9 +245,7 @@ impl Action {
             Cache => "actions/cache@v4",
             CacheRestore => "actions/cache/restore@v4",
             CacheSave => "actions/cache/save@v4",
-            Cargo => "actions-rs/cargo@v1",
             DownloadArtifact => "actions/download-artifact@v4",
-            RustToolchain => "actions-rs/toolchain@v1",
             UploadArtifact => "actions/upload-artifact@v4",
         }
     }
@@ -380,14 +376,11 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
 
     steps.push(Step {
         name: format!("Install Rust {rust} toolchain"),
-        details: Uses {
-            uses: Action::RustToolchain,
-            with: dict! {
-                "profile" => "minimal",
-                "toolchain" => rust,
-                "override" => true,
-                "components" => "rustfmt, clippy",
-            },
+        details: Run {
+            run: formatdoc! {"
+                rustup toolchain install {rust} --profile minimal --component clippy,rustfmt
+                rustup default {rust}
+            "},
         },
         env: dict! {},
     });
@@ -412,18 +405,16 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
 
     steps.push(Step {
         name: s("Run cargo build"),
-        details: Uses {
-            uses: Action::Cargo,
-            with: dict! { "command" => "build" },
+        details: Run {
+            run: s("cargo build"),
         },
         env: dict! {},
     });
 
     steps.push(Step {
         name: s("Run cargo test"),
-        details: Uses {
-            uses: Action::Cargo,
-            with: dict! { "command" => "test" },
+        details: Run {
+            run: s("cargo test"),
         },
         env: dict! { "RUST_BACKTRACE" => "1" },
     });
@@ -433,24 +424,16 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
     if run_once_checks.0 {
         steps.push(Step {
             name: s("Run cargo fmt"),
-            details: Uses {
-                uses: Action::Cargo,
-                with: dict! {
-                    "command" => "fmt",
-                    "args" => "--all -- --check",
-                },
+            details: Run {
+                run: s("cargo fmt --all -- --check"),
             },
             env: dict! {},
         });
 
         steps.push(Step {
             name: s("Run clippy"),
-            details: Uses {
-                uses: Action::Cargo,
-                with: dict! {
-                    "command" => "clippy",
-                    "args" => "-- -D warnings",
-                },
+            details: Run {
+                run: s("cargo clippy -- -D warnings"),
             },
             env: dict! {},
         });
@@ -468,21 +451,16 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
 
         steps.push(Step {
             name: s("Install cargo audit"),
-            details: Uses {
-                uses: Action::Cargo,
-                with: dict! {
-                    "command" => "install",
-                    "args" => "cargo-audit",
-                },
+            details: Run {
+                run: s("cargo install cargo-audit"),
             },
             env: dict! {},
         });
 
         steps.push(Step {
             name: s("Run cargo audit"),
-            details: Uses {
-                uses: Action::Cargo,
-                with: dict! { "command" => "audit" },
+            details: Run {
+                run: s("cargo audit"),
             },
             env: dict! {},
         });
