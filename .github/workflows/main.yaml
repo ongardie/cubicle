@@ -181,8 +181,8 @@ jobs:
     - name: Print homebrew info
       run: |
         set -x
-        du -sh /Users/runner/Library/Caches/Homebrew/
-        du -sh /Users/runner/Library/Caches/Homebrew/downloads/
+        du -sh /Users/runner/Library/Caches/Homebrew/ || true
+        du -sh /Users/runner/Library/Caches/Homebrew/downloads/ || true
     - name: Install Docker
       run: brew install docker
     - name: Install Colima
@@ -190,8 +190,8 @@ jobs:
     - name: Print homebrew info
       run: |
         set -x
-        du -sh /Users/runner/Library/Caches/Homebrew/
-        du -sh /Users/runner/Library/Caches/Homebrew/downloads/
+        du -sh /Users/runner/Library/Caches/Homebrew/ || true
+        du -sh /Users/runner/Library/Caches/Homebrew/downloads/ || true
     - name: Start Colima
       run: colima start --vm-type vz
     - name: Docker hello world

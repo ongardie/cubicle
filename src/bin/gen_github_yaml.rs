@@ -622,8 +622,8 @@ fn docker_mac_install_steps() -> Vec<Step> {
         details: Run {
             run: s(indoc! {"
                 set -x
-                du -sh /Users/runner/Library/Caches/Homebrew/
-                du -sh /Users/runner/Library/Caches/Homebrew/downloads/
+                du -sh /Users/runner/Library/Caches/Homebrew/ || true
+                du -sh /Users/runner/Library/Caches/Homebrew/downloads/ || true
             "}),
         },
         env: dict! {},
