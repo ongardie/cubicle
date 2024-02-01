@@ -328,6 +328,7 @@ fn ci_workflow() -> Workflow {
 fn ci_jobs() -> BTreeMap<JobKey, Job> {
     let mut jobs = BTreeMap::new();
 
+    /*
     let ubuntu_stable_key = {
         let (key, job) = build_job(Os::Ubuntu, Rust::Stable, RunOnceChecks(true));
         jobs.insert(key.clone(), job);
@@ -360,9 +361,16 @@ fn ci_jobs() -> BTreeMap<JobKey, Job> {
             vec![ubuntu_stable_key.clone()],
         ),
         system_test_job(Os::Ubuntu, Runner::User, vec![ubuntu_stable_key]),
-        system_test_job(Os::Mac12, Runner::Docker, vec![/*mac12_stable_key*/]),
+        system_test_job(Os::Mac12, Runner::Docker, vec![mac12_stable_key]),
         system_test_job(Os::Mac13, Runner::Docker, vec![mac13_stable_key]),
     ]);
+    */
+
+    jobs.extend([system_test_job(
+        Os::Mac12,
+        Runner::Docker,
+        vec![/*mac12_stable_key*/],
+    )]);
 
     jobs
 }
@@ -561,7 +569,7 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
                 name: s("Docker hello world"),
                 details: Run {
                     // run: s("docker run --rm debian:12 echo 'Hello world'"),
-                    run: s("docker run --rm debian:12 apt-get update"),
+                    run: s("docker run --rm debian:12 sh -c 'env; dpkg -l debian-archive-keyring; apt-get update'"),
                 },
                 env: dict! {},
             });
