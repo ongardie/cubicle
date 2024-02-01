@@ -27,9 +27,15 @@ jobs:
         eval "$(docker-machine env default)" && \
         env | grep DOCKER >> $GITHUB_ENV
     - name: Docker debian 11
-      run: docker run --rm debian:11 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; true'
+      run: docker run --rm debian:11 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
+    - name: Docker debian 12.2
+      run: docker run --rm debian:12.2 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
+    - name: Docker debian 12-slim
+      run: docker run --rm debian:12-slim sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
     - name: Docker debian 12
-      run: docker run --rm debian:12 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; true'
+      run: docker run --rm debian:12 sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
+    - name: Docker debian testing
+      run: docker run --rm debian:testing sh -c 'env; echo $PATH; gpgv --version; dpkg -l debian-archive-keyring; apt-get update; for file in $(dpkg -L debian-archive-keyring); do [ -f $file ] && sha256sum $file; done; true'
     - name: Abort
       run: 'false'
     - name: Download build artifact
