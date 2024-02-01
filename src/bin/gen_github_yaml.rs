@@ -652,7 +652,11 @@ fn docker_mac_install_steps() -> Vec<Step> {
                 // The Lima docs say that the VZ backend is faster. It's only
                 // available starting in Mac OS 13. See
                 // <https://lima-vm.io/docs/config/vmtype/>.
-                run: s("colima start --vm-type vz"),
+                //
+                // The default disk size is 60 GiB, and the VZ backend appears
+                // to unpack and "expand" the QCOW2 image. The runner only has
+                // 14 GB, so set the disk size smaller.
+                run: s("colima start --disk 6 --vm-type vz"),
             },
             env: dict! {},
         },
