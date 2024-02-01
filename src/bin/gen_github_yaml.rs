@@ -673,6 +673,8 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
         Step {
             name: s("Start Colima"),
             details: Run {
+                // Unfortunately, VZ seems to hang forever as of 2024-01-31.
+                //
                 // The Lima docs say that the VZ backend is faster and the
                 // example uses virtiofs. VZ is only available starting in Mac
                 // OS 13. See <https://lima-vm.io/docs/config/vmtype/>.
@@ -683,7 +685,9 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
                 // smaller. The QCOW2 image expands to a 3.5 GiB raw disk, and
                 // the `--disk` flag takes an int, so the smallest reasonable
                 // size is probably 4.
-                run: s("colima start --disk 4 --mount-type virtiofs --vm-type vz"),
+                //
+                // run: s("colima start --disk 4 --mount-type virtiofs --vm-type vz"),
+                run: s("colima start"), // using QEMU by default, not VZ
             },
             env: dict! {},
         },

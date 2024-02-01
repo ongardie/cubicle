@@ -195,7 +195,7 @@ jobs:
         key: homebrew-macos-13
         path: ~/Library/Caches/Homebrew/
     - name: Start Colima
-      run: colima start --disk 4 --mount-type virtiofs --vm-type vz
+      run: colima start
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
