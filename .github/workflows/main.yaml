@@ -178,22 +178,12 @@ jobs:
     - build-macos-13-stable
     runs-on: macos-13
     steps:
-    - name: Restore Homebrew cache
-      uses: actions/cache/restore@v3
-      with:
-        key: homebrew-macos-13
-        path: ~/Library/Caches/Homebrew/
     - name: Install Docker
       run: brew install docker
     - name: Install Colima
       run: |
         brew install --overwrite openssl@3
         brew install colima
-    - name: Save Homebrew cache
-      uses: actions/cache/save@v3
-      with:
-        key: homebrew-macos-13
-        path: ~/Library/Caches/Homebrew/
     - name: Start Colima
       run: colima start
     - name: Docker hello world

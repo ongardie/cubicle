@@ -220,6 +220,7 @@ impl Display for Os {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(unused)]
 enum Action {
     Checkout,
     Cache,
@@ -620,21 +621,8 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
 
 // Docker isn't installed on the Mac runners due to licensing issues:
 // see <https://github.com/actions/runner-images/issues/2150>.
-fn docker_mac_install_steps(os: Os) -> Vec<Step> {
-    let homebrew_cache_path = "~/Library/Caches/Homebrew/";
-    let homebrew_cache_key = format!("homebrew-{os}");
+fn docker_mac_install_steps(_os: Os) -> Vec<Step> {
     vec![
-        Step {
-            name: s("Restore Homebrew cache"),
-            details: Uses {
-                uses: Action::CacheRestore,
-                with: dict! {
-                    "path" => homebrew_cache_path,
-                    "key" => homebrew_cache_key,
-                },
-            },
-            env: dict! {},
-        },
         Step {
             name: s("Install Docker"),
             details: Run {
@@ -655,18 +643,6 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
                     brew install --overwrite openssl@3
                     brew install colima
                 "}),
-            },
-            env: dict! {},
-        },
-        // Save the cache early in case a later step fails.
-        Step {
-            name: s("Save Homebrew cache"),
-            details: Uses {
-                uses: Action::CacheSave,
-                with: dict! {
-                    "path" => homebrew_cache_path,
-                    "key" => homebrew_cache_key,
-                },
             },
             env: dict! {},
         },
