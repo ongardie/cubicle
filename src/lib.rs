@@ -1,12 +1,3 @@
-#![warn(
-    clippy::explicit_into_iter_loop,
-    clippy::explicit_iter_loop,
-    clippy::if_then_some_else_none,
-    clippy::implicit_clone,
-    clippy::redundant_else,
-    clippy::try_err,
-    clippy::unreadable_literal
-)]
 #![warn(missing_docs)]
 
 //! This crate is the library underneath the Cubicle command-line program.

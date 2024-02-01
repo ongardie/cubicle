@@ -41,3 +41,12 @@ toml = "0.8.9"
 wildmatch = "2.3.0"
 
 [dev-dependencies]
+
+[lints.clippy]
+explicit_into_iter_loop = "warn"
+explicit_iter_loop = "warn"
+if_then_some_else_none = "warn"
+implicit_clone = "warn"
+redundant_else = "warn"
+try_err = "warn"
+unreadable_literal = "warn"
