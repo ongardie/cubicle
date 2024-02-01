@@ -181,9 +181,9 @@ jobs:
     - name: Install Docker
       run: brew install docker
     - name: Install Colima
-      run: |
-        brew install colima
-        colima start
+      run: brew install colima
+    - name: Start Colima
+      run: colima start -vm-type vz
     - name: Docker hello world
       run: docker run --rm debian:12 echo 'Hello world'
     - name: Download build artifact
