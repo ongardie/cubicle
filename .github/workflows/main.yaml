@@ -178,30 +178,15 @@ jobs:
     - build-macos-13-stable
     runs-on: macos-13
     steps:
-    - name: Print homebrew info
-      run: |
-        set -x
-        du -sh /Users/runner/Library/Caches/Homebrew/ || true
-        du -sh /Users/runner/Library/Caches/Homebrew/downloads/ || true
     - name: Restore Homebrew cache
       uses: actions/cache/restore@v3
       with:
         key: homebrew-macos-13
         path: ~/Library/Caches/Homebrew/
-    - name: Print homebrew info
-      run: |
-        set -x
-        du -sh /Users/runner/Library/Caches/Homebrew/ || true
-        du -sh /Users/runner/Library/Caches/Homebrew/downloads/ || true
     - name: Install Docker
       run: brew install docker
     - name: Install Colima
       run: brew install colima
-    - name: Print homebrew info
-      run: |
-        set -x
-        du -sh /Users/runner/Library/Caches/Homebrew/ || true
-        du -sh /Users/runner/Library/Caches/Homebrew/downloads/ || true
     - name: Save Homebrew cache
       uses: actions/cache/save@v3
       with:

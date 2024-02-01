@@ -621,21 +621,9 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
 // Docker isn't installed on the Mac runners due to licensing issues:
 // see <https://github.com/actions/runner-images/issues/2150>.
 fn docker_mac_install_steps(os: Os) -> Vec<Step> {
-    let print_homebrew_info = || Step {
-        name: s("Print homebrew info"),
-        details: Run {
-            run: s(indoc! {"
-                set -x
-                du -sh /Users/runner/Library/Caches/Homebrew/ || true
-                du -sh /Users/runner/Library/Caches/Homebrew/downloads/ || true
-            "}),
-        },
-        env: dict! {},
-    };
     let homebrew_cache_path = "~/Library/Caches/Homebrew/";
     let homebrew_cache_key = format!("homebrew-{os}");
     vec![
-        print_homebrew_info(),
         Step {
             name: s("Restore Homebrew cache"),
             details: Uses {
@@ -647,7 +635,6 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
             },
             env: dict! {},
         },
-        print_homebrew_info(),
         Step {
             name: s("Install Docker"),
             details: Run {
@@ -663,7 +650,6 @@ fn docker_mac_install_steps(os: Os) -> Vec<Step> {
             },
             env: dict! {},
         },
-        print_homebrew_info(),
         // Save the cache early in case a later step fails.
         Step {
             name: s("Save Homebrew cache"),
