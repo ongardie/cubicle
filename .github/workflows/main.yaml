@@ -178,6 +178,8 @@ jobs:
     - build-macos-13-stable
     runs-on: macos-13
     steps:
+    - name: Install Virtualbox
+      run: brew install --cask virtualbox
     - name: Install Docker
       run: brew install docker docker-machine
     - name: Create VirtualBox VM for Docker

@@ -618,6 +618,14 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
 // see <https://github.com/actions/runner-images/issues/2150>.
 fn docker_mac_install_steps() -> Vec<Step> {
     vec![
+        // Virtualbox was included in the MacOS 12 runners but not in MacOS 13.
+        Step {
+            name: s("Install Virtualbox"),
+            details: Run {
+                run: s("brew install --cask virtualbox"),
+            },
+            env: dict! {},
+        },
         Step {
             name: s("Install Docker"),
             details: Run {
