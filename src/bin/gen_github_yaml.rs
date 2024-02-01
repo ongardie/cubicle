@@ -617,7 +617,19 @@ fn system_test_job(os: Os, runner: Runner, needs: Vec<JobKey>) -> (JobKey, Job) 
 // Docker isn't installed on the Mac runners due to licensing issues:
 // see <https://github.com/actions/runner-images/issues/2150>.
 fn docker_mac_install_steps() -> Vec<Step> {
+    let print_homebrew_info = || Step {
+        name: s("Print homebrew info"),
+        details: Run {
+            run: s(indoc! {"
+                set -x
+                du -sh /Users/runner/Library/Caches/Homebrew/
+                du -sh /Users/runner/Library/Caches/Homebrew/downloads/
+            "}),
+        },
+        env: dict! {},
+    };
     vec![
+        print_homebrew_info(),
         Step {
             name: s("Install Docker"),
             details: Run {
@@ -633,6 +645,7 @@ fn docker_mac_install_steps() -> Vec<Step> {
             },
             env: dict! {},
         },
+        print_homebrew_info(),
         Step {
             name: s("Start Colima"),
             details: Run {

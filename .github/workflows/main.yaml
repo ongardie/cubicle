@@ -178,10 +178,20 @@ jobs:
     - build-macos-13-stable
     runs-on: macos-13
     steps:
+    - name: Print homebrew info
+      run: |
+        set -x
+        du -sh /Users/runner/Library/Caches/Homebrew/
+        du -sh /Users/runner/Library/Caches/Homebrew/downloads/
     - name: Install Docker
       run: brew install docker
     - name: Install Colima
       run: brew install colima
+    - name: Print homebrew info
+      run: |
+        set -x
+        du -sh /Users/runner/Library/Caches/Homebrew/
+        du -sh /Users/runner/Library/Caches/Homebrew/downloads/
     - name: Start Colima
       run: colima start --vm-type vz
     - name: Docker hello world
