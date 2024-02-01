@@ -582,7 +582,7 @@ where
 mod tests {
     use super::*;
     use clap::CommandFactory;
-    use insta::{assert_debug_snapshot, assert_display_snapshot, assert_snapshot};
+    use expect_test::{expect, expect_file};
 
     #[test]
     fn sub_home_prefix() {
@@ -632,80 +632,82 @@ mod tests {
                 FullPackageName::from_str("foobar").unwrap(),
             ])
         };
-        assert_debug_snapshot!(&super::package_set_from_patterns(&[], names()), @r###"
-        Ok(
-            {},
-        )
-        "###);
-        assert_debug_snapshot!(
-            &super::package_set_from_patterns(
-                &[String::from("foo")],
-                names()
-            ),
-            @r###"
-        Ok(
-            {
-                FullPackageName(
-                    Root,
-                    PackageName(
-                        "foo",
+
+        expect![[r#"
+            Ok(
+                {},
+            )
+        "#]]
+        .assert_debug_eq(&super::package_set_from_patterns(&[], names()));
+
+        expect![[r#"
+            Ok(
+                {
+                    FullPackageName(
+                        Root,
+                        PackageName(
+                            "foo",
+                        ),
                     ),
-                ),
-            },
-        )
-        "###
-        );
-        assert_debug_snapshot!(
-            &super::package_set_from_patterns(
-                &[String::from("foo*"), String::from("bar*")],
-                names()
-            ),
-            @r###"
-        Ok(
-            {
-                FullPackageName(
-                    Root,
-                    PackageName(
-                        "foo",
+                },
+            )
+        "#]]
+        .assert_debug_eq(&super::package_set_from_patterns(
+            &[String::from("foo")],
+            names(),
+        ));
+
+        expect![[r#"
+            Ok(
+                {
+                    FullPackageName(
+                        Root,
+                        PackageName(
+                            "foo",
+                        ),
                     ),
-                ),
-                FullPackageName(
-                    Root,
-                    PackageName(
-                        "foobar",
+                    FullPackageName(
+                        Root,
+                        PackageName(
+                            "foobar",
+                        ),
                     ),
-                ),
-            },
-        )
-        "###
-        );
-        assert_debug_snapshot!(
-            super::package_set_from_patterns(&[String::from("foo*"), String::from("baz")], names()),
-            @r###"
-        Ok(
-            {
-                FullPackageName(
-                    Root,
-                    PackageName(
-                        "baz",
+                },
+            )
+        "#]]
+        .assert_debug_eq(&super::package_set_from_patterns(
+            &[String::from("foo*"), String::from("bar*")],
+            names(),
+        ));
+
+        expect![[r#"
+            Ok(
+                {
+                    FullPackageName(
+                        Root,
+                        PackageName(
+                            "baz",
+                        ),
                     ),
-                ),
-                FullPackageName(
-                    Root,
-                    PackageName(
-                        "foo",
+                    FullPackageName(
+                        Root,
+                        PackageName(
+                            "foo",
+                        ),
                     ),
-                ),
-                FullPackageName(
-                    Root,
-                    PackageName(
-                        "foobar",
+                    FullPackageName(
+                        Root,
+                        PackageName(
+                            "foobar",
+                        ),
                     ),
-                ),
-            },
-        )
-        "###
-        );
+                },
+            )
+        "#]]
+        .assert_debug_eq(&super::package_set_from_patterns(
+            &[String::from("foo*"), String::from("baz")],
+            names(),
+        ));
     }
 
     #[test]
@@ -729,8 +731,11 @@ mod tests {
                 .term_width(100)
                 .try_get_matches_from(split_cmd)
                 .unwrap_err();
-            let name = format!("usage_{}", if cmd.is_empty() { "cub" } else { cmd });
-            assert_display_snapshot!(name, err);
+            let name = format!(
+                "snapshots/cub__cli__tests__usage_{}.snap",
+                if cmd.is_empty() { "cub" } else { cmd }
+            );
+            expect_file![name].assert_eq(&err.to_string());
         }
     }
 
@@ -740,7 +745,10 @@ mod tests {
             let mut buf: Vec<u8> = Vec::new();
             super::write_completions(shell, &mut buf).unwrap();
             let buf = String::from_utf8(buf).unwrap();
-            assert_snapshot!(format!("write_completions_{shell}"), buf);
+            expect_file![format!(
+                "snapshots/cub__cli__tests__write_completions_{shell}.snap"
+            )]
+            .assert_eq(&buf);
         }
     }
 
@@ -794,59 +802,59 @@ mod tests {
                 EnvironmentName::from_str("foobar").unwrap(),
             ])
         };
-        assert_debug_snapshot!(&super::matching_environments(&[], names()), @r###"
-        Ok(
-            [],
-        )
-        "###);
-        assert_debug_snapshot!(
-            &super::matching_environments(
-                &[EnvironmentPattern::from_str("foo").unwrap()],
-                names()
-            ),
-            @r###"
-        Ok(
-            [
-                EnvironmentName(
-                    "foo",
-                ),
-            ],
-        )
-        "###
-        );
-        assert_debug_snapshot!(
-            &super::matching_environments(
-                &[EnvironmentPattern::from_str("bar").unwrap()],
-                names()
-            ),
-            @r###"
-        Err(
-            "environment \"bar\" not found",
-        )
-        "###
-        );
-        assert_debug_snapshot!(
-            &super::matching_environments(
-                &[
-                    EnvironmentPattern::from_str("foo*").unwrap(),
-                    EnvironmentPattern::from_str("bar*").unwrap(),
-                    EnvironmentPattern::from_str("*").unwrap(),
+
+        expect![[r#"
+            Ok(
+                [],
+            )
+        "#]]
+        .assert_debug_eq(&super::matching_environments(&[], names()));
+
+        expect![[r#"
+            Ok(
+                [
+                    EnvironmentName(
+                        "foo",
+                    ),
                 ],
-                names()
-            ),
-            @r###"
-        Ok(
-            [
-                EnvironmentName(
-                    "foo",
-                ),
-                EnvironmentName(
-                    "foobar",
-                ),
+            )
+        "#]]
+        .assert_debug_eq(&super::matching_environments(
+            &[EnvironmentPattern::from_str("foo").unwrap()],
+            names(),
+        ));
+
+        expect![[r#"
+            Err(
+                "environment \"bar\" not found",
+            )
+        "#]]
+        .assert_debug_eq(&super::matching_environments(
+            &[EnvironmentPattern::from_str("bar").unwrap()],
+            names(),
+        ));
+
+        expect![[r#"
+            Ok(
+                [
+                    EnvironmentName(
+                        "foo",
+                    ),
+                    EnvironmentName(
+                        "foobar",
+                    ),
+                ],
+            )
+        "#]]
+        .assert_debug_eq(&super::matching_environments(
+            &[
+                EnvironmentPattern::from_str("foo*").unwrap(),
+                EnvironmentPattern::from_str("bar*").unwrap(),
+                EnvironmentPattern::from_str("*").unwrap(),
             ],
-        )
-        "###
-        );
+            names(),
+        ));
+
         assert_eq!(
             super::matching_environments(
                 &[

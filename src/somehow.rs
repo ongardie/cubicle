@@ -317,24 +317,20 @@ pub fn warn_brief(warning: String) {
 #[cfg(test)]
 mod tests {
     use super::{Context, Error, Result};
-    use insta::assert_snapshot;
+    use expect_test::expect;
 
     #[test]
     fn debug_without_backtrace() {
-        assert_snapshot!(
-            somehow!("ants in pants").debug_without_backtrace(),
-            @"ants in pants"
-        );
-        assert_snapshot!(
-            somehow!("ants in pants")
+        expect!["ants in pants"].assert_eq(&somehow!("ants in pants").debug_without_backtrace());
+        expect![[r#"
+            checking for ants
+
+            Caused by:
+                ants in pants"#]]
+        .assert_eq(
+            &somehow!("ants in pants")
                 .context("checking for ants")
                 .debug_without_backtrace(),
-            @r###"
-        checking for ants
-
-        Caused by:
-            ants in pants
-        "###
         );
     }
 
@@ -355,7 +351,7 @@ mod tests {
             Err(MyError)?
         };
         let err = make_err().unwrap_err().debug_without_backtrace();
-        assert_snapshot!(err, @"MyError");
+        assert_eq!("MyError", err);
     }
 
     #[test]
@@ -366,14 +362,14 @@ mod tests {
             Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?
         };
         let err = make_err().unwrap_err().debug_without_backtrace();
-        assert_snapshot!(err, @r###"
-        The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
-        info. A pull request or a GitHub issue with this output and the steps to
-        reproduce it would be welcome.
+        expect![[r#"
+            The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
+            info. A pull request or a GitHub issue with this output and the steps to
+            reproduce it would be welcome.
 
-        Caused by:
-            unexpected end of file
-        "###);
+            Caused by:
+                unexpected end of file"#]]
+        .assert_eq(&err);
     }
 
     #[test]
@@ -382,13 +378,13 @@ mod tests {
             Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
         let err: Error = err.todo_context().unwrap_err();
         let err = err.debug_without_backtrace();
-        assert_snapshot!(err, @r###"
-        The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
-        info. A pull request or a GitHub issue with this output and the steps to
-        reproduce it would be welcome.
+        expect![[r#"
+            The cause of this error lacks context. You can set RUST_BACKTRACE=1 for more
+            info. A pull request or a GitHub issue with this output and the steps to
+            reproduce it would be welcome.
 
-        Caused by:
-            unexpected end of file
-        "###);
+            Caused by:
+                unexpected end of file"#]]
+        .assert_eq(&err);
     }
 }

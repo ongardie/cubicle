@@ -1,7 +1,3 @@
----
-source: src/cli.rs
-expression: err
----
 Create a new environment
 
 Usage: cub new [OPTIONS] <NAME>
@@ -24,4 +20,3 @@ Options:
 
   -h, --help
           Print help (see a summary with '-h')
-

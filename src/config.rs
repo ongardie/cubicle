@@ -1,10 +1,10 @@
 //! Main Cubicle program configuration.
 
-use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Deserializer};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use super::os_util::host_home_dir;
@@ -72,8 +72,14 @@ where
 {
     use serde::de::Error;
 
-    lazy_static! {
-        static ref RE: Regex = RegexBuilder::new(
+    let s = String::deserialize(deserializer)?;
+    if s == "never" {
+        return Ok(None);
+    }
+
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        RegexBuilder::new(
             r#"^(?x)
             # integer or decimal
             (?P<value>
@@ -89,18 +95,13 @@ where
                 h | hr s? | hour s? |
                 d | day s?
             )
-            $"#
+            $"#,
         )
         .build()
-        .unwrap();
-    }
+        .unwrap()
+    });
 
-    let s = String::deserialize(deserializer)?;
-    if s == "never" {
-        return Ok(None);
-    }
-
-    match RE.captures(&s) {
+    match re.captures(&s) {
         Some(caps) => {
             let value = caps.name("value").unwrap().as_str();
             let value = f64::from_str(value).unwrap();
