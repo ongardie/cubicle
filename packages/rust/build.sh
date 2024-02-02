@@ -2,7 +2,7 @@
 set -ex
 
 export PATH="$HOME/.cargo/bin:$PATH"
-echo "$HOME/.cargo/bin" > ~/.config/profile.d/path/33-cargo
+echo '$HOME/.cargo/bin' > ~/.config/profile.d/path/33-cargo
 
 if ! rustup run stable echo rustup ok; then
     # Exclude rust-docs component since it's too many files and too large.
@@ -11,18 +11,6 @@ if ! rustup run stable echo rustup ok; then
 fi
 
 rustup update
-
-# Update `~/.cargo/registry/index`. This previously used `cargo search`, which
-# will populate the index initially but won't update it. `cargo add` seems more
-# reliable.
-echo "Updating Cargo registry index"
-TMP=$(mktemp -d)
-(
-    cd $TMP
-    cargo init --vcs=none --name=tmp
-    cargo add log
-)
-rm -r $TMP
 
 BASH_COMP=~/.local/share/bash-completion/completions
 ZSH_COMP=~/.zfunc
