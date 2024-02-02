@@ -4,5 +4,4 @@
 .asdf/shims/node
 .asdf/shims/npm
 .asdf/shims/npx
-.asdf/tmp/nodejs/
 .dev-init/node-asdf.sh
