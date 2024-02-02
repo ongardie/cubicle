@@ -1,6 +1,5 @@
 .asdf/
 .config/profile.d/90-asdf.sh
-.config/profile.d/path/35-asdf
 .local/share/bash-completion/completions/asdf
 .zfunc/_asdf
 
