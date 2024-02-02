@@ -165,6 +165,9 @@ pub struct Docker {
 
     #[serde(default = "cub_dash")]
     pub prefix: String,
+
+    #[serde(default)]
+    pub locales: Vec<String>,
 }
 
 impl Default for Docker {
@@ -174,6 +177,7 @@ impl Default for Docker {
             seccomp: None,
             strict_debian_packages: false,
             prefix: cub_dash(),
+            locales: Vec::new(),
         }
     }
 }
@@ -376,6 +380,7 @@ mod tests {
                 }),
                 docker: Docker {
                     bind_mounts: true,
+                    locales: vec![String::from("eo"), String::from("tg_TJ.UTF-8")],
                     prefix: String::from("p"),
                     seccomp: Some(PathBuf::from("/etc/seccomp.json")),
                     strict_debian_packages: true,
@@ -392,6 +397,7 @@ mod tests {
 
                 [docker]
                 bind_mounts = true
+                locales = ['eo', 'tg_TJ.UTF-8']
                 prefix = 'p'
                 seccomp = '/etc/seccomp.json'
                 strict_debian_packages = true

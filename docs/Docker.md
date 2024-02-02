@@ -105,6 +105,15 @@ If true, the runner will use bind mounts instead. Bind mounts are probably only
 advantageous on Linux; they can be more convenient because they can be owned by
 the normal user on the host.
 
+### `locales`
+
+- Type: array of string
+- Default: none
+
+Extra locales to be generated in the environments, in addition to `C.UTF-8`,
+`en_US.UTF-8`, and locales found in the host's environment variables. See
+the left column of `/etc/locale.gen` for a list of possible locales.
+
 ### `prefix`
 
 - Type: string

@@ -266,3 +266,26 @@ impl Runner for CheckedRunner {
             .context("failed to check if targets are supported")
     }
 }
+
+/// Environment variables related to locales, which should generally be passed
+/// through from the host to the environment.
+///
+/// See <https://manpages.debian.org/bookworm/manpages/locale.5.en.html> and
+/// <https://wiki.archlinux.org/title/Locale#Variables>.
+pub const LOCALE_ENVIRONMENT_VARIABLES: &[&str] = &[
+    "LANG",
+    "LANGUAGE",
+    "LC_ADDRESS",
+    "LC_ALL",
+    "LC_COLLATE",
+    "LC_CTYPE",
+    "LC_IDENTIFICATION",
+    "LC_MEASUREMENT",
+    "LC_MESSAGES",
+    "LC_MONETARY",
+    "LC_NAME",
+    "LC_NUMERIC",
+    "LC_PAPER",
+    "LC_TELEPHONE",
+    "LC_TIME",
+];
