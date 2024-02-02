@@ -28,6 +28,7 @@ pub struct Docker {
     user: String,
     uids: Uids,
     timezone: String,
+    locales: BTreeSet<String>,
     mounts: Mounts,
     base_image: ImageName,
     container_home: EnvPath,
@@ -68,6 +69,10 @@ impl Docker {
         };
 
         let timezone = get_timezone();
+        let locales: BTreeSet<String> = get_host_locales()
+            .chain(["C.UTF-8", "en_US.UTF-8"].map(String::from))
+            .chain(program.config.docker.locales.iter().cloned())
+            .collect();
 
         let mounts = if program.config.docker.bind_mounts {
             let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
@@ -106,6 +111,7 @@ impl Docker {
             user,
             uids,
             timezone,
+            locales,
             mounts,
             base_image,
             container_home,
@@ -219,6 +225,7 @@ impl Docker {
                 DockerfileArgs {
                     packages: &packages,
                     timezone: &self.timezone,
+                    locales: &self.locales,
                     user: &self.user,
                     uids: &self.uids,
                 },
@@ -1015,6 +1022,19 @@ fn fallback_path(container_home: &EnvPath) -> OsString {
     [OsStr::new("PATH="), &joined].into_iter().collect()
 }
 
+fn get_host_locales() -> impl Iterator<Item = String> {
+    LOCALE_ENVIRONMENT_VARIABLES.iter().flat_map(|var| {
+        let Ok(value) = std::env::var(var) else {
+            return Vec::new();
+        };
+        if *var == "LANGUAGE" {
+            value.split(':').map(|l| l.to_owned()).collect()
+        } else {
+            vec![value]
+        }
+    })
+}
+
 /// Debian packages that many packages might depend on for basic functionality.
 /// They are installed in the CI system.
 const BASE_PACKAGES: &[&str] = &[
@@ -1024,6 +1044,7 @@ const BASE_PACKAGES: &[&str] = &[
     "curl",
     "git",
     "jq",
+    "locales",
     "lz4",
     "procps",
     "pv",
@@ -1038,6 +1059,7 @@ const BASE_PACKAGES: &[&str] = &[
 
 struct DockerfileArgs<'a> {
     packages: &'a BTreeSet<&'a str>,
+    locales: &'a BTreeSet<String>,
     timezone: &'a str,
     user: &'a str,
     uids: &'a Uids,
@@ -1050,6 +1072,31 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
         .iter()
         .map(|p| shlex::try_quote(p).expect("TODO").into_owned())
         .collect();
+    let locales: String = {
+        let mut locales = String::from("(");
+        let mut empty = true;
+        for locale in args.locales {
+            if !locale
+                .chars()
+                .all(|c| matches!(c, '-' | '.' | '@' | '_') || c.is_ascii_alphanumeric())
+            {
+                continue;
+            }
+            empty = false;
+            for c in locale.chars() {
+                if c == '.' {
+                    locales.push('\\');
+                }
+                locales.push(c);
+            }
+            locales.push('|');
+        }
+        if !empty {
+            locales.pop(); // remove trailing pipe
+        }
+        locales.push(')');
+        locales
+    };
     let timezone = shlex::try_quote(args.timezone).expect("TODO");
     let user = shlex::try_quote(args.user).expect("TODO");
     let has_apt_file = args.packages.contains("apt-file");
@@ -1120,6 +1167,12 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
         writeln!(w, "RUN apt-file update")?;
     }
 
+    // Generate locales.
+    writeln!(
+        w,
+        "RUN sed -E -i 's/^# {locales} /\\1 /' /etc/locale.gen && locale-gen",
+    )?;
+
     // Configure sudo (after 'sudo' is installed, which creates the directory
     // with the right permissions).
     if has_sudo {
@@ -1162,6 +1215,17 @@ mod tests {
             DockerfileArgs {
                 packages: &BTreeSet::from(["apt-file", "pack#age1", "package2", "sudo"]),
                 timezone: "Etc/Timez'one",
+                locales: &BTreeSet::from(
+                    [
+                        "C.UTF-8",
+                        "ar_JO",
+                        "ca_ES@euro",
+                        "en_US.UTF-8",
+                        "h#x",
+                        "sv_SE.ISO-8859-15",
+                    ]
+                    .map(String::from),
+                ),
                 user: "h#x*r",
                 uids: &Uids {
                     real_user: 1337,

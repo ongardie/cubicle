@@ -14,5 +14,6 @@ RUN apt-get install --no-install-recommends --yes \
     package2 \
     sudo
 RUN apt-file update
+RUN sed -E -i 's/^# (C\.UTF-8|ar_JO|ca_ES@euro|en_US\.UTF-8|sv_SE\.ISO-8859-15) /\1 /' /etc/locale.gen && locale-gen
 RUN sh -c 'echo "Defaults umask = 0027" > /etc/sudoers.d/umask' && \
     sh -c 'echo "%sudo ALL=(ALL) CWD=* NOPASSWD: ALL" > /etc/sudoers.d/nopasswd'
