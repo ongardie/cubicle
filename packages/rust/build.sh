@@ -12,18 +12,6 @@ fi
 
 rustup update
 
-# Update `~/.cargo/registry/index`. This previously used `cargo search`, which
-# will populate the index initially but won't update it. `cargo add` seems more
-# reliable.
-echo "Updating Cargo registry index"
-TMP=$(mktemp -d)
-(
-    cd $TMP
-    cargo init --vcs=none --name=tmp
-    cargo add log
-)
-rm -r $TMP
-
 BASH_COMP=~/.local/share/bash-completion/completions
 ZSH_COMP=~/.zfunc
 mkdir -p $BASH_COMP $ZSH_COMP
