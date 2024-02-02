@@ -2,7 +2,7 @@
 set -ex
 
 export PATH="$HOME/.cargo/bin:$PATH"
-echo "$HOME/.cargo/bin" > ~/.config/profile.d/path/33-cargo
+echo '$HOME/.cargo/bin' > ~/.config/profile.d/path/33-cargo
 
 if ! rustup run stable echo rustup ok; then
     # Exclude rust-docs component since it's too many files and too large.

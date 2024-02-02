@@ -1,2 +1,2 @@
-[depends.npm]
-tldr = {}
+[depends.crates-io]
+tlrc = {}
