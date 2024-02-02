@@ -6,7 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::command_ext::Command;
 use super::fs_util::{summarize_dir, DirSummary};
-use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target};
+use super::runner::{
+    EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target,
+    LOCALE_ENVIRONMENT_VARIABLES,
+};
 use super::{apt, CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::encoding::{percent_decode, percent_encode, FilenameEncoder};
 use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
@@ -329,7 +332,10 @@ impl User {
         command
             .env("SHELL", &self.program.shell)
             .arg("--preserve-env=SHELL");
-        for var in ["DISPLAY", "LANG", "TERM"] {
+        for var in ["DISPLAY", "TERM"]
+            .iter()
+            .chain(LOCALE_ENVIRONMENT_VARIABLES)
+        {
             if let Ok(value) = std::env::var(var) {
                 command.env(var, value).arg(format!("--preserve-env={var}"));
             }

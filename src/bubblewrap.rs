@@ -10,7 +10,10 @@ use super::apt;
 use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::paths::EnvPath;
-use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target};
+use super::runner::{
+    EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target,
+    LOCALE_ENVIRONMENT_VARIABLES,
+};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{Context, Result};
 
@@ -179,7 +182,10 @@ impl Bubblewrap {
         command.env("HOME", env_home.as_env_raw());
         command.env("CUBICLE", name.as_str());
         command.env("TMPDIR", env_home.join("tmp").as_env_raw());
-        for key in ["DISPLAY", "LANG", "SHELL", "TERM", "USER"] {
+        for key in ["DISPLAY", "SHELL", "TERM", "USER"]
+            .iter()
+            .chain(LOCALE_ENVIRONMENT_VARIABLES)
+        {
             if let Ok(value) = std::env::var(key) {
                 command.env(key, value);
             }

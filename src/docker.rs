@@ -13,7 +13,10 @@ use super::command_ext::Command;
 use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
 use super::os_util::{get_timezone, get_uids, Uids};
 use super::paths::EnvPath;
-use super::runner::{EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target};
+use super::runner::{
+    EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target,
+    LOCALE_ENVIRONMENT_VARIABLES,
+};
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{somehow as anyhow, warn, Context, LowLevelResult, Result};
 
@@ -674,14 +677,17 @@ impl Docker {
         let mut command = Command::new("docker");
         command.arg("exec");
 
-        command.args(["--env", "DISPLAY"]);
-        command.args(["--env", "LANG"]);
         command
             .arg("--env")
             .arg(fallback_path(&self.container_home));
-        command.args(["--env", "SHELL"]);
-        command.args(["--env", "USER"]);
-        command.args(["--env", "TERM"]);
+
+        for var in ["DISPLAY", "SHELL", "TERM", "USER"]
+            .iter()
+            .chain(LOCALE_ENVIRONMENT_VARIABLES)
+        {
+            command.args(["--env", var]);
+        }
+
         match run_command {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { env_vars, .. } => {
