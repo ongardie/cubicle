@@ -35,4 +35,7 @@ fi
 
 cp -a ~/w/codium ~/bin/codium
 
+mkdir -p ~/.dev-init
+cp -a ~/w/vscodium-extensions.sh ~/.dev-init/
+
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

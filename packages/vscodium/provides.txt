@@ -1,2 +1,3 @@
+.dev-init/vscodium-extensions.sh
 bin/codium
 opt/vscodium
