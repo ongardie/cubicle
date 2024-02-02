@@ -1,14 +1,13 @@
 [depends]
 vscodium-go = {}
-vscodium-rust-analyzer = {}
 
 [depends.open-vsx]
 "dbaeumer.vscode-eslint" = {}
 "esbenp.prettier-vscode" = {}
-"golang.go" = {}
 "lextudio.restructuredtext" = {}
 "llvm-vs-code-extensions.vscode-clangd" = {}
 "ms-python.python" = {}
+"rust-lang.rust-analyzer" = {}
 "stkb.rewrap" = {}
 "streetsidesoftware.code-spell-checker" = {}
 "tamasfe.even-better-toml" = {}
