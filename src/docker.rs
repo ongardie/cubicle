@@ -835,7 +835,7 @@ impl Runner for Docker {
         }
 
         use EnvironmentExists::*;
-        Ok(if has_home_dir && has_work_dir {
+        Ok(if is_container && has_home_dir && has_work_dir {
             FullyExists
         } else if is_container || has_home_dir || has_work_dir {
             PartiallyExists
