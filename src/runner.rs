@@ -137,10 +137,10 @@ impl Runner for CheckedRunner {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
-        assert_eq!(
+        assert_ne!(
             self.exists(name)?,
-            EnvironmentExists::FullyExists,
-            "Environment {name} should fully exist before copy_out_from_home"
+            EnvironmentExists::NoEnvironment,
+            "Environment {name} should partially or fully exist before copy_out_from_home"
         );
         self.0.copy_out_from_home(name, path, w).with_context(|| {
             format!("failed to copy {path:?} from environment {name} home directory")
@@ -153,10 +153,10 @@ impl Runner for CheckedRunner {
         path: &Path,
         w: &mut dyn io::Write,
     ) -> Result<()> {
-        assert_eq!(
+        assert_ne!(
             self.exists(name)?,
-            EnvironmentExists::FullyExists,
-            "Environment {name} should fully exist before copy_out_from_work"
+            EnvironmentExists::NoEnvironment,
+            "Environment {name} should partially or fully exist before copy_out_from_work"
         );
         self.0.copy_out_from_work(name, path, w).with_context(|| {
             format!("failed to copy {path:?} from environment {name} work directory")
