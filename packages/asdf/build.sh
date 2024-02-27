@@ -11,7 +11,7 @@ fi
 
 RELEASES="$HOME/w/asdf-releases"
 curl -sS 'https://api.github.com/repos/asdf-vm/asdf/releases' -o "$RELEASES"
-version=$(cat "$RELEASES" | jq -r 'map(select(.prerelease == false)) | .[0].tag_name')
+version=$(jq -r 'map(select(.prerelease == false)) | .[0].tag_name' "$RELEASES")
 git reset --hard "$version"
 
 cat > ~/.config/profile.d/90-asdf.sh <<"EOF"

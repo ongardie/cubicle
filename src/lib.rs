@@ -136,12 +136,15 @@ impl Cubicle {
         };
 
         fn code_package_dir_ok(dir: &HostPath) -> bool {
-            if let Ok(true) = try_exists(&dir.join("auto").join("package.toml")) {
-                if let Ok(true) = try_exists(&dir.join("default").join("package.toml")) {
-                    return true;
-                }
-            }
-            false
+            let key_packages = [
+                packages::special::AUTO_BATCH,
+                packages::special::AUTO_INTERACTIVE,
+                packages::special::CONFIGS_CORE,
+                packages::special::DEFAULT,
+            ];
+            key_packages
+                .iter()
+                .all(|p| try_exists(&dir.join(p).join("package.toml")).unwrap_or(false))
         }
 
         let code_package_dir = match &config.builtin_package_dir {
@@ -365,7 +368,7 @@ impl Cubicle {
     pub fn new_environment(
         &self,
         name: &EnvironmentName,
-        packages: Option<&BTreeSet<FullPackageName>>,
+        packages: Option<BTreeSet<FullPackageName>>,
     ) -> Result<()> {
         use EnvironmentExists::*;
         match self.runner.exists(name)? {
@@ -379,27 +382,28 @@ impl Cubicle {
             FullyExists => return Err(anyhow!("environment {name} already exists")),
         }
 
-        let default;
-        let packages = match packages {
-            Some(p) => p,
-            None => {
-                default = BTreeSet::from([FullPackageName::from_str("default").unwrap()]);
-                &default
-            }
+        let packages = {
+            let mut packages = packages.unwrap_or_else(|| {
+                BTreeSet::from([FullPackageName::from_str(packages::special::DEFAULT).unwrap()])
+            });
+            packages
+                .insert(FullPackageName::from_str(packages::special::AUTO_INTERACTIVE).unwrap());
+            packages
         };
+
         let specs = self.scan_packages()?;
         self.update_packages(
-            packages,
+            &packages,
             &specs,
             &UpdatePackagesConditions {
                 dependencies: ShouldPackageUpdate::IfStale,
                 named: ShouldPackageUpdate::IfStale,
             },
         )?;
-        let packages_txt = write_package_list_tar(packages)?;
-        let debian_packages = self.resolve_debian_packages(packages, &specs)?;
+        let packages_txt = write_package_list_tar(&packages)?;
+        let debian_packages = self.resolve_debian_packages(&packages, &specs)?;
 
-        let mut seeds = self.packages_to_seeds(packages, &specs)?;
+        let mut seeds = self.packages_to_seeds(&packages, &specs)?;
         seeds.push(HostPath::try_from(packages_txt.path().to_owned())?);
 
         self.runner
@@ -420,7 +424,7 @@ impl Cubicle {
     /// Corresponds to `cub tmp`.
     pub fn create_enter_tmp_environment(
         &self,
-        packages: Option<&BTreeSet<FullPackageName>>,
+        packages: Option<BTreeSet<FullPackageName>>,
     ) -> Result<()> {
         let name = {
             let name = self
@@ -471,7 +475,7 @@ impl Cubicle {
     pub fn reset_environment(
         &self,
         name: &EnvironmentName,
-        packages: Option<&BTreeSet<FullPackageName>>,
+        packages: Option<BTreeSet<FullPackageName>>,
     ) -> Result<()> {
         if self.runner.exists(name)? == EnvironmentExists::NoEnvironment {
             return Err(anyhow!(
@@ -480,12 +484,16 @@ impl Cubicle {
             ));
         }
 
-        let changed = packages.is_some();
-        let packages = match packages {
-            Some(packages) => packages.clone(),
-            None => self
-                .read_package_list_from_env(name)
-                .with_context(|| format!("failed to parse `packages.txt` from {name}"))?,
+        let packages = {
+            let mut packages = match packages {
+                Some(packages) => packages,
+                None => self
+                    .read_package_list_from_env(name)
+                    .with_context(|| format!("failed to parse `packages.txt` from {name}"))?,
+            };
+            packages
+                .insert(FullPackageName::from_str(packages::special::AUTO_INTERACTIVE).unwrap());
+            packages
         };
 
         let specs = self.scan_packages()?;
@@ -500,11 +508,8 @@ impl Cubicle {
         let debian_packages = self.resolve_debian_packages(&packages, &specs)?;
         let mut seeds = self.packages_to_seeds(&packages, &specs)?;
 
-        let packages_txt: tempfile::NamedTempFile;
-        if changed {
-            packages_txt = write_package_list_tar(&packages)?;
-            seeds.push(HostPath::try_from(packages_txt.path().to_owned())?);
-        }
+        let packages_txt = write_package_list_tar(&packages)?;
+        seeds.push(HostPath::try_from(packages_txt.path().to_owned())?);
 
         self.runner.reset(
             name,

@@ -1,0 +1,15 @@
+#!/bin/bash
+
+export DOT_BASH_PROFILE_SOURCED=1
+
+# POSIX-compatible per-login initialization (environment variables).
+if [ -f "$HOME/.profile" ]; then
+    # shellcheck source=/dev/null
+    . "$HOME/.profile"
+fi
+
+# Per-shell initialization.
+if [ -f "$HOME/.bashrc" ]; then
+    # shellcheck source=/dev/null
+    . "$HOME/.bashrc"
+fi

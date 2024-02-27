@@ -2,6 +2,7 @@
 .bashrc
 .config/bashrc.d/
 .config/profile.d/
+.config/shrc.d/
 .config/zshrc.d/
 .profile
 .zprofile

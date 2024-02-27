@@ -1,9 +1,12 @@
-set -eu
+#!/bin/sh
 
 export DOT_PROFILE_SOURCED=1
 
-for i in ~/.config/profile.d/*.sh; do
-    . "$i"
+# POSIX-compatible per-login initialization (environment variables).
+for f in "$HOME"/.config/profile.d/*.sh; do
+    # This condition avoids sourcing directories and empty glob matches.
+    if [ -f "$f" ]; then
+        # shellcheck source=/dev/null
+        . "$f"
+    fi
 done
-
-set +eu

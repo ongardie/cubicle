@@ -1,14 +1,21 @@
-# This file is used as both `.bash_profile` and `.bashrc`, so it's used for
-# login and non-login shells. See
-# <https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html#Bash-Startup-Files>.
-set -eu
+#!/bin/bash
 
-if [ "${DOT_PROFILE_SOURCED:-}" != "1" ]; then
-    . ~/.profile
-fi
+export DOT_BASHRC_SOURCED=1
 
-for i in ~/.config/bashrc.d/*.bash; do
-    . "$i"
+# POSIX-compatible per-shell initialization (aliases and functions).
+for f in "$HOME"/.config/shrc.d/*.sh; do
+    # This condition avoids sourcing directories and empty glob matches.
+    if [ -f "$f" ]; then
+        # shellcheck source=/dev/null
+        . "$f"
+    fi
 done
 
-set +eu
+# Bash-specific per-shell initialization.
+for f in "$HOME"/.config/bashrc.d/*.bash; do
+    # This condition avoids sourcing directories and empty glob matches.
+    if [ -f "$f" ]; then
+        # shellcheck source=/dev/null
+        . "$f"
+    fi
+done

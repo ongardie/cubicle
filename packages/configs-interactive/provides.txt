@@ -1,0 +1,12 @@
+.config/bashrc.d/10-flow-control.bash
+.config/bashrc.d/20-history.bash
+.config/bashrc.d/70-prompt.bash
+.config/shrc.d/10-configs-interactive-aliases.sh
+.config/zshrc.d/10-completions.zsh
+.config/zshrc.d/10-flow-control.zsh
+.config/zshrc.d/20-history.zsh
+.config/zshrc.d/30-comments.zsh
+.config/zshrc.d/30-completion.zsh
+.config/zshrc.d/50-autosuggestions.zsh
+.config/zshrc.d/70-prompt.zsh
+.config/zshrc.d/99-syntax-highlighting.zsh

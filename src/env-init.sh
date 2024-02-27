@@ -6,12 +6,13 @@ mkdir -p .dev-init bin opt tmp w
 
 if [ -f ./.profile ]; then
     set +u
+    # shellcheck source=/dev/null
     . ./.profile
     set -u
 fi
 
 for f in ./.dev-init/*; do
-    if [ -x "$f" ]; then
+    if [ -f "$f" ] && [ -x "$f" ]; then
         "$f"
     fi
 done

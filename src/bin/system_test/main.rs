@@ -49,7 +49,7 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
 
     // cub new --packages=does-not-exist
     let err = cub
-        .new_environment(test_env, Some(&not_exist))
+        .new_environment(test_env, Some(not_exist.clone()))
         .expect_err("should not be able to use does-not-exist package in `cub new`");
     expect![[r#"could not find package definition for "does-not-exist""#]]
         .assert_eq(&err.debug_without_backtrace());
@@ -62,7 +62,7 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
 
     // cub tmp --packages=does-not-exist
     let err = cub
-        .create_enter_tmp_environment(Some(&not_exist))
+        .create_enter_tmp_environment(Some(not_exist.clone()))
         .expect_err("should not be able to use does-not-exist package in `cub tmp`");
     expect![[r#"could not find package definition for "does-not-exist""#]]
         .assert_eq(&err.debug_without_backtrace());
@@ -77,10 +77,10 @@ fn test_package_not_found_errors(cub: &Cubicle, test_env: &EnvironmentName) -> R
     );
 
     // cub reset --packages=does-not-exist
-    cub.new_environment(test_env, Some(&BTreeSet::new()))?;
+    cub.new_environment(test_env, Some(BTreeSet::new()))?;
     cub.exec_environment(test_env, &[String::from("touch"), String::from("../foo")])?;
     let err = cub
-        .reset_environment(test_env, Some(&not_exist))
+        .reset_environment(test_env, Some(not_exist.clone()))
         .expect_err("should not be able to use does-not-exist package in `cub reset`");
     expect![[r#"could not find package definition for "does-not-exist""#]]
         .assert_eq(&err.debug_without_backtrace());
@@ -121,22 +121,22 @@ fn main() -> Result<()> {
     let cub = Cubicle::new(config)?;
 
     let test_env = EnvironmentName::from_str("system_test")?;
-    let configs_pkg = FullPackageName::from_str("configs")?;
+    let configs_pkg = FullPackageName::from_str("configs-interactive")?;
 
     cub.list_environments(ListFormat::Default)?;
 
     test_package_not_found_errors(&cub, &test_env)?;
 
     cub.purge_environment(&test_env, Quiet(false))?;
-    cub.new_environment(&test_env, Some(&BTreeSet::new()))?;
+    cub.new_environment(&test_env, Some(BTreeSet::new()))?;
     cub.exec_environment(&test_env, &["ls", "-l", ".."].map(String::from))?;
     cub.reset_environment(&test_env, None)?;
 
     cub.purge_environment(&test_env, Quiet(false))?;
-    cub.new_environment(&test_env, Some(&BTreeSet::from([configs_pkg])))?;
+    cub.new_environment(&test_env, Some(BTreeSet::from([configs_pkg])))?;
     cub.exec_environment(&test_env, &["ls", "-al", ".."].map(String::from))?;
-    // This should cause the configs package to be rebuilt.
-    rewrite(project_root.join("packages/configs-core/build.sh"))?;
+    // This should cause the configs-interactive package to be rebuilt.
+    rewrite(project_root.join("packages/configs-interactive/build.sh"))?;
     cub.reset_environment(&test_env, None)?;
     cub.exec_environment(&test_env, &["ls", "-al", ".."].map(String::from))?;
 

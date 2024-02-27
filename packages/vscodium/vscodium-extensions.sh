@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -eu
+
 mkdir -p ~/.vscode-oss/extensions/
 cd ~/.vscode-oss/extensions/
 

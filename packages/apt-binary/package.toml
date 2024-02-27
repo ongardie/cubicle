@@ -1,0 +1,4 @@
+[depends.debian]
+apt-file = {}
+lz4 = {}
+ripgrep = {}

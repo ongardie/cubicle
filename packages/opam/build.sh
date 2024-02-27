@@ -22,6 +22,7 @@ ln -frs ~/.opam/opam-init/complete.sh ~/.local/share/bash-completion/completions
 mkdir -p ~/.zfunc
 ln -frs ~/.opam/opam-init/complete.zsh ~/.zfunc/_opam
 
+# shellcheck disable=SC2016
 echo '$HOME/.opam/default/bin' > ~/.config/profile.d/path/37-opam
 
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

@@ -12,12 +12,21 @@ when they are used if:
 - one of their dependencies or build-dependencies has been updated more
   recently.
 
-The package named "default" is used for new environments when a package list is
-not otherwise specified.
+## Special packages
 
-The package named "auto" and its dependencies are automatically included in
-every environment except those that "auto" itself transitively depends upon.
-This is useful for configuration files, for example.
+- The [default](../packages/default/README.md) package is used for new
+  environments when a package list is not otherwise specified.
+
+- The [`auto`](../packages/auto/README.md) package is an implicit dependency
+  for every normal environment (excluding package builder/test environments).
+  This is useful for configuration files, for example.
+
+- The [`auto-batch`](../packages/auto-batch/README.md) package is an implicit
+  dependency for every package build and test environment (except those that
+  `auto-batch` itself transitively depends on). Compared to `auto`, this is
+  used for a smaller number of critical configuration files that change less
+  frequently. (If the package builders depended on `auto`, then every change to
+  your `.vimrc` would result in needlessly rebuilding all packages.)
 
 ## Package Namespaces
 
