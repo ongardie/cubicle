@@ -121,7 +121,7 @@ fn main() -> Result<()> {
     let cub = Cubicle::new(config)?;
 
     let test_env = EnvironmentName::from_str("system_test")?;
-    let configs_pkg = FullPackageName::from_str("configs")?;
+    let configs_pkg = FullPackageName::from_str("configs-interactive")?;
 
     cub.list_environments(ListFormat::Default)?;
 
@@ -135,8 +135,8 @@ fn main() -> Result<()> {
     cub.purge_environment(&test_env, Quiet(false))?;
     cub.new_environment(&test_env, Some(BTreeSet::from([configs_pkg])))?;
     cub.exec_environment(&test_env, &["ls", "-al", ".."].map(String::from))?;
-    // This should cause the configs package to be rebuilt.
-    rewrite(project_root.join("packages/configs-core/build.sh"))?;
+    // This should cause the configs-interactive package to be rebuilt.
+    rewrite(project_root.join("packages/configs-interactive/build.sh"))?;
     cub.reset_environment(&test_env, None)?;
     cub.exec_environment(&test_env, &["ls", "-al", ".."].map(String::from))?;
 
