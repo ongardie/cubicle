@@ -16,26 +16,28 @@ echo "$HOME/opt/python/latest/bin" > ~/.config/profile.d/path/37-python
 have=$(python3 --version || true)
 echo "Have ${have:-no python3 version}"
 echo "Checking latest version of Python on GitHub"
-TAGS=$TMPDIR/python-tags
-curl -sS 'https://api.github.com/repos/python/cpython/tags' > $TAGS
-version=$(cat $TAGS | jq -r '.[] | .name' | grep -E '^v[0-9]+.[0-9]+.[0-9]+$' | sort --version-sort | tail -n 1 | cut -b2-)
+TAGS="$TMPDIR/python-tags"
+curl -sS 'https://api.github.com/repos/python/cpython/tags' > "$TAGS"
+version=$(jq -r '.[] | .name' "$TAGS" | grep -E '^v[0-9]+.[0-9]+.[0-9]+$' | sort --version-sort | tail -n 1 | cut -b2-)
+
+# shellcheck disable=SC3013
 if [ "$have" = "Python $version" ] && [ "$(which python3)" -nt "/usr/lib/$(uname -m)-linux-gnu/libssl.a" ]; then
     echo "Have latest Python already ($version)"
 else
     echo "Downloading and installing Python $version"
     cd
-    if [ ! -f Python-$version.tar.xz ]; then
+    if [ ! -f "Python-$version.tar.xz" ]; then
         curl -LOsS "https://www.python.org/ftp/python/$version/Python-$version.tar.xz"
     fi
-    if [ ! -d Python-$version ]; then
-        tar -xf Python-$version.tar.xz
+    if [ ! -d "Python-$version" ]; then
+        tar -xf "Python-$version.tar.xz"
     fi
-    cd Python-$version
+    cd "Python-$version"
     mkdir -p ~/opt/python
-    ./configure --prefix ~/opt/python/$version
+    ./configure --prefix "$HOME/opt/python/$version"
     make -j
     make install
-    ln -fns $version ~/opt/python/latest
+    ln -fns "$version" ~/opt/python/latest
     ln -fs python3 ~/opt/python/latest/bin/python
     ln -fs pip3 ~/opt/python/latest/bin/pip
 fi
@@ -55,8 +57,8 @@ for f in \
 done
 
 if [ "$(python3 --version)" != "Python $version" ]; then
-  echo "ERROR: Have $(python3 --version), which is still not right"
-  exit 1
+    echo "ERROR: Have $(python3 --version), which is still not right"
+    exit 1
 fi
 
 echo 'Upgrading pip and packages'

@@ -2,6 +2,8 @@
 set -ex
 
 export PATH="$HOME/.cargo/bin:$PATH"
+
+# shellcheck disable=SC2016
 echo '$HOME/.cargo/bin' > ~/.config/profile.d/path/33-cargo
 
 if ! rustup run stable echo rustup ok; then

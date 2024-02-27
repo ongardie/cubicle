@@ -6,9 +6,9 @@ curl() {
 }
 
 echo "Checking latest version of VS Codium"
-RELEASES=$TMPDIR/vscodium-releases
-curl -s 'https://api.github.com/repos/VSCodium/vscodium/releases' > $RELEASES
-latest=$(jq -r '.[] | .tag_name' < $RELEASES | sort --version-sort | tail -n 1)
+RELEASES="$TMPDIR/vscodium-releases"
+curl -s 'https://api.github.com/repos/VSCodium/vscodium/releases' > "$RELEASES"
+latest=$(jq -r '.[] | .tag_name' "$RELEASES" | sort --version-sort | tail -n 1)
 if [ "$( ~/opt/vscodium/bin/codium --version | head -n 1 )" = "$latest" ]; then
     echo "Have latest VS Codium already ($latest)"
 else

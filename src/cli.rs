@@ -411,7 +411,7 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
             let packages = packages
                 .map(|packages| package_set_from_patterns(&packages, program.get_package_names()?))
                 .transpose()?;
-            program.new_environment(&name, packages.as_ref())?;
+            program.new_environment(&name, packages)?;
             if enter {
                 program.enter_environment(&name)?;
             }
@@ -430,7 +430,7 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
                 .map(|packages| package_set_from_patterns(&packages, program.get_package_names()?))
                 .transpose()?;
             for name in matching_environments(&names, program.get_environment_names()?)? {
-                program.reset_environment(&name, packages.as_ref())?;
+                program.reset_environment(&name, packages.clone())?;
             }
             Ok(())
         }
@@ -438,7 +438,7 @@ pub fn run(args: Args, program: &Cubicle) -> Result<()> {
             let packages = packages
                 .map(|packages| package_set_from_patterns(&packages, program.get_package_names()?))
                 .transpose()?;
-            program.create_enter_tmp_environment(packages.as_ref())
+            program.create_enter_tmp_environment(packages)
         }
     }
 }

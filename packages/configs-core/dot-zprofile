@@ -1,0 +1,8 @@
+#!/bin/zsh
+
+export DOT_ZPROFILE_SOURCED=1
+
+# POSIX-compatible per-login initialization (environment variables).
+if [ -f "$HOME/.profile" ]; then
+    . "$HOME/.profile"
+fi

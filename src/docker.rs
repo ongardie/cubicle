@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 use super::command_ext::Command;
-use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
+use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir_dirs, DirSummary};
 use super::os_util::{get_timezone, get_uids, Uids};
 use super::paths::EnvPath;
 use super::runner::{
@@ -867,7 +867,7 @@ impl Runner for Docker {
                 home_dirs,
                 work_dirs,
             } => {
-                for name in try_iterdir(home_dirs)? {
+                for name in try_iterdir_dirs(home_dirs)? {
                     let env = EnvironmentName::from_filename(&name).with_context(|| {
                         format!(
                             "error parsing environment name from path {}",
@@ -877,7 +877,7 @@ impl Runner for Docker {
                     envs.insert(env);
                 }
 
-                for name in try_iterdir(work_dirs)? {
+                for name in try_iterdir_dirs(work_dirs)? {
                     let env = EnvironmentName::from_filename(&name).with_context(|| {
                         format!(
                             "error parsing environment name from path {}",

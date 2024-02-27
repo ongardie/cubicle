@@ -8,7 +8,7 @@ use tempfile::NamedTempFile;
 
 use super::apt;
 use super::command_ext::Command;
-use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir, DirSummary};
+use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir_dirs, DirSummary};
 use super::paths::EnvPath;
 use super::runner::{
     EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target,
@@ -361,7 +361,7 @@ impl Runner for Bubblewrap {
     fn list(&self) -> Result<Vec<EnvironmentName>> {
         let mut envs = BTreeSet::new();
 
-        for name in try_iterdir(&self.home_dirs)? {
+        for name in try_iterdir_dirs(&self.home_dirs)? {
             let env = EnvironmentName::from_filename(&name).with_context(|| {
                 format!(
                     "error parsing environment name from path {}",
@@ -371,7 +371,7 @@ impl Runner for Bubblewrap {
             envs.insert(env);
         }
 
-        for name in try_iterdir(&self.work_dirs)? {
+        for name in try_iterdir_dirs(&self.work_dirs)? {
             let env = EnvironmentName::from_filename(&name).with_context(|| {
                 format!(
                     "error parsing environment name from path {}",

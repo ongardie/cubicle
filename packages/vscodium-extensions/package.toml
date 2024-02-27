@@ -6,6 +6,7 @@ vscodium-go = {}
 "esbenp.prettier-vscode" = {}
 "lextudio.restructuredtext" = {}
 "llvm-vs-code-extensions.vscode-clangd" = {}
+"ms-python.black-formatter" = {}
 "ms-python.python" = {}
 "rust-lang.rust-analyzer" = {}
 "stkb.rewrap" = {}

@@ -14,7 +14,8 @@ use crate::somehow::{somehow as anyhow, warn, Context, Error, LowLevelResult, Re
 
 use super::encoding::FilenameEncoder;
 use super::fs_util::{
-    create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, DirSummary, TarOptions,
+    create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, try_iterdir_dirs,
+    DirSummary, TarOptions,
 };
 use super::runner::{EnvironmentExists, Init, Runner, RunnerCommand};
 use super::{rel_time, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostPath, RunnerKind};
@@ -22,6 +23,17 @@ use super::{rel_time, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostP
 mod manifest;
 pub(crate) use manifest::Target;
 use manifest::{Dependency, Manifest};
+
+pub mod special {
+    pub const AUTO_BATCH: &str = "auto-batch";
+
+    pub const AUTO_INTERACTIVE: &str = "auto";
+
+    /// This is not treated specially, but it is especially critical.
+    pub const CONFIGS_CORE: &str = "configs-core";
+
+    pub const DEFAULT: &str = "default";
+}
 
 /// Information about a package's source files.
 pub struct PackageSpec {
@@ -170,7 +182,7 @@ impl Cubicle {
         dir: &HostPath,
         origin: &str,
     ) -> Result<()> {
-        for name in try_iterdir(dir)? {
+        for name in try_iterdir_dirs(dir)? {
             let name = match name.to_str() {
                 Some(name) => PackageName::strict_from_str(name)?,
                 None => {
@@ -210,10 +222,13 @@ impl Cubicle {
             }
 
             manifest
-                .depends
+                .build_depends
                 .get_mut(&PackageNamespace::Root)
                 .unwrap()
-                .insert(PackageName::strict_from_str("auto").unwrap(), Dependency {});
+                .insert(
+                    PackageName::strict_from_str(special::AUTO_BATCH).unwrap(),
+                    Dependency {},
+                );
 
             let test = try_exists(&dir.join("test.sh"))
                 .todo_context()?
@@ -239,7 +254,7 @@ impl Cubicle {
     pub fn get_package_names(&self) -> Result<BTreeSet<FullPackageName>> {
         let mut names = BTreeSet::new();
         let mut add = |dir: &HostPath| -> Result<()> {
-            for name in try_iterdir(dir)? {
+            for name in try_iterdir_dirs(dir)? {
                 if let Some(name) = name
                     .to_str()
                     .and_then(|s| PackageName::strict_from_str(s).ok())
@@ -249,6 +264,7 @@ impl Cubicle {
             }
             Ok(())
         };
+        // Don't use try_iterdir_dirs to allow symlinks at this level.
         for dir in try_iterdir(&self.shared.user_package_dir)? {
             add(&self.shared.user_package_dir.join(dir))?;
         }
@@ -263,6 +279,7 @@ impl Cubicle {
     pub fn scan_packages(&self) -> Result<PackageSpecs> {
         let mut specs = PackageSpecs::new();
 
+        // Don't use try_iterdir_dirs to allow symlinks at this level.
         for dir in try_iterdir(&self.shared.user_package_dir)? {
             let origin = dir.to_string_lossy();
             self.add_packages(
@@ -286,25 +303,31 @@ impl Cubicle {
                 )
             })?;
 
-        let auto = FullPackageName::from_str("auto").unwrap();
+        // Packages that `special::AUTO_BATCH` depends on can't implicitly
+        // depend on `special::AUTO_BATCH`.
+        let auto = FullPackageName::from_str(special::AUTO_BATCH).unwrap();
         let auto_deps = transitive_depends(&BTreeSet::from([auto]), &specs, BuildDepends(true))?;
         for FullPackageName(ns, name) in &auto_deps {
             let spec = match ns {
                 PackageNamespace::Debian => continue,
                 PackageNamespace::Root => specs.get_mut(name).ok_or_else(|| {
-                    anyhow!("package \"auto\" depends on {name} but package not found")
+                    anyhow!(
+                        "package {:?} depends on {name} but package not found",
+                        special::AUTO_BATCH
+                    )
                 }),
                 PackageNamespace::Managed(manager) => specs.get_mut(manager).ok_or_else(|| {
                     anyhow!(
-                        "package \"auto\" depends on package manager {ns} but package not found"
+                        "package {:?} depends on package manager {ns} but package not found",
+                        special::AUTO_BATCH
                     )
                 }),
             }?;
             spec.manifest
-                .depends
+                .build_depends
                 .get_mut(&PackageNamespace::Root)
                 .unwrap()
-                .remove("auto");
+                .remove(special::AUTO_BATCH);
         }
 
         Ok(specs)
@@ -714,6 +737,7 @@ impl Cubicle {
                     .keys()
                     .map(|name| FullPackageName(ns.clone(), name.clone()))
             })
+            .chain([FullPackageName::from_str(special::AUTO_BATCH).unwrap()])
             .collect();
 
         let mut seeds = self.packages_to_seeds(&packages, specs)?;
@@ -1161,6 +1185,9 @@ pub fn write_package_list_tar(
 
     let mut buf = Vec::new();
     for name in packages {
+        if name.0 == PackageNamespace::Root && name.1.as_str() == special::AUTO_INTERACTIVE {
+            continue;
+        }
         writeln!(buf, "{}", name.unquoted()).todo_context()?;
     }
     header.set_size(buf.len() as u64);

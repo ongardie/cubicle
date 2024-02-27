@@ -163,13 +163,33 @@ pub fn summarize_dir(path: &HostPath) -> Result<DirSummary> {
 }
 
 pub fn try_iterdir(path: &HostPath) -> Result<Vec<OsString>> {
+    try_iterdir_with_filter(path, |_| Ok(true))
+}
+
+pub fn try_iterdir_dirs(path: &HostPath) -> Result<Vec<OsString>> {
+    try_iterdir_with_filter(path, |entry| Ok(entry.file_type()?.is_dir()))
+}
+
+fn try_iterdir_with_filter<F>(path: &HostPath, f: F) -> Result<Vec<OsString>>
+where
+    F: Fn(&std::fs::DirEntry) -> io::Result<bool>,
+{
     let readdir = std::fs::read_dir(path.as_host_raw());
     if matches!(&readdir, Err(e) if e.kind() == io::ErrorKind::NotFound) {
         return Ok(Vec::new());
     };
     let mut names = readdir
         .todo_context()?
-        .map(|entry| entry.map(|entry| entry.file_name()))
+        .filter_map(|entry| -> Option<io::Result<OsString>> {
+            match entry {
+                Err(error) => Some(Err(error)),
+                Ok(entry) => match f(&entry) {
+                    Err(error) => Some(Err(error)),
+                    Ok(true) => Some(Ok(entry.file_name())),
+                    Ok(false) => None,
+                },
+            }
+        })
         .collect::<io::Result<Vec<_>>>()
         .todo_context()?;
     names.sort_unstable();

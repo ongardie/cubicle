@@ -1,11 +1,19 @@
-set -eu
+#!/bin/zsh
 
-if [ "${DOT_PROFILE_SOURCED:-}" != "1" ]; then
-    . ~/.zprofile
-fi
+export DOT_ZSHRC_SOURCED=1
 
-for i in ~/.config/zshrc.d/*.zsh; do
-    . "$i"
+# POSIX-compatible per-shell initialization (aliases and functions).
+for f in "$HOME"/.config/shrc.d/*.sh; do
+    # This condition avoids sourcing directories and empty glob matches.
+    if [ -f "$f" ]; then
+        . "$f"
+    fi
 done
 
-set +eu
+# Zsh-specific per-shell initialization.
+for f in "$HOME"/.config/zshrc.d/*.zsh; do
+    # This condition avoids sourcing directories and empty glob matches.
+    if [ -f "$f" ]; then
+        . "$f"
+    fi
+done

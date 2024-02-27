@@ -440,6 +440,18 @@ fn build_job(os: Os, rust: Rust, run_once_checks: RunOnceChecks) -> (JobKey, Job
         });
 
         steps.push(Step {
+            name: s("Run shellcheck"),
+            details: Run {
+                run: formatdoc! {r#"
+                    curl -LO https://github.com/koalaman/shellcheck/releases/download/{version}/shellcheck-{version}.linux.x86_64.tar.xz
+                    tar -xvf shellcheck-{version}.linux.x86_64.tar.xz
+                    PATH="$PWD/shellcheck-{version}:$PATH" ./shellcheck.sh
+                "#, version = "v0.9.0"},
+            },
+            env: dict! {},
+        });
+
+        steps.push(Step {
             name: s("Install cargo audit"),
             details: Run {
                 run: s("cargo install cargo-audit"),

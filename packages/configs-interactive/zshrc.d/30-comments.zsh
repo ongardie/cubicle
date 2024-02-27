@@ -1,3 +1,5 @@
+#!/bin/zsh
+
 # Allow comments with '#' on the console. Otherwise these command get run and
 # end up showing silly things like:
 #     zsh: command not found: #echo

@@ -1,0 +1,3 @@
+.config/bashrc.d/50-apt-binary.bash
+.config/zshrc.d/50-apt-binary.zsh
+bin/apt-binary

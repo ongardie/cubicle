@@ -19,7 +19,7 @@ if [ ! -f ~/.mozilla/firefox/profiles.ini ]; then
     echo "Initializing Firefox profile"
     firefox --screenshot 2>/dev/null
     profile=$(echo ~/.mozilla/firefox/*.default-release)
-    cat >> $profile/prefs.js <<"EOF"
+    cat >> "$profile/prefs.js" <<"EOF"
         user_pref("browser.aboutConfig.showWarning", false);
         user_pref("browser.aboutwelcome.enabled", false);
         user_pref("browser.contentblocking.category", "strict");

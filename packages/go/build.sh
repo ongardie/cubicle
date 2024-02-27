@@ -11,7 +11,7 @@ chmod +x ~/.dev-init/go-asdf.sh
 
 asdf global golang latest
 install="$(asdf where golang)/packages/bin"
-install="$HOME${install#$HOME}"
+install="$HOME${install#"$HOME"}"
 echo "$install" > ~/.config/profile.d/path/36-go
 
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar
