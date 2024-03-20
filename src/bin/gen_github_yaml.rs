@@ -652,12 +652,14 @@ fn install_docker(os: Os) -> Vec<Step> {
                     Step {
                         name: s("Install Colima"),
                         details: Run {
-                            // Currently, installing colima installs Python
-                            // 3.12. This conflicts with an existing
-                            // /usr/local/bin/2to3. To work around this,
+                            // Currently, installing colima installs both
+                            // Python 3.11 and 3.12. These conflict with
+                            // existing `/usr/local/bin/2to3-3.11` and
+                            // `/usr/local/bin/2to3`. To work around this,
                             // install Python explicitly with the `--overwrite`
                             // flag.
                             run: s(indoc! {"
+                                brew install --overwrite python@3.11
                                 brew install --overwrite python@3.12
                                 brew install colima
                             "}),
