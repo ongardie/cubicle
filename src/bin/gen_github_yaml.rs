@@ -652,13 +652,15 @@ fn install_docker(os: Os) -> Vec<Step> {
                     Step {
                         name: s("Install Colima"),
                         details: Run {
-                            // Currently, installing colima upgrades openssl from 3.2.0_1
-                            // to 3.2.1.  Somehow, this conflicts with version 1.1,
-                            // fighting over the symlink `/usr/local/bin/openssl`. To work
-                            // around this, install openssl explicitly with the
-                            // `--overwrite` flag.
+                            // Currently, installing colima installs both
+                            // Python 3.11 and 3.12. These conflict with
+                            // existing `/usr/local/bin/2to3-3.11` and
+                            // `/usr/local/bin/2to3`. To work around this,
+                            // install Python explicitly with the `--overwrite`
+                            // flag.
                             run: s(indoc! {"
-                                brew install --overwrite openssl@3
+                                brew install --overwrite python@3.11
+                                brew install --overwrite python@3.12
                                 brew install colima
                             "}),
                         },
