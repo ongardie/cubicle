@@ -138,7 +138,7 @@ mod tests {
             error downloading word list from "will://not work"
 
             Caused by:
-                0: builder error: invalid domain character
+                0: builder error
                 1: invalid domain character"#]]
         .assert_eq(&err);
     }
