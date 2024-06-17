@@ -10,6 +10,7 @@ pub struct Summary {
     pub upgraded: usize,
     pub newly_installed: usize,
     pub removed: usize,
+    #[allow(unused)]
     pub not_upgraded: usize,
 }
 
