@@ -14,7 +14,7 @@ _cub() {
     fi
 
     local context curcontext="$curcontext" state line
-    _arguments "${_arguments_options[@]}" \
+    _arguments "${_arguments_options[@]}" : \
 '-c+[Path to configuration file]:CONFIG:_files' \
 '--config=[Path to configuration file]:CONFIG:_files' \
 '-h[Print help]' \
@@ -29,21 +29,21 @@ _cub() {
         curcontext="${curcontext%:*:*}:cub-command-$line[1]:"
         case $line[1] in
             (completions)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ':shell:(bash elvish fish powershell zsh)' \
 && ret=0
 ;;
 (enter)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ':name -- Environment name:_cub_envs' \
 && ret=0
 ;;
 (exec)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ':name -- Environment name:_cub_envs' \
@@ -51,7 +51,7 @@ _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
 (list)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '--format=[Set output format]:FORMAT:((default\:"Human-formatted table"
 json\:"Detailed JSON output for machine consumption"
 names\:"Newline-delimited list of environment names only"))' \
@@ -60,7 +60,7 @@ names\:"Newline-delimited list of environment names only"))' \
 && ret=0
 ;;
 (package)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
 '--help[Print help]' \
 ":: :_cub__package_commands" \
@@ -74,7 +74,7 @@ _arguments "${_arguments_options[@]}" \
         curcontext="${curcontext%:*:*}:cub-package-command-$line[1]:"
         case $line[1] in
             (list)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '--format=[Set output format]:FORMAT:((default\:"Human-formatted table"
 json\:"Detailed JSON output for machine consumption"
 names\:"Newline-delimited list of package names only"))' \
@@ -83,7 +83,7 @@ names\:"Newline-delimited list of package names only"))' \
 && ret=0
 ;;
 (update)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '--clean[Clear out existing build environment first]' \
 '--skip-deps[Build dependencies only if required]' \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -92,7 +92,7 @@ _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
 (help)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 ":: :_cub__package__help_commands" \
 "*::: :->help" \
 && ret=0
@@ -104,15 +104,15 @@ _arguments "${_arguments_options[@]}" \
         curcontext="${curcontext%:*:*}:cub-package-help-command-$line[1]:"
         case $line[1] in
             (list)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (update)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (help)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
         esac
@@ -124,7 +124,7 @@ esac
 esac
 ;;
 (new)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \
 '--enter[Run a shell in new environment]' \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -133,14 +133,14 @@ _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
 (purge)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 '*::names -- Environment name(s):_cub_envs' \
 && ret=0
 ;;
 (reset)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -148,14 +148,14 @@ _arguments "${_arguments_options[@]}" \
 && ret=0
 ;;
 (tmp)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 '*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_cub_pkgs_comma' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (help)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 ":: :_cub__help_commands" \
 "*::: :->help" \
 && ret=0
@@ -167,23 +167,23 @@ _arguments "${_arguments_options[@]}" \
         curcontext="${curcontext%:*:*}:cub-help-command-$line[1]:"
         case $line[1] in
             (completions)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (enter)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (exec)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (list)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (package)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 ":: :_cub__help__package_commands" \
 "*::: :->package" \
 && ret=0
@@ -195,11 +195,11 @@ _arguments "${_arguments_options[@]}" \
         curcontext="${curcontext%:*:*}:cub-help-package-command-$line[1]:"
         case $line[1] in
             (list)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (update)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
         esac
@@ -207,23 +207,23 @@ _arguments "${_arguments_options[@]}" \
 esac
 ;;
 (new)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (purge)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (reset)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (tmp)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (help)
-_arguments "${_arguments_options[@]}" \
+_arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
         esac
@@ -256,30 +256,15 @@ _cub__completions_commands() {
     local commands; commands=()
     _describe -t commands 'cub completions commands' commands "$@"
 }
-(( $+functions[_cub__help__completions_commands] )) ||
-_cub__help__completions_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help completions commands' commands "$@"
-}
 (( $+functions[_cub__enter_commands] )) ||
 _cub__enter_commands() {
     local commands; commands=()
     _describe -t commands 'cub enter commands' commands "$@"
 }
-(( $+functions[_cub__help__enter_commands] )) ||
-_cub__help__enter_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help enter commands' commands "$@"
-}
 (( $+functions[_cub__exec_commands] )) ||
 _cub__exec_commands() {
     local commands; commands=()
     _describe -t commands 'cub exec commands' commands "$@"
-}
-(( $+functions[_cub__help__exec_commands] )) ||
-_cub__help__exec_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help exec commands' commands "$@"
 }
 (( $+functions[_cub__help_commands] )) ||
 _cub__help_commands() {
@@ -297,10 +282,87 @@ _cub__help_commands() {
     )
     _describe -t commands 'cub help commands' commands "$@"
 }
+(( $+functions[_cub__help__completions_commands] )) ||
+_cub__help__completions_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help completions commands' commands "$@"
+}
+(( $+functions[_cub__help__enter_commands] )) ||
+_cub__help__enter_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help enter commands' commands "$@"
+}
+(( $+functions[_cub__help__exec_commands] )) ||
+_cub__help__exec_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help exec commands' commands "$@"
+}
 (( $+functions[_cub__help__help_commands] )) ||
 _cub__help__help_commands() {
     local commands; commands=()
     _describe -t commands 'cub help help commands' commands "$@"
+}
+(( $+functions[_cub__help__list_commands] )) ||
+_cub__help__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help list commands' commands "$@"
+}
+(( $+functions[_cub__help__new_commands] )) ||
+_cub__help__new_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help new commands' commands "$@"
+}
+(( $+functions[_cub__help__package_commands] )) ||
+_cub__help__package_commands() {
+    local commands; commands=(
+'list:Show available packages' \
+'update:(Re-)build one or more packages' \
+    )
+    _describe -t commands 'cub help package commands' commands "$@"
+}
+(( $+functions[_cub__help__package__list_commands] )) ||
+_cub__help__package__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help package list commands' commands "$@"
+}
+(( $+functions[_cub__help__package__update_commands] )) ||
+_cub__help__package__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help package update commands' commands "$@"
+}
+(( $+functions[_cub__help__purge_commands] )) ||
+_cub__help__purge_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help purge commands' commands "$@"
+}
+(( $+functions[_cub__help__reset_commands] )) ||
+_cub__help__reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help reset commands' commands "$@"
+}
+(( $+functions[_cub__help__tmp_commands] )) ||
+_cub__help__tmp_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub help tmp commands' commands "$@"
+}
+(( $+functions[_cub__list_commands] )) ||
+_cub__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub list commands' commands "$@"
+}
+(( $+functions[_cub__new_commands] )) ||
+_cub__new_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub new commands' commands "$@"
+}
+(( $+functions[_cub__package_commands] )) ||
+_cub__package_commands() {
+    local commands; commands=(
+'list:Show available packages' \
+'update:(Re-)build one or more packages' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'cub package commands' commands "$@"
 }
 (( $+functions[_cub__package__help_commands] )) ||
 _cub__package__help_commands() {
@@ -316,102 +378,40 @@ _cub__package__help__help_commands() {
     local commands; commands=()
     _describe -t commands 'cub package help help commands' commands "$@"
 }
-(( $+functions[_cub__help__list_commands] )) ||
-_cub__help__list_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help list commands' commands "$@"
-}
-(( $+functions[_cub__help__package__list_commands] )) ||
-_cub__help__package__list_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help package list commands' commands "$@"
-}
-(( $+functions[_cub__list_commands] )) ||
-_cub__list_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub list commands' commands "$@"
-}
 (( $+functions[_cub__package__help__list_commands] )) ||
 _cub__package__help__list_commands() {
     local commands; commands=()
     _describe -t commands 'cub package help list commands' commands "$@"
-}
-(( $+functions[_cub__package__list_commands] )) ||
-_cub__package__list_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub package list commands' commands "$@"
-}
-(( $+functions[_cub__help__new_commands] )) ||
-_cub__help__new_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help new commands' commands "$@"
-}
-(( $+functions[_cub__new_commands] )) ||
-_cub__new_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub new commands' commands "$@"
-}
-(( $+functions[_cub__help__package_commands] )) ||
-_cub__help__package_commands() {
-    local commands; commands=(
-'list:Show available packages' \
-'update:(Re-)build one or more packages' \
-    )
-    _describe -t commands 'cub help package commands' commands "$@"
-}
-(( $+functions[_cub__package_commands] )) ||
-_cub__package_commands() {
-    local commands; commands=(
-'list:Show available packages' \
-'update:(Re-)build one or more packages' \
-'help:Print this message or the help of the given subcommand(s)' \
-    )
-    _describe -t commands 'cub package commands' commands "$@"
-}
-(( $+functions[_cub__help__purge_commands] )) ||
-_cub__help__purge_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help purge commands' commands "$@"
-}
-(( $+functions[_cub__purge_commands] )) ||
-_cub__purge_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub purge commands' commands "$@"
-}
-(( $+functions[_cub__help__reset_commands] )) ||
-_cub__help__reset_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help reset commands' commands "$@"
-}
-(( $+functions[_cub__reset_commands] )) ||
-_cub__reset_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub reset commands' commands "$@"
-}
-(( $+functions[_cub__help__tmp_commands] )) ||
-_cub__help__tmp_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help tmp commands' commands "$@"
-}
-(( $+functions[_cub__tmp_commands] )) ||
-_cub__tmp_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub tmp commands' commands "$@"
-}
-(( $+functions[_cub__help__package__update_commands] )) ||
-_cub__help__package__update_commands() {
-    local commands; commands=()
-    _describe -t commands 'cub help package update commands' commands "$@"
 }
 (( $+functions[_cub__package__help__update_commands] )) ||
 _cub__package__help__update_commands() {
     local commands; commands=()
     _describe -t commands 'cub package help update commands' commands "$@"
 }
+(( $+functions[_cub__package__list_commands] )) ||
+_cub__package__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub package list commands' commands "$@"
+}
 (( $+functions[_cub__package__update_commands] )) ||
 _cub__package__update_commands() {
     local commands; commands=()
     _describe -t commands 'cub package update commands' commands "$@"
+}
+(( $+functions[_cub__purge_commands] )) ||
+_cub__purge_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub purge commands' commands "$@"
+}
+(( $+functions[_cub__reset_commands] )) ||
+_cub__reset_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub reset commands' commands "$@"
+}
+(( $+functions[_cub__tmp_commands] )) ||
+_cub__tmp_commands() {
+    local commands; commands=()
+    _describe -t commands 'cub tmp commands' commands "$@"
 }
 
 
