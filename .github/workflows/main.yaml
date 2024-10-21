@@ -8,7 +8,7 @@ on:
     branches:
     - main
   schedule:
-  - cron: 0 16 * * *
+  - cron: 0 16 * * 2
   workflow_dispatch: {}
 jobs:
   build-macos-13-stable:

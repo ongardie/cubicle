@@ -301,10 +301,10 @@ fn ci_workflow() -> Workflow {
                 "branches": ["main"],
             },
             "pull_request": {},
-            // Run daily to catch breakages in new Rust versions as well as new
-            // cargo audit findings.
+            // Run weekly to catch breakages in new Rust versions as well as
+            // new cargo audit findings.
             "schedule": [
-                {"cron": "0 16 * * *"},
+                {"cron": "0 16 * * 2"},
             ],
             // Allows you to run this workflow manually from the Actions tab.
             "workflow_dispatch": {},
