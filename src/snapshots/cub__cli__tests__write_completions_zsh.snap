@@ -47,7 +47,7 @@ _arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ':name -- Environment name:_cub_envs' \
-'*::command -- Command and arguments to run:' \
+'*::command -- Command and arguments to run:_default' \
 && ret=0
 ;;
 (list)
@@ -129,7 +129,7 @@ _arguments "${_arguments_options[@]}" : \
 '--enter[Run a shell in new environment]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
-':name -- New environment name:' \
+':name -- New environment name:_default' \
 && ret=0
 ;;
 (purge)

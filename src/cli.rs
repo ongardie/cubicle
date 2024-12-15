@@ -331,19 +331,19 @@ fn write_completions<W: io::Write>(shell: Shell, out: &mut W) -> Result<()> {
         let mut write = || -> std::io::Result<()> {
             for line in buf.lines() {
                 match line {
-                    r#"':name -- Environment name:' \"# => {
+                    r#"':name -- Environment name:_default' \"# => {
                         counts[0] += 1;
                         writeln!(out, r#"':name -- Environment name:_cub_envs' \"#)?;
                     }
-                    r#"'*::names -- Environment name(s):' \"# => {
+                    r#"'*::names -- Environment name(s):_default' \"# => {
                         counts[1] += 1;
                         writeln!(out, r#"'*::names -- Environment name(s):_cub_envs' \"#)?;
                     }
-                    r#"'*::packages -- Package name(s):' \"# => {
+                    r#"'*::packages -- Package name(s):_default' \"# => {
                         counts[2] += 1;
                         writeln!(out, r#"'*::packages -- Package name(s):_cub_pkgs' \"#)?;
                     }
-                    r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES: ' \"# =>
+                    r#"'*--packages=[Comma-separated names of packages to inject into home directory]:PACKAGES:_default' \"# =>
                     {
                         counts[3] += 1;
                         writeln!(
