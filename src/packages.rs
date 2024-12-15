@@ -95,7 +95,7 @@ fn transitive_depends(
         visited: BTreeSet<FullPackageName>,
     }
 
-    impl<'a> Visitor<'a> {
+    impl Visitor<'_> {
         fn visit(
             &mut self,
             p: &FullPackageName,
