@@ -354,9 +354,10 @@ mod tests {
         assert_eq!("MyError", err);
     }
 
+    deprecated_from!(std::io::Error);
+
     #[test]
     fn deprecated_from() {
-        deprecated_from!(std::io::Error);
         let make_err = || -> Result<f64> {
             #[allow(clippy::try_err)]
             Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?

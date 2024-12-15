@@ -310,7 +310,9 @@ mod tests {
                   |
                 1 | runner = 'q'
                   |          ^^^
-                unknown variant `q`, expected one of `Bubblewrap`, `Docker`, `User`
+                unknown variant `q`, expected one of `Bubblewrap`, \
+                `bubblewrap`, `bwrap`, `Docker`, `docker`, `User`, `Users`, \
+                `user`, `users`
             "},
             Config::from_str("runner = 'q'")
                 .enough_context()
