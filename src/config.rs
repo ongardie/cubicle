@@ -7,10 +7,10 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use super::os_util::host_home_dir;
 use super::HostPath;
 use super::RunnerKind;
-use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
+use super::os_util::host_home_dir;
+use crate::somehow::{Context, LowLevelResult, Result, somehow as anyhow};
 
 /// Main Cubicle program configuration, normally read from a `cubicle.toml`
 /// file.

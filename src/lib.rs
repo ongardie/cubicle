@@ -24,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod somehow;
 pub use somehow::Result;
-use somehow::{somehow as anyhow, warn, warn_brief, Context, Error};
+use somehow::{Context, Error, somehow as anyhow, warn, warn_brief};
 
 mod paths;
 use paths::HostPath;
@@ -45,17 +45,17 @@ mod encoding;
 use encoding::FilenameEncoder;
 
 mod fs_util;
-use fs_util::{try_exists, DirSummary};
+use fs_util::{DirSummary, try_exists};
 
 mod os_util;
 use os_util::host_home_dir;
 
 mod packages;
-use packages::{write_package_list_tar, Target};
 pub use packages::{
     FullPackageName, ListPackagesFormat, PackageDetails, PackageName, PackageNamespace,
     PackageSpec, PackageSpecs, ShouldPackageUpdate, UpdatePackagesConditions,
 };
+use packages::{Target, write_package_list_tar};
 
 mod command_ext;
 
@@ -186,7 +186,7 @@ impl Cubicle {
                                 .iter()
                                 .map(|p| p.as_host_raw())
                                 .collect::<Vec<_>>()
-                        ))
+                        ));
                     }
                 }
             }
@@ -377,7 +377,7 @@ impl Cubicle {
                 return Err(anyhow!(
                     "environment {name} in broken state (try '{} reset')",
                     self.shared.exe_name
-                ))
+                ));
             }
             FullyExists => return Err(anyhow!("environment {name} already exists")),
         }
@@ -696,11 +696,7 @@ fn rel_time(duration: Option<Duration>) -> String {
 }
 
 fn nonzero_time(t: SystemTime) -> Option<SystemTime> {
-    if t == UNIX_EPOCH {
-        None
-    } else {
-        Some(t)
-    }
+    if t == UNIX_EPOCH { None } else { Some(t) }
 }
 
 /// Description of an environment as returned by [`Cubicle::get_environments`].

@@ -1,8 +1,8 @@
 use std::io;
 use std::path::Path;
 
-use super::fs_util::DirSummary;
 pub(crate) use super::Target;
+use super::fs_util::DirSummary;
 use super::{EnvironmentName, HostPath};
 use crate::somehow::{Context, Result};
 

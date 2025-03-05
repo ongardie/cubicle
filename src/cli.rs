@@ -14,7 +14,7 @@ use std::str::FromStr;
 use wildmatch::WildMatch;
 
 use cubicle::hidden::host_home_dir;
-use cubicle::somehow::{somehow as anyhow, warn, Context, Error, Result};
+use cubicle::somehow::{Context, Error, Result, somehow as anyhow, warn};
 use cubicle::{
     Cubicle, EnvironmentName, FullPackageName, ListFormat, ListPackagesFormat, Quiet,
     ShouldPackageUpdate, UpdatePackagesConditions,

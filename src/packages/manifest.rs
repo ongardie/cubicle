@@ -64,7 +64,7 @@ impl Manifest {
                             format!("failed to read {:?}", dir_path.join(path).as_host_raw())
                         })
                         .map_err(|e| e.into())
-                }
+                };
             }
         };
         Ok(Some(parse(&buf)?))

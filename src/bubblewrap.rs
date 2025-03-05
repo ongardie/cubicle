@@ -8,11 +8,11 @@ use tempfile::NamedTempFile;
 
 use super::apt;
 use super::command_ext::Command;
-use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir_dirs, DirSummary};
+use super::fs_util::{DirSummary, rmtree, summarize_dir, try_exists, try_iterdir_dirs};
 use super::paths::EnvPath;
 use super::runner::{
-    EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target,
-    LOCALE_ENVIRONMENT_VARIABLES,
+    EnvFilesSummary, EnvironmentExists, Init, LOCALE_ENVIRONMENT_VARIABLES, Runner, RunnerCommand,
+    Target,
 };
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
 use crate::somehow::{Context, Result};

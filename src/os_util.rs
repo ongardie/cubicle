@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use super::HostPath;
-use crate::somehow::{somehow as anyhow, warn, Context, Error};
+use crate::somehow::{Context, Error, somehow as anyhow, warn};
 
 fn get_home_dir() -> HostPath {
     let result = match std::env::var_os("HOME") {

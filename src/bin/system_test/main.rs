@@ -10,7 +10,7 @@
 
 use clap::Parser;
 use cubicle::config::Config;
-use cubicle::somehow::{somehow as anyhow, Context, Result};
+use cubicle::somehow::{Context, Result, somehow as anyhow};
 use cubicle::{
     Cubicle, EnvironmentName, FullPackageName, ListFormat, ListPackagesFormat, Quiet,
     ShouldPackageUpdate, UpdatePackagesConditions,

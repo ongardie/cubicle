@@ -10,15 +10,15 @@ use std::sync::OnceLock;
 use std::time::{Duration, UNIX_EPOCH};
 
 use super::command_ext::Command;
-use super::fs_util::{rmtree, summarize_dir, try_exists, try_iterdir_dirs, DirSummary};
-use super::os_util::{get_timezone, get_uids, Uids};
+use super::fs_util::{DirSummary, rmtree, summarize_dir, try_exists, try_iterdir_dirs};
+use super::os_util::{Uids, get_timezone, get_uids};
 use super::paths::EnvPath;
 use super::runner::{
-    EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target,
-    LOCALE_ENVIRONMENT_VARIABLES,
+    EnvFilesSummary, EnvironmentExists, Init, LOCALE_ENVIRONMENT_VARIABLES, Runner, RunnerCommand,
+    Target,
 };
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::somehow::{somehow as anyhow, warn, Context, LowLevelResult, Result};
+use crate::somehow::{Context, LowLevelResult, Result, somehow as anyhow, warn};
 
 mod names;
 use names::{ContainerName, ImageName, VolumeName};

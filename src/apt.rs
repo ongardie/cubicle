@@ -3,7 +3,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 
 use crate::command_ext::Command;
-use crate::somehow::{somehow as anyhow, warn, Context, Result};
+use crate::somehow::{Context, Result, somehow as anyhow, warn};
 
 #[derive(Debug)]
 pub struct Summary {

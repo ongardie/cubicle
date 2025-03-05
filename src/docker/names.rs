@@ -161,11 +161,7 @@ mod tests {
     use super::*;
 
     fn passed(pass: bool) -> &'static str {
-        if pass {
-            "(pass)"
-        } else {
-            "(fail)"
-        }
+        if pass { "(pass)" } else { "(fail)" }
     }
 
     #[test]
