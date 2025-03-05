@@ -10,15 +10,15 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use tempfile::NamedTempFile;
 
-use crate::somehow::{somehow as anyhow, warn, Context, Error, LowLevelResult, Result};
+use crate::somehow::{Context, Error, LowLevelResult, Result, somehow as anyhow, warn};
 
 use super::encoding::FilenameEncoder;
 use super::fs_util::{
-    create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir, try_iterdir_dirs,
-    DirSummary, TarOptions,
+    DirSummary, TarOptions, create_tar_from_dir, file_size, summarize_dir, try_exists, try_iterdir,
+    try_iterdir_dirs,
 };
 use super::runner::{EnvironmentExists, Init, Runner, RunnerCommand};
-use super::{rel_time, time_serialize_opt, Bytes, Cubicle, EnvironmentName, HostPath, RunnerKind};
+use super::{Bytes, Cubicle, EnvironmentName, HostPath, RunnerKind, rel_time, time_serialize_opt};
 
 mod manifest;
 pub(crate) use manifest::Target;
@@ -188,7 +188,7 @@ impl Cubicle {
                 None => {
                     return Err(anyhow!(
                         "package names must be valid UTF-8, found {name:#?} in {dir:#?}"
-                    ))
+                    ));
                 }
             };
             if packages.contains_key(&name) {

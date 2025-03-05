@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 
-use crate::somehow::{somehow as anyhow, Context, Result};
+use crate::somehow::{Context, Result, somehow as anyhow};
 
 pub struct FilenameEncoder {
     input: String,
@@ -111,11 +111,7 @@ mod tests {
     use std::ffi::OsStr;
 
     fn passed(pass: bool) -> &'static str {
-        if pass {
-            "(pass)"
-        } else {
-            "(fail)"
-        }
+        if pass { "(pass)" } else { "(fail)" }
     }
 
     #[test]

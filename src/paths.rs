@@ -1,4 +1,4 @@
-use crate::somehow::{somehow as anyhow, Error, Result};
+use crate::somehow::{Error, Result, somehow as anyhow};
 use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};

@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::HostPath;
-use crate::somehow::{somehow as anyhow, Context, Result};
+use crate::somehow::{Context, Result, somehow as anyhow};
 
 pub fn rmtree(path: &HostPath) -> Result<()> {
     rmtree_(path).with_context(|| format!("Failed to recursively remove directory: {:?}", path))
@@ -123,11 +123,12 @@ pub fn summarize_dir(path: &HostPath) -> Result<DirSummary> {
     fn handle_entry(summary: &mut DirSummary, entry: Result<WalkDirEntry>) {
         match entry {
             Ok(WalkDirEntry { entry, .. }) => {
-                let metadata = if let Ok(metadata) = entry.metadata() {
-                    metadata
-                } else {
-                    summary.errors = true;
-                    return;
+                let metadata = match entry.metadata() {
+                    Ok(metadata) => metadata,
+                    Err(_) => {
+                        summary.errors = true;
+                        return;
+                    }
                 };
                 match metadata.modified() {
                     Ok(time) => {

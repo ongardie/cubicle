@@ -5,14 +5,14 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::command_ext::Command;
-use super::fs_util::{summarize_dir, DirSummary};
+use super::fs_util::{DirSummary, summarize_dir};
 use super::runner::{
-    EnvFilesSummary, EnvironmentExists, Init, Runner, RunnerCommand, Target,
-    LOCALE_ENVIRONMENT_VARIABLES,
+    EnvFilesSummary, EnvironmentExists, Init, LOCALE_ENVIRONMENT_VARIABLES, Runner, RunnerCommand,
+    Target,
 };
-use super::{apt, CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::encoding::{percent_decode, percent_encode, FilenameEncoder};
-use crate::somehow::{somehow as anyhow, Context, LowLevelResult, Result};
+use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath, apt};
+use crate::encoding::{FilenameEncoder, percent_decode, percent_encode};
+use crate::somehow::{Context, LowLevelResult, Result, somehow as anyhow};
 
 pub struct User {
     pub(super) program: Rc<CubicleShared>,

@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 echo "Checking latest Firefox version"
 url=$(curl 'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US' -w '%{redirect_url}\n' -s --output /dev/null)
@@ -10,7 +10,7 @@ else
     echo "Downloading Firefox $version"
     mkdir -p ~/opt
     rm -rf ~/opt/firefox/
-    curl -L "$url" | tar -C ~/opt -xj
+    curl -L "$url" | tar -C ~/opt -x --xz
     ln -fs ../opt/firefox/firefox ~/bin/firefox
     firefox --version
 fi

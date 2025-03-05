@@ -1,6 +1,6 @@
 mod cli;
 
-use cubicle::{config::Config, Cubicle, Result};
+use cubicle::{Cubicle, Result, config::Config};
 
 fn main() -> Result<()> {
     let args = cli::parse();
