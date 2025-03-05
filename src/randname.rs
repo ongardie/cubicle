@@ -2,7 +2,7 @@ use rand::seq::IndexedRandom;
 use std::io::{self, BufRead};
 
 use super::HostPath;
-use crate::somehow::{somehow as anyhow, warn, Context, Result};
+use crate::somehow::{Context, Result, somehow as anyhow, warn};
 
 pub struct RandomNameGenerator {
     cache_dir: HostPath,
@@ -128,9 +128,9 @@ mod tests {
     fn download_or_open_eff_list() {
         let tmpdir = tempfile::tempdir().unwrap();
         let tmpdir_path = HostPath::try_from(tmpdir.path().canonicalize().unwrap()).unwrap();
-        let mut gen = super::RandomNameGenerator::new(tmpdir_path);
-        gen.eff_url = "will://not work";
-        let err = gen
+        let mut name_gen = super::RandomNameGenerator::new(tmpdir_path);
+        name_gen.eff_url = "will://not work";
+        let err = name_gen
             .download_or_open_eff_list()
             .unwrap_err()
             .debug_without_backtrace();
