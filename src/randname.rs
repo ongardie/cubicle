@@ -1,4 +1,4 @@
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use std::io::{self, BufRead};
 
 use super::HostPath;
@@ -43,7 +43,7 @@ impl RandomNameGenerator {
         }
 
         // 3. Random 6 letters
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let alphabet = [
             'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
             'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
@@ -97,7 +97,7 @@ where
     R: std::io::Read,
     F: Fn(&str) -> Result<bool>,
 {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let reader = io::BufReader::new(reader);
     let lines = reader
         .lines()
