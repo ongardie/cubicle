@@ -68,7 +68,7 @@ docker run --rm \
 
 ### Installing a Seccomp Filter
 
-Bublewrap's security depends on setting a restrictive
+Docker's security depends on setting a restrictive
 [seccomp](https://en.wikipedia.org/wiki/Seccomp) policy, to limit the system
 calls available to the sandbox environment.
 
