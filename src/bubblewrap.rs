@@ -280,9 +280,9 @@ where
     F: rustix::fd::AsFd + std::os::unix::io::AsRawFd,
 {
     // This is pretty ugly, but it's how bwrap likes it.
-    let mut flags = rustix::fs::fcntl_getfd(file)?;
-    flags.remove(rustix::fs::FdFlags::CLOEXEC);
-    rustix::fs::fcntl_setfd(file, flags)?;
+    let mut flags = rustix::io::fcntl_getfd(file)?;
+    flags.remove(rustix::io::FdFlags::CLOEXEC);
+    rustix::io::fcntl_setfd(file, flags)?;
     Ok(file.as_raw_fd().to_string())
 }
 
