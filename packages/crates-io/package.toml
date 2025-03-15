@@ -1,4 +1,4 @@
 package_manager = true
 
 [build_depends]
-rust = {}
+cargo-binstall = {}
