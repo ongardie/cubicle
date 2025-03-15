@@ -1,5 +1,5 @@
 #!/bin/sh
-set -ex
+set -eux
 
 export PATH="$HOME/.cargo/bin:$PATH"
 

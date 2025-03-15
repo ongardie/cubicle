@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -eu
+
 mkdir -p ~/.cargo
 if ! grep -q mold ~/.cargo/config.toml 2>/dev/null; then
     cat >> ~/.cargo/config.toml << EOF

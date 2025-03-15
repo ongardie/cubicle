@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 curl() {
     command curl --connect-timeout 10 --location --max-time 20 --show-error "$@"
