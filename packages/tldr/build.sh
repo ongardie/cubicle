@@ -4,4 +4,4 @@ cd
 
 tldr --update
 
-tar --create --file provides.tar .cache/tlrc
+tar --create --file provides.tar .cache/tealdeer
