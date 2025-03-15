@@ -1,0 +1,6 @@
+[depends.npm]
+"@mermaid-js/mermaid-cli" = {}
+
+[depends.open-vsx]
+"bpruitt-goddard.mermaid-markdown-syntax-highlighting" = {}
+"tomoyukim.vscode-mermaid-editor" = {}
