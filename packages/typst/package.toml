@@ -1,2 +1,5 @@
+[depends.crates-io]
+typst-cli = {}
+
 [depends.open-vsx]
 "myriad-dreamin.tinymist" = {}

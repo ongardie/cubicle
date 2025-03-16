@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 # Note: this Python installation ends up installed in `$HOME/opt/python/` and
 # cannot be relocated from there, not even to another user's

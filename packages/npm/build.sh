@@ -4,7 +4,7 @@ set -eu
 cd
 mkdir -p "opt/npm/$PACKAGE"
 cd "opt/npm/$PACKAGE"
-npm install --global-style "$PACKAGE"
+npm install --install-strategy shallow "$PACKAGE"
 cd node_modules/.bin
 set -- "opt/npm/$PACKAGE"
 for f in *; do

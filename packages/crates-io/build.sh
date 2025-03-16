@@ -5,7 +5,7 @@ cd
 if ! [ -e exclude.txt ]; then
     find .cargo/bin/* > exclude.txt
 fi
-cargo install --force "$PACKAGE"
+cargo binstall --no-confirm --force "$PACKAGE"
 
 # shellcheck disable=SC2016
 echo '$HOME/.cargo/bin' > .config/profile.d/path/33-cargo
