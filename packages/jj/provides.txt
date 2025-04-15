@@ -1,0 +1,3 @@
+.config/bashrc.d/80-jj.bash
+.config/zshrc.d/80-jj.zsh
+.dev-init/jj-user-from-git.sh
