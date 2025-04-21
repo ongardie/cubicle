@@ -16,6 +16,7 @@ manpages-posix-dev = {}
 manpages-dev = {}
 net-tools = {}
 ripgrep = {}
+rlwrap = {}
 rsync = {}
 sqlite3 = {}
 strace = {}
