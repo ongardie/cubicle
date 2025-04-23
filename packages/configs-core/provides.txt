@@ -1,6 +1,7 @@
 .bash_profile
 .bashrc
 .config/bashrc.d/
+.config/nushell/
 .config/profile.d/
 .config/shrc.d/
 .config/zshrc.d/
