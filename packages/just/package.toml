@@ -1,0 +1,8 @@
+[depends.crates-io]
+just = {}
+
+[depends.debian]
+fzf = {} # for `just --choose`
+
+[depends.open-vsx]
+"nefrob.vscode-just-syntax" = {}
