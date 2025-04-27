@@ -1,0 +1,2 @@
+.local/share/bash-completion/completions/bat
+.zfunc/_bat
