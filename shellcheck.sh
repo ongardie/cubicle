@@ -3,7 +3,6 @@
 set -eu
 
 shellcheck "$@" \
-    packages/apt-binary/bin/apt-binary \
     packages/configs-core/dot-bash_profile \
     packages/configs-core/dot-bashrc \
     packages/configs-core/dot-profile \
