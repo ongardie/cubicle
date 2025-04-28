@@ -1,4 +1,6 @@
 .config/bashrc.d/50-apt-binary.bash
 .config/nushell/autoload/50-apt-binary.nu
+.config/shrc.d/50-apt-binary.sh
 .config/zshrc.d/50-apt-binary.zsh
-bin/apt-binary
+bin/apt-binary.nu
+bin/apt-binary.sh

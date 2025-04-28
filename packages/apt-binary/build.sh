@@ -3,6 +3,7 @@ set -eu
 
 cp -a bin/* ~/bin/
 cp -a bashrc.d/* ~/.config/bashrc.d/
+cp -a shrc.d/* ~/.config/shrc.d/
 cp -a zshrc.d/* ~/.config/zshrc.d/
 
 mkdir -p ~/.config/nushell/autoload/

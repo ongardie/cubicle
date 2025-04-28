@@ -6,7 +6,7 @@
 # `command-not-found`, but this does not require a precomputed index.
 #
 # There's a blog post explaining the motivation and implementation here:
-# <https://ongardie.net/blog/command-not-found>.
+# <https://ongardie.net/blog/command-not-found/>.
 
 set -eu
 
@@ -39,7 +39,7 @@ fi
 #
 # This sed expression drops the filename, splits the package list by the comma
 # delimiter, and drops the section names.
-PACKAGES=$(echo "$LINES" | sed 's/^.* +//; s/,/\n/g; s/^.*\///' | sort -u)
+PACKAGES=$(echo "$LINES" | sed -E 's/^.* +//; s/,/\n/g; s/^.*\///m' | sort -u)
 
 if [ -z "$PACKAGES" ]; then
     echo "No packages found"
@@ -49,5 +49,5 @@ fi
 # Instead of printing the package names, this prints a brief description and
 # information about versions. You're not supposed to use 'apt' in scripts, but
 # it's hard to get this concise output any other way.
-PACKAGES_DISJUNCTION=$(echo "$PACKAGES" | sed 's/ /|/g')
+PACKAGES_DISJUNCTION=$(echo "$PACKAGES" | paste -s -d '|')
 apt search --names-only "^($PACKAGES_DISJUNCTION)$"
