@@ -1,0 +1,3 @@
+.local/share/bash-completion/completions/just
+.config/nushell/autoload/80-just.nu
+.zfunc/_just

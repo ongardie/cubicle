@@ -1,6 +1,10 @@
 .config/bashrc.d/10-flow-control.bash
 .config/bashrc.d/20-history.bash
 .config/bashrc.d/70-prompt.bash
+.config/nushell/autoload/10-configs-interactive-aliases.nu
+.config/nushell/autoload/20-history.nu
+.config/nushell/autoload/70-banner.nu
+.config/nushell/autoload/70-prompt.nu
 .config/shrc.d/10-configs-interactive-aliases.sh
 .config/zshrc.d/10-completions.zsh
 .config/zshrc.d/10-flow-control.zsh

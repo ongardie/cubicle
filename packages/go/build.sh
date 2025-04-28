@@ -10,7 +10,7 @@ echo 'asdf set --home golang latest' > ~/.dev-init/go-asdf.sh
 chmod +x ~/.dev-init/go-asdf.sh
 
 asdf set --home golang latest
-install="$(asdf where golang)/packages/bin"
+install="$(asdf where golang)/bin"
 # shellcheck disable=SC2016
 install='$HOME'"${install#"$HOME"}"
 echo "$install" > ~/.config/profile.d/path/36-go

@@ -6,6 +6,7 @@ mkdir -p ~/.config/
 cp -a dot-bash_profile ~/.bash_profile
 cp -a dot-bashrc ~/.bashrc
 cp -a bashrc.d/ ~/.config/bashrc.d/
+cp -a nushell/ ~/.config/nushell/
 cp -a profile.d/ ~/.config/profile.d/
 cp -a shrc.d/ ~/.config/shrc.d/
 cp -a zshrc.d/ ~/.config/zshrc.d/
