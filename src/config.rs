@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use super::HostPath;
 use super::RunnerKind;
+use super::docker::OsImage;
 use super::os_util::host_home_dir;
 use crate::somehow::{Context, LowLevelResult, Result, somehow as anyhow};
 
@@ -157,6 +158,9 @@ pub struct Docker {
     #[serde(default)]
     pub bind_mounts: bool,
 
+    #[serde(default)]
+    pub os_image: OsImage,
+
     #[serde(default, deserialize_with = "deserialize_opt_path")]
     pub seccomp: Option<PathBuf>,
 
@@ -173,6 +177,7 @@ pub struct Docker {
 impl Default for Docker {
     fn default() -> Self {
         Self {
+            os_image: OsImage::default(),
             bind_mounts: Default::default(),
             seccomp: None,
             strict_debian_packages: false,
@@ -381,6 +386,7 @@ mod tests {
                     seccomp: PathOrDisabled::Path(PathBuf::from("/tmp/seccomp.bpf")),
                 }),
                 docker: Docker {
+                    os_image: OsImage::new(String::from("debian:8")),
                     bind_mounts: true,
                     locales: vec![String::from("eo"), String::from("tg_TJ.UTF-8")],
                     prefix: String::from("p"),
@@ -400,6 +406,7 @@ mod tests {
                 [docker]
                 bind_mounts = true
                 locales = ['eo', 'tg_TJ.UTF-8']
+                os_image = 'debian:8'
                 prefix = 'p'
                 seccomp = '/etc/seccomp.json'
                 strict_debian_packages = true

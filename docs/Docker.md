@@ -114,6 +114,20 @@ Extra locales to be generated in the environments, in addition to `C.UTF-8`,
 `en_US.UTF-8`, and locales found in the host's environment variables. See
 the left column of `/etc/locale.gen` for a list of possible locales.
 
+### `os_image`
+
+- Type: string
+- Default: `debian:12`
+
+The Docker image on which to base all other containers. Supported images are:
+- `debian:12` or `debian:12.*`
+- `debian:bookworm` or `debian:bookworm-*`
+- `debian:13` or `debian:13.*` (once available on
+  <https://hub.docker.com/_/debian>)
+- `debian:trixie` or `debian:trixie-*`
+
+Note that packages built with one OS image may not work on another.
+
 ### `prefix`
 
 - Type: string
