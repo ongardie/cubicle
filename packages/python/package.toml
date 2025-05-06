@@ -16,7 +16,6 @@ libreadline6-dev = {}
 libsqlite3-dev = {}
 libssl-dev = {}
 lzma = {}
-lzma-dev = {}
 pkg-config = {}
 tk-dev = {}
 uuid-dev = {}

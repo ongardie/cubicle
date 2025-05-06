@@ -18,7 +18,7 @@ use super::runner::{
     Target,
 };
 use super::{CubicleShared, EnvironmentName, ExitStatusError, HostPath};
-use crate::somehow::{Context, LowLevelResult, Result, somehow as anyhow, warn};
+use crate::somehow::{Context, LowLevelResult, Result, somehow as anyhow, warn, warn_brief};
 
 mod names;
 use names::{ContainerName, ImageName, VolumeName};
@@ -30,6 +30,7 @@ pub struct Docker {
     timezone: String,
     locales: BTreeSet<String>,
     mounts: Mounts,
+    os_image: OsImage,
     base_image: ImageName,
     container_home: EnvPath,
 }
@@ -94,6 +95,13 @@ impl Docker {
             Mounts::Volumes
         };
 
+        let os_image = program.config.docker.os_image.clone();
+        if !os_image.is_supported() {
+            warn_brief(format!(
+                "Docker OS image {} is not supported",
+                os_image.image
+            ));
+        }
         let base_image = ImageName::new(format!("{}cubicle-base", program.config.docker.prefix));
 
         let container_home = EnvPath::try_from(String::from("/home"))
@@ -113,6 +121,7 @@ impl Docker {
             timezone,
             locales,
             mounts,
+            os_image,
             base_image,
             container_home,
         })
@@ -223,6 +232,7 @@ impl Docker {
             write_dockerfile(
                 &mut stdin,
                 DockerfileArgs {
+                    os_image: &self.os_image,
                     packages: &packages,
                     timezone: &self.timezone,
                     locales: &self.locales,
@@ -496,7 +506,7 @@ impl Docker {
                 name.encoded()
             ))
             .arg("--rm")
-            .arg("debian:12")
+            .arg(&self.os_image.image)
             .arg("du")
             .arg("--block-size=1")
             .arg("--summarize")
@@ -601,7 +611,7 @@ impl Docker {
             ))
             .arg("--rm")
             .args(["--workdir", "/v"])
-            .arg("debian:12")
+            .arg(&self.os_image.image)
             .arg("cat")
             .arg(path)
             .stdout(Stdio::piped())
@@ -1035,6 +1045,67 @@ fn get_host_locales() -> impl Iterator<Item = String> {
     })
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum OsImageKind {
+    Debian12, // Bookworm
+    Debian13, // Trixie
+    Unknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OsImage {
+    image: String,
+    kind: OsImageKind,
+}
+
+impl OsImage {
+    pub fn new(image: String) -> OsImage {
+        fn begins(haystack: &str, prefix: &str, sep: &str) -> bool {
+            haystack == prefix
+                || haystack
+                    .strip_prefix(prefix)
+                    .is_some_and(|suffix| suffix.starts_with(sep))
+        }
+
+        let kind = if let Some(suffix) = image.strip_prefix("debian:") {
+            if begins(suffix, "12", ".") || begins(suffix, "bookworm", "-") {
+                OsImageKind::Debian12
+            } else if begins(suffix, "13", ".") || begins(suffix, "trixie", "-") {
+                OsImageKind::Debian13
+            } else {
+                OsImageKind::Unknown
+            }
+        } else {
+            OsImageKind::Unknown
+        };
+
+        OsImage { image, kind }
+    }
+
+    pub fn is_supported(&self) -> bool {
+        match self.kind {
+            OsImageKind::Debian12 => true,
+            OsImageKind::Debian13 => true,
+            OsImageKind::Unknown => false,
+        }
+    }
+}
+
+impl Default for OsImage {
+    fn default() -> Self {
+        Self::new(String::from("debian:12"))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for OsImage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(OsImage::new)
+    }
+}
+
 /// Debian packages that many packages might depend on for basic functionality.
 /// They are installed in the CI system.
 const BASE_PACKAGES: &[&str] = &[
@@ -1058,6 +1129,7 @@ const BASE_PACKAGES: &[&str] = &[
 ];
 
 struct DockerfileArgs<'a> {
+    os_image: &'a OsImage,
     packages: &'a BTreeSet<&'a str>,
     locales: &'a BTreeSet<String>,
     timezone: &'a str,
@@ -1097,6 +1169,9 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
         locales.push(')');
         locales
     };
+
+    let os_image = shlex::try_quote(&args.os_image.image).expect("TODO");
+    let os_image_kind = &args.os_image.kind;
     let timezone = shlex::try_quote(args.timezone).expect("TODO");
     let user = shlex::try_quote(args.user).expect("TODO");
     let has_apt_file = args.packages.contains("apt-file");
@@ -1109,8 +1184,8 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
     std::mem::drop(args);
 
     // Note: If we wanted to trim this down even more for CI, we might be able
-    // to use the '12-slim' base image here.
-    writeln!(w, "FROM debian:12")?;
+    // to use the 'debian:12-slim' base image here.
+    writeln!(w, "FROM {os_image}")?;
 
     // Set time zone.
     writeln!(w, "RUN echo {timezone} > /etc/timezone && \\")?;
@@ -1118,6 +1193,25 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
         w,
         "    ln -fs '/usr/share/zoneinfo/'{timezone} /etc/localtime"
     )?;
+
+    match os_image_kind {
+        OsImageKind::Debian12 => {}
+        OsImageKind::Debian13 => {
+            // The `debian:trixie` image doesn't contain the `adduser` package,
+            // which is needed for the next steps.
+            writeln!(
+                w,
+                "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade --yes"
+            )?;
+            writeln!(
+                w,
+                "RUN DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends --yes \\"
+            )?;
+            writeln!(w, "    adduser")?;
+        }
+        OsImageKind::Unknown => {}
+    }
+    //;
 
     // Set up a user account. Use the same UID as the host because that makes
     // the file permissions usable for bind mounts. The Debian convention is to
@@ -1155,7 +1249,10 @@ fn write_dockerfile<W: io::Write>(w: &mut W, args: DockerfileArgs) -> std::io::R
 
     // Install requested packages.
     if let Some((last, init)) = packages.split_last() {
-        writeln!(w, "RUN apt-get install --no-install-recommends --yes \\")?;
+        writeln!(
+            w,
+            "RUN DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends --yes \\"
+        )?;
         for package in init {
             writeln!(w, "    {package} \\")?;
         }
@@ -1213,6 +1310,10 @@ mod tests {
         super::write_dockerfile(
             &mut buf,
             DockerfileArgs {
+                os_image: &OsImage {
+                    image: String::from("de/bia'n:#9"),
+                    kind: OsImageKind::Unknown,
+                },
                 packages: &BTreeSet::from(["apt-file", "pack#age1", "package2", "sudo"]),
                 timezone: "Etc/Timez'one",
                 locales: &BTreeSet::from(
