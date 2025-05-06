@@ -21,7 +21,7 @@ curl -sS 'https://api.github.com/repos/python/cpython/tags' > "$TAGS"
 version=$(jq -r '.[] | .name' "$TAGS" | grep -E '^v[0-9]+.[0-9]+.[0-9]+$' | sort --version-sort | tail -n 1 | cut -b2-)
 
 # shellcheck disable=SC3013
-if [ "$have" = "Python $version" ] && [ "$(which python3)" -nt "/usr/lib/$(uname -m)-linux-gnu/libssl.a" ]; then
+if [ "$have" = "Python $version" ] && [ "$(which python3)" -nt "/usr/lib/$(uname -m)-linux-gnu/libssl.a" ] && which pip3; then
     echo "Have latest Python already ($version)"
 else
     echo "Downloading and installing Python $version"
