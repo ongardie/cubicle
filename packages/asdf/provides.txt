@@ -1,3 +1,4 @@
+.config/nushell/autoload/80-asdf.nu
 .config/profile.d/path/50-asdf
 .local/share/bash-completion/completions/asdf
 .zfunc/_asdf

@@ -39,6 +39,9 @@ echo '$HOME/.asdf/shims' > ~/.config/profile.d/path/50-asdf
 mkdir -p ~/.local/share/bash-completion/completions/
 asdf completion bash > ~/.local/share/bash-completion/completions/asdf
 
+mkdir -p ~/.config/nushell/autoload/
+asdf completion nushell >> ~/.config/nushell/autoload/80-asdf.nu
+
 mkdir -p ~/.zfunc
 asdf completion zsh > ~/.zfunc/_asdf
 
