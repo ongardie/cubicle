@@ -19,6 +19,12 @@ $(COMPLETE=bash jj)
 END
 chmod +x .config/bashrc.d/80-jj.bash
 
+# Nushell completion.
+
+mkdir -p .config/nushell/autoload
+jj util completion nushell > .config/nushell/autoload/80-jj.nu
+
+
 # Zsh completion.
 
 mkdir -p .config/zshrc.d

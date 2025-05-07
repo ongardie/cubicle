@@ -1,3 +1,4 @@
 .config/bashrc.d/80-jj.bash
+.config/nushell/autoload/80-jj.nu
 .config/zshrc.d/80-jj.zsh
 .dev-init/jj-user-from-git.sh
