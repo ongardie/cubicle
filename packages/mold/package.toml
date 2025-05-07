@@ -3,6 +3,9 @@ clang = {}
 libssl3 = {}
 zlib1g = {}
 
+[build_depends]
+nushell = {}
+
 [build_depends.debian]
 cmake = {}
 libssl-dev = {}
