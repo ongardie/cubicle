@@ -14,3 +14,4 @@
 .config/zshrc.d/50-autosuggestions.zsh
 .config/zshrc.d/70-prompt.zsh
 .config/zshrc.d/99-syntax-highlighting.zsh
+.dev-init/nushell-history.sh
