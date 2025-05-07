@@ -13,4 +13,7 @@ cp -a shrc.d/* ~/.config/shrc.d/
 mkdir -p ~/.config/zshrc.d/
 cp -a zshrc.d/* ~/.config/zshrc.d/
 
+mkdir -p ~/.dev-init/
+cp -a nushell-history.sh ~/.dev-init/
+
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar
