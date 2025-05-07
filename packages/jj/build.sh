@@ -35,4 +35,9 @@ $(COMPLETE=zsh jj)
 END
 chmod +x .config/zshrc.d/80-jj.zsh
 
+# Man pages.
+rm -rf .local/share/man
+mkdir -p .local/share/man
+jj util install-man-pages .local/share/man
+
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar
