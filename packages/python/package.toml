@@ -2,9 +2,6 @@
 # ipython uses sqlite
 libsqlite3-0 = {}
 
-[build_depends]
-nushell = {}
-
 [build_depends.debian]
 build-essential = {}
 gdb = {}

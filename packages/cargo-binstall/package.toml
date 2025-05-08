@@ -1,5 +1,2 @@
 [depends]
 rust = {}
-
-[build_depends]
-nushell = {}

@@ -1,8 +1,5 @@
 package_manager = true
 
-[build_depends]
-nushell = {}
-
 [depends]
 asdf = {}
 go = {}

@@ -1,9 +1,6 @@
 [[targets]]
 os = "linux"
 
-[build_depends]
-nushell = {}
-
 [depends.debian]
 libasound2 = {}
 libdrm2 = {}
