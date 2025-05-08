@@ -230,12 +230,22 @@ impl Cubicle {
                     Dependency {},
                 );
 
-            let test = try_exists(&dir.join("test.sh"))
-                .todo_context()?
-                .then_some(String::from("./test.sh"));
-            let update = try_exists(&dir.join("build.sh"))
-                .todo_context()?
-                .then_some(String::from("./build.sh"));
+            let test = if try_exists(&dir.join("test.nu")).todo_context()? {
+                Some(String::from("./test.nu"))
+            } else if try_exists(&dir.join("test.sh")).todo_context()? {
+                Some(String::from("./test.sh"))
+            } else {
+                None
+            };
+
+            let update = if try_exists(&dir.join("build.nu")).todo_context()? {
+                Some(String::from("./build.nu"))
+            } else if try_exists(&dir.join("build.sh")).todo_context()? {
+                Some(String::from("./build.sh"))
+            } else {
+                None
+            };
+
             packages.insert(
                 name,
                 PackageSpec {

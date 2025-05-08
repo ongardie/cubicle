@@ -224,9 +224,9 @@ Each Cubicle environment consists of three logical filesystem layers:
 
 There are a couple of special files in the work directory:
 
-- An executable placed at `~/w/update.sh` will be run automatically at the end
-  of `cub reset`. This can be a useful hook to re-configure a new home
-  directory.
+- An executable placed at `~/w/update.nu` or `~/w/update.sh` will be run
+  automatically at the end of `cub reset`. This can be a useful hook to
+  re-configure a new home directory.
 
 - A file named `~/w/packages.txt` keeps track of which packages the environment
   was initialized or last reset with. It is used next time the environment is

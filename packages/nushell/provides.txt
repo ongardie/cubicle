@@ -1,0 +1,7 @@
+.local/share/nushell-plugins/nu_plugin_formats
+.local/share/nushell-plugins/nu_plugin_gstat
+.local/share/nushell-plugins/nu_plugin_inc
+.local/share/nushell-plugins/nu_plugin_polars
+.local/share/nushell-plugins/nu_plugin_query
+bin/nu
+opt/nushell/
