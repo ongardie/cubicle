@@ -2,3 +2,4 @@ package_manager = true
 
 [build_depends]
 cargo-binstall = {}
+nushell = {}
