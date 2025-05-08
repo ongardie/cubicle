@@ -18,7 +18,11 @@ for f in ./.dev-init/*; do
 done
 
 cd w
-if [ -x ./update.sh ]; then
+
+if [ -x ./update.nu ]; then
+    echo "Running ~/w/update.nu"
+    ./update.nu || echo "WARNING: ~/w/update.nu in $CUBICLE failed with status $?"
+elif [ -x ./update.sh ]; then
     echo "Running ~/w/update.sh"
     ./update.sh || echo "WARNING: ~/w/update.sh in $CUBICLE failed with status $?"
 fi
