@@ -1,4 +1,3 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env nu
 
 codium --version

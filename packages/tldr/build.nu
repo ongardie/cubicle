@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env nu
+
 cd
 
 tldr --update

@@ -1,5 +1,4 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env nu
 
 cargo init test-rust
 cd test-rust

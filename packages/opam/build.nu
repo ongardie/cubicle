@@ -1,28 +1,27 @@
-#!/bin/sh
-set -eux
+#!/usr/bin/env nu
 
-if ! [ -f ~/bin/opam ]; then
-    if ! [ -f install.sh ]; then
-        curl -LO 'https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh'
+if ("~/bin/opam" | path exists) == false {
+    if ("install.sh" | path exists) == false {
+        http get 'https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh'
+            | save -f install.sh
         chmod +x install.sh
-    fi
+    }
 
     ./install.sh --download-only
     mv opam-* ~/bin/opam
     chmod +x ~/bin/opam
-fi
+}
 
 opam init --disable-sandboxing --no-setup --reinit
 
 cp profile.sh ~/.config/profile.d/70-opam.sh
 
-mkdir -p ~/.local/share/bash-completion/completions
+mkdir ~/.local/share/bash-completion/completions
 ln -frs ~/.opam/opam-init/complete.sh ~/.local/share/bash-completion/completions/opam
 
-mkdir -p ~/.zfunc
+mkdir ~/.zfunc
 ln -frs ~/.opam/opam-init/complete.zsh ~/.zfunc/_opam
 
-# shellcheck disable=SC2016
-echo '$HOME/.opam/default/bin' > ~/.config/profile.d/path/37-opam
+echo '$HOME/.opam/default/bin' | save -f ~/.config/profile.d/path/37-opam
 
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

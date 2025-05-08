@@ -1,6 +1,4 @@
-#!/bin/sh
-
-set -eux
+#!/usr/bin/env nu
 
 opam switch list
 opam env --check

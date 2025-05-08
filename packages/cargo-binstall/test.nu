@@ -1,11 +1,8 @@
-#!/bin/sh
-
-set -eux
+#!/usr/bin/env nu
 
 cargo binstall --no-confirm rust-script
 
-cat > script.rs <<'END'
-#!/usr/bin/env rust-script
+'#!/usr/bin/env rust-script
 //! ```cargo
 //! [dependencies]
 //! rand = "0.8.0"
@@ -17,7 +14,7 @@ fn main() {
     let x: u64 = random();
     println!("A random number: {}", x);
 }
-END
+' | save -f script.rs
 
 chmod +x script.rs
 

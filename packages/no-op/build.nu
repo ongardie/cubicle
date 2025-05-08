@@ -1,5 +1,4 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env nu
 
 ln -fs /bin/true ~/bin/no-op
 

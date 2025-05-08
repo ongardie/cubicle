@@ -1,20 +1,18 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env nu
 
 cd
 
 tldr --update
 
-cat > .tldrrc <<'EOF'
-{
+'{
     "skipUpdateWhenPageNotFound": true
 }
-EOF
+' | save -f .tldrrc
 
-mkdir -p .local/share/bash-completion/completions/
+mkdir .local/share/bash-completion/completions/
 ln -frs opt/npm/tldr/node_modules/tldr/bin/completion/bash/tldr .local/share/bash-completion/completions/
 
-mkdir -p .zfunc
+mkdir .zfunc
 ln -frs opt/npm/tldr/node_modules/tldr/bin/completion/zsh/_tldr .zfunc/
 
 tar --create --file provides.tar --verbatim-files-from --files-from w/provides.txt
