@@ -9,3 +9,6 @@ libgtk-3-0 = {}
 libnss3 = {}
 x11-utils = {}
 xdg-utils = {}
+
+[build_depends]
+nushell = {}
