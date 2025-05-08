@@ -13,4 +13,12 @@ cd
 mkdir .config/profile.d
 cp w/50-cargo-binstall.sh .config/profile.d/50-cargo-binstall.sh
 
-tar --create --file provides.tar .cargo/bin/cargo-binstall .config/profile.d/50-cargo-binstall.sh
+mkdir .config/nushell/autoload/
+cp w/50-cargo-binstall.nu .config/nushell/autoload/50-cargo-binstall.nu
+
+let files = [
+    .cargo/bin/cargo-binstall
+    .config/nushell/autoload/50-cargo-binstall.nu
+    .config/profile.d/50-cargo-binstall.sh
+]
+tar --create --file provides.tar ...$files
