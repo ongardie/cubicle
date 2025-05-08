@@ -1,3 +1,4 @@
+.config/nushell/autoload/70-opam.nu
 .config/profile.d/70-opam.sh
 .config/profile.d/path/37-opam
 .local/share/bash-completion/completions/opam

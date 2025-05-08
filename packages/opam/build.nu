@@ -15,6 +15,7 @@ if ("~/bin/opam" | path exists) == false {
 opam init --disable-sandboxing --no-setup --reinit
 
 cp profile.sh ~/.config/profile.d/70-opam.sh
+cp profile.nu ~/.config/nushell/autoload/70-opam.nu
 
 mkdir ~/.local/share/bash-completion/completions
 ln -frs ~/.opam/opam-init/complete.sh ~/.local/share/bash-completion/completions/opam
