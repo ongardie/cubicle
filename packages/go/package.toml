@@ -1,2 +1,10 @@
 [depends]
-asdf = {}
+go-core = {}
+
+[depends.go-install]
+"github.com/go-delve/delve/cmd/dlv" = {}
+"golang.org/x/tools/gopls" = {}
+"honnef.co/go/tools/cmd/staticcheck" = {}
+
+[depends.open-vsx]
+"golang.go" = {}
