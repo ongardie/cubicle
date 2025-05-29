@@ -26,7 +26,7 @@ ln -fs ../opt/mold/bin/mold ~/bin/
 ln -fs ../opt/mold/bin/ld.mold ~/bin/
 ln -fs ../opt/mold/bin/ld64.mold ~/bin/
 
-mkdir ~/.dev-init
-cp ~/w/mold-init.sh ~/.dev-init/
+mkdir ~/.cargo/config.d/
+cp ~/w/10-mold.toml ~/.cargo/config.d/
 
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

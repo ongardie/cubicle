@@ -1,0 +1,12 @@
+# Limiting debug info speeds up compile times.
+#
+# See <https://kobzol.github.io/rust/rustc/2025/05/20/disable-debuginfo-to-improve-rust-compile-times.html>
+# and <https://doc.rust-lang.org/cargo/reference/profiles.html#debug>.
+#
+# When you do want to use a debugger, you can set this to "full", or run cargo
+# as:
+# ```sh
+# cargo --config profile.dev.debug=full ...
+# ```
+[profile.dev]
+debug = "line-tables-only"

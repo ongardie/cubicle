@@ -20,4 +20,10 @@ rustup completions bash rustup | save -f ($bash_comp| path join rustup)
 rustup completions zsh cargo | save -f ($zsh_comp | path join _cargo)
 rustup completions zsh rustup | save -f ($zsh_comp | path join _rustup)
 
+mkdir ~/.cargo/config.d/
+cp ~/w/10-dev-debug.toml ~/.cargo/config.d/
+
+mkdir ~/.dev-init
+cp ~/w/50-cargo-config.nu ~/.dev-init/
+
 tar -c -C ~ --verbatim-files-from --files-from ~/w/provides.txt -f ~/provides.tar

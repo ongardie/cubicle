@@ -1,6 +1,8 @@
+.cargo/config.d/10-dev-debug.toml
 .cargo/bin/
 .cargo/env
 .config/profile.d/path/33-cargo
+.dev-init/50-cargo-config.nu
 .local/share/bash-completion/completions/cargo
 .local/share/bash-completion/completions/rustup
 .rustup/
