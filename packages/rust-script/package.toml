@@ -1,5 +1,5 @@
 [depends]
-rust = {}
+rust-core = {}
 
 [depends.crates-io]
 rust-script = {}

@@ -2,7 +2,38 @@
 
 use std
 
-def parse_git_branch [] {
+def vcs_describe [] {
+    loop {
+        if ('.jj' | path exists) {
+            return (jj_describe)
+        }
+        if ('.git' | path exists) {
+            return (git_describe)
+        }
+        if (pwd) == '/' {
+            return ""
+        }
+        cd ..
+    }
+}
+
+def jj_describe [] {
+    try {
+        (
+            jj
+            --ignore-working-copy
+            --quiet
+            show
+            --no-patch
+            --template 'change_id.shortest()'
+            err> (std null-device)
+        )
+    } catch {
+        ""
+    }
+}
+
+def git_describe [] {
     let ref = git symbolic-ref HEAD -q | complete
     match $ref.exit_code {
         0 => $"($ref.stdout | parse "refs/heads/{ref}\n" | $in.0.ref)"
@@ -39,11 +70,11 @@ def prompt_command [] {
     $visible += $"(ansi green_bold)($cwd)(ansi reset)"
     $title += $cwd
 
-    # Git branch
-    let git = parse_git_branch
-    if $git != "" {
-        $visible += $":(ansi yellow_bold)($git)(ansi reset)"
-        $title += $":($git)"
+    # Version control
+    let vcs = vcs_describe
+    if $vcs != "" {
+        $visible += $":(ansi yellow_bold)($vcs)(ansi reset)"
+        $title += $":($vcs)"
     }
 
     $"(ansi title)($title)(ansi reset)($visible)"

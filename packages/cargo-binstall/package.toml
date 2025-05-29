@@ -1,2 +1,2 @@
 [depends]
-rust = {}
+rust-core = {}

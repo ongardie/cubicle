@@ -1,4 +1,4 @@
-.dev-init/mold-init.sh
+.cargo/config.d/10-mold.toml
 bin/ld.mold
 bin/ld64.mold
 bin/mold

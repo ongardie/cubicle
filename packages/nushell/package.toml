@@ -1,1 +1,5 @@
+[depends]
+nushell-core = {}
 
+[depends.open-vsx]
+"thenuprojectcontributors.vscode-nushell-lang" = {}

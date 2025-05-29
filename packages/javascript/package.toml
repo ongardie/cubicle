@@ -1,0 +1,6 @@
+[depends]
+node = {}
+
+[depends.open-vsx]
+"dbaeumer.vscode-eslint" = {}
+"esbenp.prettier-vscode" = {}

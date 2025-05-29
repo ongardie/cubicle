@@ -1,17 +1,6 @@
-[depends]
-vscodium-go = {}
-
 [depends.open-vsx]
-"dbaeumer.vscode-eslint" = {}
-"esbenp.prettier-vscode" = {}
-"lextudio.restructuredtext" = {}
-"llvm-vs-code-extensions.vscode-clangd" = {}
-"ms-python.black-formatter" = {}
-"ms-python.python" = {}
-"rust-lang.rust-analyzer" = {}
 "stkb.rewrap" = {}
 "streetsidesoftware.code-spell-checker" = {}
 "tamasfe.even-better-toml" = {}
-"thenuprojectcontributors.vscode-nushell-lang" = {}
 "usernamehw.errorlens" = {}
 "vscodevim.vim" = {}

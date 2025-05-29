@@ -2,4 +2,4 @@ package_manager = true
 
 [depends]
 asdf = {}
-go = {}
+go-core = {}

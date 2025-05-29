@@ -1,22 +1,11 @@
-[depends.debian]
-# ipython uses sqlite
-libsqlite3-0 = {}
+[depends]
+python-core = {}
 
-[build_depends.debian]
-build-essential = {}
-gdb = {}
-lcov = {}
-libbz2-dev = {}
-libffi-dev = {}
-libgdbm-compat-dev = {}
-libgdbm-dev = {}
-liblzma-dev = {}
-libncurses5-dev = {}
-libreadline6-dev = {}
-libsqlite3-dev = {}
-libssl-dev = {}
-lzma = {}
-pkg-config = {}
-tk-dev = {}
-uuid-dev = {}
-zlib1g-dev = {}
+[depends.npm]
+pyright = {}
+
+[depends.open-vsx]
+"lextudio.restructuredtext" = {}
+"ms-pyright.pyright" = {}
+"ms-python.black-formatter" = {}
+"ms-python.python" = {}

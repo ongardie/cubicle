@@ -1,2 +1,5 @@
 [depends]
-mold = {}
+rust-core = {}
+
+[depends.open-vsx]
+"rust-lang.rust-analyzer" = {}
