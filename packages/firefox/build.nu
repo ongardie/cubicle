@@ -30,7 +30,7 @@ if $have == $"Mozilla Firefox ($version)" {
 
 if ("~/.mozilla/firefox/profiles.ini" | path exists) == false {
     print "Initializing Firefox profile"
-    firefox --screenshot out+err> /dev/null
+    firefox --first-startup --screenshot out+err> /dev/null
     let profile = glob ~/.mozilla/firefox/*.default-release | first
     '
         user_pref("browser.aboutConfig.showWarning", false);
