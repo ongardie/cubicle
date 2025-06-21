@@ -215,7 +215,7 @@ Each Cubicle environment consists of three logical filesystem layers:
    populated with physical copies of package files, so the home directories can
    be large (a few gigabytes) and can take a few seconds to initialize.
 
-3. A work directory. his is at `~/w/` inside the environment. For an
+3. A work directory. this is at `~/w/` inside the environment. For an
    environment named `eee`, this is at
    `${XDG_DATA_HOME:-~/.local/share}/cubicle/work/eee/` on the host with bind
    mounts or in a `cub-eee-home` Docker volume with volume mounts. The work
