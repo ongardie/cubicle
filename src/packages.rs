@@ -615,8 +615,7 @@ impl Cubicle {
                 )
                 .with_context(|| {
                     format!(
-                        "failed to create file for package build output: {:?}",
-                        testing_tar_abs,
+                        "failed to create file for package build output: {testing_tar_abs:?}",
                     )
                 })?;
             self.runner

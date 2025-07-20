@@ -709,7 +709,7 @@ impl Docker {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { env_vars, .. } => {
                 for (var, value) in *env_vars {
-                    command.arg("--env").arg(format!("{}={}", var, value));
+                    command.arg("--env").arg(format!("{var}={value}"));
                 }
             }
         }

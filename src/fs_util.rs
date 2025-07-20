@@ -8,7 +8,7 @@ use super::HostPath;
 use crate::somehow::{Context, Result, somehow as anyhow};
 
 pub fn rmtree(path: &HostPath) -> Result<()> {
-    rmtree_(path).with_context(|| format!("Failed to recursively remove directory: {:?}", path))
+    rmtree_(path).with_context(|| format!("Failed to recursively remove directory: {path:?}"))
 }
 
 fn rmtree_(path: &HostPath) -> Result<()> {

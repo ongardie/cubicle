@@ -54,7 +54,7 @@ where
         if disallowed(i, c) {
             let mut bytes = [0u8; 4];
             for byte in c.encode_utf8(&mut bytes).bytes() {
-                write!(buf, "%{:02x}", byte).unwrap();
+                write!(buf, "%{byte:02x}").unwrap();
             }
         } else {
             buf.push(c);

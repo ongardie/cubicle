@@ -53,7 +53,7 @@ mod newtypes {
                 .iter()
                 .take(12)
             {
-                write!(buf, "{:02x}", byte).unwrap();
+                write!(buf, "{byte:02x}").unwrap();
             }
             debug_assert!(buf.len() == len);
             Self(buf)
