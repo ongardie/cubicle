@@ -614,9 +614,7 @@ impl Cubicle {
                     cap_std::fs::OpenOptions::new().create(true).write(true),
                 )
                 .with_context(|| {
-                    format!(
-                        "failed to create file for package build output: {testing_tar_abs:?}",
-                    )
+                    format!("failed to create file for package build output: {testing_tar_abs:?}",)
                 })?;
             self.runner
                 .copy_out_from_home(&env_name, Path::new("provides.tar"), &mut file)
