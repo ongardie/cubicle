@@ -83,7 +83,7 @@ pub struct Cubicle {
 
 struct CubicleShared {
     config: Config,
-    shell: String,
+    interactive_shell: String,
     exe_name: String,
     home: HostPath,
     package_cache: HostPath,
@@ -111,7 +111,7 @@ impl Cubicle {
     /// - Creating a runner.
     pub fn new(config: Config) -> Result<Self> {
         let home = host_home_dir().clone();
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/sh"));
+        let interactive_shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/sh"));
 
         let xdg_cache_home = match std::env::var("XDG_CACHE_HOME") {
             Ok(path) => HostPath::try_from(path)?,
@@ -200,7 +200,7 @@ impl Cubicle {
 
         let shared = Rc::new(CubicleShared {
             config,
-            shell,
+            interactive_shell,
             exe_name,
             home,
             package_cache,
