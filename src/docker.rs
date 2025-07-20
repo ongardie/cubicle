@@ -709,7 +709,7 @@ impl Docker {
             RunnerCommand::Interactive => {}
             RunnerCommand::Exec { env_vars, .. } => {
                 for (var, value) in *env_vars {
-                    command.arg("--env").arg(format!("{}={}", var, value));
+                    command.arg("--env").arg(format!("{var}={value}"));
                 }
             }
         }
@@ -723,10 +723,12 @@ impl Docker {
         }
 
         command.arg(container_name.encoded());
-        command.args([&self.program.shell, "-l"]);
         match run_command {
-            RunnerCommand::Interactive => {}
+            RunnerCommand::Interactive => {
+                command.args([&self.program.interactive_shell, "-l"]);
+            }
             RunnerCommand::Exec { command: exec, .. } => {
+                command.args(["/bin/sh", "-l"]);
                 command.arg("-c");
                 command.arg(shlex::try_join(exec.iter().map(|a| a.as_str())).expect("TODO"));
             }

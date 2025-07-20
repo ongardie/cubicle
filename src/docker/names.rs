@@ -62,7 +62,7 @@ impl DockerName {
             if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-') {
                 buf.push(char::from(byte));
             } else {
-                write!(buf, ".{:02x}", byte).unwrap();
+                write!(buf, ".{byte:02x}").unwrap();
             }
         }
 

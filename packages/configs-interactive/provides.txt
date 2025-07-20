@@ -1,6 +1,7 @@
 .config/bashrc.d/10-flow-control.bash
 .config/bashrc.d/20-history.bash
 .config/bashrc.d/70-prompt.bash
+.config/bashrc.d/80-completion.bash
 .config/nushell/autoload/10-configs-interactive-aliases.nu
 .config/nushell/autoload/10-manpath.nu
 .config/nushell/autoload/20-history.nu

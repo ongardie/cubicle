@@ -53,7 +53,7 @@ mod newtypes {
                 .iter()
                 .take(12)
             {
-                write!(buf, "{:02x}", byte).unwrap();
+                write!(buf, "{byte:02x}").unwrap();
             }
             debug_assert!(buf.len() == len);
             Self(buf)
@@ -127,7 +127,7 @@ impl User {
                     c.is_ascii_control() || matches!(c, ',' | ':')
                 }),
             ])
-            .args(["--shell", &self.program.shell])
+            .args(["--shell", &self.program.interactive_shell])
             .arg(username.as_str())
             .status()
             .and_then(|status| {
@@ -330,7 +330,13 @@ impl User {
             .env("CUBICLE", env_name.as_str())
             .arg("--preserve-env=CUBICLE");
         command
-            .env("SHELL", &self.program.shell)
+            .env(
+                "SHELL",
+                match run_command {
+                    RunnerCommand::Interactive => &self.program.interactive_shell,
+                    RunnerCommand::Exec { .. } => "/bin/sh",
+                },
+            )
             .arg("--preserve-env=SHELL");
         for var in ["DISPLAY", "TERM"]
             .iter()
@@ -349,14 +355,13 @@ impl User {
             }
         }
 
-        command.arg("--").arg(&self.program.shell);
+        command.arg("--").arg("/bin/sh").arg("-c");
 
         match run_command {
             RunnerCommand::Interactive => {
-                command.args(["-c", &format!("cd w && exec {}", self.program.shell)]);
+                command.arg(format!("cd w && exec {}", self.program.interactive_shell));
             }
             RunnerCommand::Exec { command: exec, .. } => {
-                command.arg("-c");
                 command.arg(format!(
                     "cd w && {}",
                     shlex::try_join(exec.iter().map(|a| a.as_str())).expect("TODO")

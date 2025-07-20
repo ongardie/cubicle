@@ -242,12 +242,15 @@ impl Bubblewrap {
         }
         command.arg("--chdir").arg(env_home.join("w").as_env_raw());
         command.arg("--");
-        command.arg(&self.program.shell);
-        command.arg("-l");
 
         match run {
-            RunnerCommand::Interactive => {}
+            RunnerCommand::Interactive => {
+                command.arg(&self.program.interactive_shell);
+                command.arg("-l");
+            }
             RunnerCommand::Exec { command: exec, .. } => {
+                command.arg("/bin/sh");
+                command.arg("-l");
                 command.arg("-c");
                 command.arg(shlex::try_join(exec.iter().map(|a| a.as_str())).expect("TODO"));
             }

@@ -369,10 +369,10 @@ _cub_pkgs_comma() {
 }
 "#
                         )?;
-                        writeln!(out, "{}", line)?;
+                        writeln!(out, "{line}")?;
                     }
                     _ => {
-                        writeln!(out, "{}", line)?;
+                        writeln!(out, "{line}")?;
                     }
                 }
             }

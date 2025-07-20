@@ -18,6 +18,11 @@ def vcs_describe [] {
 }
 
 def jj_describe [] {
+    # Explicit check to avoid command_not_found hook
+    if (which jj | is-empty) {
+        return ""
+    }
+
     try {
         (
             jj
@@ -34,6 +39,11 @@ def jj_describe [] {
 }
 
 def git_describe [] {
+    # Explicit check to avoid command_not_found hook
+    if (which git | is-empty) {
+        return ""
+    }
+
     let ref = git symbolic-ref HEAD -q | complete
     match $ref.exit_code {
         0 => $"($ref.stdout | parse "refs/heads/{ref}\n" | $in.0.ref)"

@@ -69,7 +69,7 @@ fn try_get_timezone() -> Option<String> {
 
     let mut buf = String::new();
     for e in errors {
-        let _ = write!(&mut buf, "{:#}", e);
+        let _ = write!(&mut buf, "{e:#}");
     }
     warn(anyhow!("falling back to UTC: {buf}"));
 
